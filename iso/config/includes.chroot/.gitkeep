@@ -1,0 +1,4 @@
+This directory is populated by ../../build.sh at build time (rsync of
+modes/ and drivers/ from the repo root, plus symlinks into /usr/local/bin)
+— not committed here, to avoid two copies of the same scripts drifting
+out of sync. See build.sh's comments.

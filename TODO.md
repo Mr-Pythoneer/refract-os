@@ -97,9 +97,11 @@ Living checklist for the whole distro. Organized by the same structure as `DESIG
 
 ## 9. Build pipeline — `iso/`
 
-- [ ] live-build config skeleton (package lists, base hooks)
-- [ ] Hook scripts wiring in driver install + mode bundles at build time
-- [ ] First buildable ISO (boots in a VM, even before all modes are polished)
+- [x] live-build config skeleton (`build.sh`, package lists, includes.chroot wiring)
+- [x] Scope decision: lean baked image (plain-apt packages only) + post-boot setup scripts for everything needing extra repos/Flatpak/GitHub releases — see `iso/README.md` for why the apt-`archives/` mechanism was deliberately deferred rather than guessed at
+- [ ] **(needs Linux build host — live-build doesn't run on macOS at all)** actually run `./build.sh` for the first time
+- [ ] First buildable ISO (boots in a VM, even before all modes are polished) — **(needs Linux build host)**
+- [ ] Decide whether to invest in `config/archives/` to bake Docker/Steam/etc. in at build time, once verified against a real host
 - [ ] Calamares installer config + branding
 - [ ] CI: automated nightly/release ISO builds (GitHub Actions)
 

@@ -1,0 +1,14 @@
+config/includes.chroot/opt/
+config/includes.chroot/usr/
+# live-build's own generated working directories (created by `lb build`,
+# not something to commit regardless of where it lands them)
+chroot/
+binary/
+cache/
+.build/
+*.iso
+*.img
+*.contents
+*.files
+*.packages
+*.log

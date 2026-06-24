@@ -1,0 +1,19 @@
+## Base tools every mode's scripts depend on. Plain main/universe Ubuntu
+## packages only — nothing here needs an extra apt repo, multiverse, or
+## i386 multiarch added at build time (see iso/README.md for why those are
+## deliberately deferred to post-boot setup scripts instead of guessed at
+## here).
+curl
+jq
+git
+build-essential
+cmake
+linux-tools-common
+linux-tools-generic
+power-profiles-daemon
+flatpak
+gnome-shell-extensions
+gnome-tweaks
+mokutil
+ffmpeg
+openssh-server

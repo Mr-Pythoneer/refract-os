@@ -1,0 +1,8 @@
+## Gaming mode packages that need no extra apt repo (plain Ubuntu
+## main/universe/multiverse, all already enabled by build.sh's
+## --archive-areas). Steam, Lutris, Wine-staging, GE-Proton, Bottles all
+## need extra repos/Flatpak/GitHub releases and are deliberately left to
+## modes/gaming/setup/*.sh (post-boot), not baked in here.
+gamemode
+mangohud
+winetricks
