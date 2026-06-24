@@ -1,0 +1,96 @@
+name: shellcheck
+
+# Static analysis is the only "bug testing" available without real
+# hardware (no GPU server, no test VM, no live desktop session) — see
+# DESIGN.md and every modes/*/README.md status section. This is intended
+# to catch what it can; it cannot replace running anything for real.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck + bash -n
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Every script in this repo uses the identical shebang
+          # "#!/usr/bin/env bash" (verified by hand at the time this
+          # workflow was written) — that's the discovery mechanism, rather
+          # than guessing at naming conventions or extensions.
+          # modes/modectl/profiles/*.conf are deliberately excluded: they're
+          # sourced data fragments with no shebang, not standalone scripts,
+          # and shellchecking them alone produces false-positive "unused
+          # variable" warnings for vars the sourcing script does use.
+          mapfile -t files < <(grep -rl '^#!/usr/bin/env bash' . | grep -v '^\./\.git/')
+
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No scripts found — that's almost certainly the discovery mechanism breaking, not an empty repo." >&2
+            exit 1
+          fi
+
+          echo "Checking ${#files[@]} scripts:"
+          printf '  %s\n' "${files[@]}"
+
+          echo "--- shellcheck ---"
+          shellcheck -S warning "${files[@]}"
+
+          echo "--- bash -n ---"
+          for f in "${files[@]}"; do
+            bash -n "$f"
+          done
+
+          echo "All clean."
+
+      - name: Smoke test — distro-modectl status
+        shell: bash
+        run: |
+          # Real execution, not just lint: this is the one subcommand that
+          # needs no root and no real systemd services to be meaningful.
+          # It already caught a real bug once (set -e + a trailing && chain
+          # silently making this exit 1 just because powerprofilesctl
+          # wasn't installed — see TODO.md "CI / quality"). Keeping it as
+          # an actual regression check, not just a one-off manual finding.
+          set -euo pipefail
+          ./modes/modectl/distro-modectl status
+
+  validate-yaml:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Calamares config YAML
+        run: |
+          set -euo pipefail
+          pip install --quiet pyyaml
+          python3 - <<'PYEOF'
+          import glob
+          import sys
+
+          import yaml
+
+          files = glob.glob("iso/calamares/**/*.conf", recursive=True) + glob.glob(
+              "iso/calamares/**/*.desc", recursive=True
+          )
+          if not files:
+              print("No Calamares config files found — discovery glob broke.", file=sys.stderr)
+              sys.exit(1)
+
+          failed = False
+          for f in files:
+              try:
+                  with open(f) as fh:
+                      yaml.safe_load(fh)
+                  print(f"OK: {f}")
+              except Exception as e:
+                  print(f"FAIL: {f}: {e}", file=sys.stderr)
+                  failed = True
+
+          sys.exit(1 if failed else 0)
+          PYEOF

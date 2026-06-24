@@ -37,7 +37,12 @@ PermitRootLogin no
 EOF
 
 sudo systemctl enable --now ssh
-sudo sshd -t && sudo systemctl reload ssh
+
+if ! sudo sshd -t; then
+    echo "sshd config test failed — NOT reloading, the hardening config in $SSHD_CONFIG may be broken. Check 'sudo sshd -t' output above before retrying." >&2
+    exit 1
+fi
+sudo systemctl reload ssh
 
 echo -e "\033[32mSSH installed and hardened (key-only auth, no root login).\033[0m"
 echo "Consider also: sudo apt-get install -y fail2ban   (optional, not installed by default)"

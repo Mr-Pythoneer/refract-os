@@ -111,8 +111,12 @@ Living checklist for the whole distro. Organized by the same structure as `DESIG
 ## 10. CI / quality
 
 - [x] shellcheck baseline run on existing scripts (clean)
-- [ ] GitHub Actions workflow: shellcheck + `bash -n` on every script, on push/PR
-- [ ] Workflow excludes `modes/modectl/profiles/*.conf` from shellcheck (sourced data fragments, not standalone scripts — checking them standalone produces false-positive "unused variable" warnings)
+- [x] GitHub Actions workflow (`.github/workflows/shellcheck.yml`): shellcheck + `bash -n` on every script (discovered by shebang), on push/PR
+- [x] Second CI job validates every Calamares config as YAML
+- [x] Workflow excludes `modes/modectl/profiles/*.conf` from shellcheck (sourced data fragments, not standalone scripts — checking them standalone produces false-positive "unused variable" warnings)
+- [x] Caught a real bug class via manual bash-5 execution (not just `-n`/shellcheck, which can't see this): `set -e` does NOT trigger on a non-last command failing inside a `&&` chain (verified empirically, not just asserted). Found and fixed 5 instances: `distro-modectl status` exiting 1 just because `powerprofilesctl` wasn't installed; 4 `apt-get update && apt-get install` lines that would silently continue past a failed `update`; an `sshd -t && systemctl reload` that would silently skip the reload (and still print a success message) if the config test failed. Fixed by splitting into sequential statements or explicit `if`-checks.
+- [ ] Run the same kind of manual bash-5 execution pass on a real Ubuntu box, not just locally via homebrew bash on macOS — this caught real bugs but isn't a substitute for testing in the actual target environment
+- [ ] CI currently only lints/parses — no job actually executes any script (can't, most need real system state). Worth revisiting whether any script could get a meaningful smoke test in CI (e.g. `distro-modectl status` with no root needed) once this is on a real Linux runner doing more than syntax checks
 
 ## 11. Open questions (carried over from DESIGN.md, still unanswered)
 

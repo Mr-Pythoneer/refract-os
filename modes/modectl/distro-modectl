@@ -183,7 +183,10 @@ do_status() {
     else
         echo "Current mode: unknown (no mode switch recorded yet)"
     fi
-    command -v powerprofilesctl >/dev/null 2>&1 && echo "Power profile: $(powerprofilesctl get 2>/dev/null || echo unknown)"
+    if command -v powerprofilesctl >/dev/null 2>&1; then
+        echo "Power profile: $(powerprofilesctl get 2>/dev/null || echo unknown)"
+    fi
+    return 0
 }
 
 case "${1:-}" in

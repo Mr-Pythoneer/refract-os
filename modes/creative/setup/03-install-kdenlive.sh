@@ -6,7 +6,8 @@
 set -euo pipefail
 
 if ! command -v flatpak >/dev/null 2>&1; then
-    sudo apt-get update && sudo apt-get install -y flatpak
+    sudo apt-get update
+    sudo apt-get install -y flatpak
 fi
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 

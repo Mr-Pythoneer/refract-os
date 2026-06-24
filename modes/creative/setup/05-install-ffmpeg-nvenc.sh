@@ -24,7 +24,8 @@ fi
 echo -e "\033[33mSystem ffmpeg lacks NVENC support (or isn't installed). Fetching BtbN's prebuilt NVENC-enabled build...\033[0m"
 
 if ! command -v jq >/dev/null 2>&1; then
-    sudo apt-get update && sudo apt-get install -y jq
+    sudo apt-get update
+    sudo apt-get install -y jq
 fi
 
 RELEASE_JSON=$(curl -fsSL -H "User-Agent: distro-setup" "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest")
