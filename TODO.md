@@ -64,10 +64,11 @@ Living checklist for the whole distro. Organized by the same structure as `DESIG
 
 ## 6. Server mode — `modes/server/`
 
-- [ ] SSH hardening defaults (key-only auth reminder, fail2ban optional)
-- [ ] Docker/Podman install script
-- [ ] Netdata (or alternative monitoring) install script
-- [ ] Headless boot verification (no display attached, mode still fully usable)
+- [x] SSH hardening defaults (key-only auth, refuses to lock out the user if no key is on file yet)
+- [x] Docker install script (Docker's own apt repo)
+- [x] Netdata install script (official kickstart, telemetry disabled)
+- [x] verify-server.sh sanity check
+- [ ] Headless boot verification (no display attached, mode still fully usable) — **(needs hardware/VM)**
 - [ ] **(needs hardware/VM)** verify `distro-modectl switch server` doesn't break an active SSH session when disabling the display manager
 
 ## 7. Creative mode — `modes/creative/`
