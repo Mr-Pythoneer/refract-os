@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+#
+# Mode-switcher for the distro: Gaming / AI / Server / Creative / Normal.
+# See DESIGN.md §4. Each mode is a profile (modes/modectl/profiles/<mode>.conf)
+# applied on top of the same base system — not a separate OS image.
+#
+# What this script actually does per switch:
+#   - sets CPU governor (cpupower) and power profile (powerprofilesctl)
+#   - enables/disables/starts/stops the profile's service list
+#   - stops the running Crucible12 AI preset if the target profile says to
+#     (STOP_AI_PRESET=true), or starts one if entering AI mode (AI_AUTOSTART_PRESET)
+#   - asks for explicit confirmation before disabling a display manager
+#     (CONFIRM_DISPLAY_MANAGER_STOP=true) since that can kill an active desktop session
+#
+# What this script does NOT do yet (see README.md TODOs — these need a real
+# desktop session to build/verify against, not just a remote shell):
+#   - DE/shell switching for Normal mode's macOS-style dock/top-bar
+#   - color profile loading for Creative mode
+#   - GPU performance-state pinning beyond the power-profiles-daemon profile
+#
+# Usage:
+#   distro-modectl switch <gaming|ai|server|creative|normal> [--yes]
+#   distro-modectl status
+#
+# --yes skips the display-manager confirmation prompt — required for any
+# non-interactive caller (a future GUI mode-switcher widget, a script, a
+# systemd timer). Without it, a non-TTY invocation would hang forever on
+# `read`, not fail loudly — that's the worse failure mode, so --yes is
+# explicit opt-in rather than auto-detecting non-interactive and skipping.
+
+set -euo pipefail
+
+PROFILE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/profiles"
+STATE_FILE="/run/distro-modectl/current-mode"
+VALID_MODES=(gaming ai server creative normal)
+ASSUME_YES=false
+
+usage() {
+    echo "Usage: $(basename "$0") switch <${VALID_MODES[*]// /|}> [--yes] | status" >&2
+    exit 1
+}
+
+require_root_for() {
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "Re-running with sudo for: $*" >&2
+        sudo "$0" "$@"
+        exit $?
+    fi
+}
+
+apply_cpu_governor() {
+    local gov="$1"
+    if command -v cpupower >/dev/null 2>&1; then
+        cpupower frequency-set -g "$gov" >/dev/null || echo "WARNING: failed to set CPU governor to $gov" >&2
+    else
+        echo "WARNING: cpupower not installed — skipping CPU governor change (apt install linux-tools-common linux-tools-\$(uname -r))" >&2
+    fi
+}
+
+apply_power_profile() {
+    local profile="$1"
+    if command -v powerprofilesctl >/dev/null 2>&1; then
+        powerprofilesctl set "$profile" || echo "WARNING: failed to set power profile to $profile" >&2
+    else
+        echo "WARNING: powerprofilesctl not installed — skipping power profile change (apt install power-profiles-daemon)" >&2
+    fi
+}
+
+apply_services() {
+    local -n enable_list=$1
+    local -n disable_list=$2
+    for svc in "${enable_list[@]:-}"; do
+        [ -z "$svc" ] && continue
+        if systemctl list-unit-files "${svc}*" 2>/dev/null | grep -q "^${svc}"; then
+            systemctl enable --now "$svc" 2>/dev/null || echo "WARNING: failed to enable/start $svc" >&2
+        else
+            echo "NOTE: $svc not installed — skipping (this mode expects it; install it for full functionality)" >&2
+        fi
+    done
+    for svc in "${disable_list[@]:-}"; do
+        [ -z "$svc" ] && continue
+        systemctl disable --now "$svc" 2>/dev/null || true
+    done
+}
+
+stop_ai_preset() {
+    if command -v distro-ai-preset >/dev/null 2>&1; then
+        distro-ai-preset stop || true
+    fi
+}
+
+start_ai_preset() {
+    local preset="$1"
+    if command -v distro-ai-preset >/dev/null 2>&1; then
+        distro-ai-preset switch "$preset"
+    else
+        echo "WARNING: distro-ai-preset not found — install modes/ai/bin/distro-ai-preset first to actually start the model server." >&2
+    fi
+}
+
+confirm_or_abort() {
+    local prompt="$1"
+    if [ "$ASSUME_YES" = "true" ]; then
+        echo "$prompt [auto-confirmed via --yes]"
+        return 0
+    fi
+    if [ ! -t 0 ]; then
+        echo "Refusing to prompt on a non-interactive stdin without --yes: $prompt" >&2
+        exit 1
+    fi
+    read -r -p "$prompt [y/N] " reply
+    case "$reply" in [yY]|[yY][eE][sS]) ;; *) echo "Aborted."; exit 1 ;; esac
+}
+
+do_switch() {
+    local mode="$1"
+    [[ " ${VALID_MODES[*]} " == *" $mode "* ]] || usage
+
+    local profile_file="$PROFILE_DIR/${mode}.conf"
+    [ -f "$profile_file" ] || { echo "No profile found at $profile_file" >&2; exit 1; }
+
+    # shellcheck disable=SC1090
+    source "$profile_file"
+
+    echo "Switching to: $MODE_NAME mode"
+    [ -n "${NOTES:-}" ] && echo "Note: $NOTES"
+
+    if [ "${CONFIRM_DISPLAY_MANAGER_STOP:-false}" = "true" ]; then
+        for svc in "${DISABLE_SERVICES[@]:-}"; do
+            if [[ "$svc" =~ ^(gdm|gdm3|sddm|lightdm)$ ]]; then
+                confirm_or_abort "This will disable the display manager ($svc) — your desktop session will not restart automatically next boot. Continue?"
+                break
+            fi
+        done
+    fi
+
+    require_root_for switch "$mode"
+
+    apply_cpu_governor "$CPU_GOVERNOR"
+    apply_power_profile "$POWER_PROFILE"
+    apply_services ENABLE_SERVICES DISABLE_SERVICES
+
+    if [ "${STOP_AI_PRESET:-false}" = "true" ]; then
+        stop_ai_preset
+    fi
+    if [ -n "${AI_AUTOSTART_PRESET:-}" ]; then
+        start_ai_preset "$AI_AUTOSTART_PRESET"
+    fi
+
+    mkdir -p "$(dirname "$STATE_FILE")"
+    echo "$mode" > "$STATE_FILE"
+
+    echo "Now in: $MODE_NAME mode"
+}
+
+do_status() {
+    if [ -f "$STATE_FILE" ]; then
+        echo "Current mode: $(cat "$STATE_FILE")"
+    else
+        echo "Current mode: unknown (no mode switch recorded yet)"
+    fi
+    command -v powerprofilesctl >/dev/null 2>&1 && echo "Power profile: $(powerprofilesctl get 2>/dev/null || echo unknown)"
+}
+
+case "${1:-}" in
+    switch)
+        [ $# -ge 2 ] || usage
+        mode="$2"
+        shift 2
+        for arg in "$@"; do
+            [ "$arg" = "--yes" ] && ASSUME_YES=true
+        done
+        do_switch "$mode"
+        ;;
+    status) do_status ;;
+    *) usage ;;
+esac

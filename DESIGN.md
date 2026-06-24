@@ -66,6 +66,8 @@ Not 5 separate OS images. One base system + a **mode-switcher daemon** (`distro-
 
 Mechanically: each mode is a profile = a set of systemd unit enable/disable calls + a `tuned`/`power-profiles-daemon` profile + a DE config swap (GNOME profile switching, or separate lightweight session files) + a default-app pin list. Switching modes should not require logout for most things, but DE/shell changes (Normal's dock/bar) likely need a session restart — be upfront about that rather than faking a seamless switch.
 
+**Status: built**, see `modes/modectl/`. `distro-modectl switch <mode>` implements the CPU governor, power profile, and service enable/disable parts, and wires into AI mode's preset switcher. DE/shell switching (Normal's dock, Creative's color profiles) is explicitly stubbed, not faked — those need a real desktop session to build against, which doesn't exist yet either. Not run on real hardware yet, but unlike AI mode this part doesn't need the specific GPU server — any Ubuntu box/VM would do once one's available to test on.
+
 ### Creative mode, detailed: CAD + video editing focus
 
 **CAD**: the honest compatibility split matters here more than anywhere else in the plan.
@@ -100,6 +102,8 @@ Currently Crucible12 is Windows-11/PowerShell-native (`01-install-llamacpp.ps1`,
 Optional, explicit opt-in only: a toggle to also route through Claude (cloud) when the user wants a stronger model and has connectivity — same principle as OpenClaw's gateway, but secondary to the local-first default, never silently substituted in.
 
 This is the part of the project most worth prototyping first — you already have a working stack, the task is porting + systemd-wrapping it, not inventing it.
+
+**Status: built**, see `modes/ai/`. Bash ports of all setup/run/benchmark scripts, systemd unit template, and `distro-ai-preset` control script. **Not yet run end-to-end — the target GPU hardware (RTX 5090 + 9950X3D box) doesn't exist yet; ETA ~3 months (~September 2026).** This is a known, expected gap, not something blocking the rest of the project.
 
 ---
 

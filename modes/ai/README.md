@@ -41,7 +41,7 @@ opencode
 
 ## Status
 
-Ported but **not yet run end-to-end** — same caveat the original Crucible12 README carries: built without access to the target GPU hardware. Needs verification on the real box:
+Ported but **not yet run end-to-end** — same caveat the original Crucible12 README carries: built without access to the target GPU hardware. **The hardware itself doesn't exist yet — target build is ~3 months out (ETA ~September 2026).** This is a known, expected gap, not a blocker on other work; everything below stays unchecked until that box is built. Needs verification once it exists:
 - [ ] `01-install-llamacpp.sh` actually builds successfully against CUDA 12.8+ for sm_120
 - [ ] Each preset's `run-*.sh` starts cleanly and `nvidia-smi` shows expected GPU utilization (use `benchmark.sh`)
 - [ ] systemd unit (`crucible12@<preset>.service`) starts/stops correctly under the `crucible12` service user, with correct file permissions on `/opt/crucible12/models` and `/opt/crucible12/bin`
