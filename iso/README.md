@@ -23,16 +23,32 @@ image — it's installed by the already-built `modes/*/setup/*.sh` scripts,
 which `build.sh` copies into the image at `/opt/distro/modes/` so they're
 available on first boot, run on demand rather than during the ISO build.
 
-This was a deliberate scope decision, not a shortcut: live-build has a
-documented mechanism for adding extra apt repos at build time
-(`config/archives/`), but I don't have a live-build host to verify the
-exact current syntax against, and shipping a guessed-at config for that
-mechanism would be exactly the kind of unverified-but-confident-looking
-file this project is trying to avoid (same principle as the `modes/*`
-READMEs' "don't fabricate dconf keys" stance). Plain package lists and
-file copies (`includes.chroot`) are mechanisms I'm confident about; the
-apt-archives mechanism is not, so it's deferred to whoever next has an
-actual build host to test against.
+This was a deliberate scope decision, not a shortcut. live-build does have
+a documented mechanism for adding extra apt repos at build time
+(`config/archives/<name>.list.chroot` + `.key.chroot`, etc.) — **now
+researched and verified** against Debian's own live-manual
+(`customizing-package-installation`) rather than left unconfirmed: it's a
+plain `deb` sources.list line plus an ASCII-armored GPG key file, file
+names ending in `.chroot` (build-time) or `.binary` (shipped to the
+running system's `/etc/apt/sources.list.d/`).
+
+**Decision: not adopted, deliberately.** Every repo-dependent tool in this
+project (Docker, Steam, Lutris, WineHQ, Proton-GE, the WhiteSur theme,
+Netdata) belongs to a **mode**, and modes are opt-in/switchable at runtime
+on any strain — strains are a build-time DE/package-selection profile,
+deliberately orthogonal to modes (`strains/README.md`: "every strain still
+gets all 5 modes"). Baking a mode's apt repo into specific strains' images
+would reintroduce exactly the "strain gatekeeps what's possible" problem
+that doc explicitly warns against, and would create a second, divergent
+apt-source path that conflicts with the existing runtime ones (e.g.
+`modes/server/setup/02-install-docker.sh` already writes its own
+`/etc/apt/sources.list.d/docker.list` and key on first run). There's also
+no package in `base.list.chroot` or any strain list that currently needs a
+non-stock repo at all — see DESIGN.md §1 on why no separate Mesa/kernel PPA
+is needed either. If a genuinely strain-universal (not mode-specific)
+package ever needs a third-party repo, this is the real, now-confirmed
+mechanism to reach for — using the same strain-conditional copy-in/cleanup
+pattern `build.sh` already uses for Calamares and the casper-bottom hook.
 
 ## What's in here
 
@@ -70,4 +86,4 @@ Still unverified:
 - [ ] Confirm the resulting ISO boots in a VM at all, for each strain
 - [ ] Confirm `lubuntu-desktop`/`ubuntu-desktop-minimal` are still the correct current metapackage names on whatever Ubuntu release is actually targeted
 - [ ] Confirm `/opt/distro/modes/` and the `/usr/local/bin` symlinks land correctly and `distro-modectl status` works on first boot
-- [ ] Decide whether to invest in the `config/archives/` mechanism later to bake Docker/Steam/etc. in at build time instead of post-boot, once someone can verify it against a real build host
+- [x] `config/archives/` decision made and documented above (not adopted — see "Architecture decision")
