@@ -1,0 +1,70 @@
+name: build-iso
+
+# Manual-only (workflow_dispatch), deliberately NOT on push/schedule. This
+# repo's whole iso/ pipeline has never been run end to end by a human yet
+# (live-build doesn't run on macOS, see iso/README.md "Status") -- this
+# workflow is the first place it actually CAN run for real, since GitHub's
+# ubuntu-latest runners are real Ubuntu VMs with root and loop-device
+# access, unlike this Mac. Gating it to manual dispatch means a careless
+# push doesn't burn CI minutes on a pipeline whose first real run might
+# fail partway through and need iteration, and a nightly schedule isn't
+# added until at least one manual run has actually succeeded.
+
+on:
+  workflow_dispatch:
+    inputs:
+      strain:
+        description: "Strain to build"
+        required: true
+        default: "workstation"
+        type: choice
+        options:
+          - workstation
+          - laptop
+          - lowspec
+          - server
+          - handheld
+          - cloud
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free up disk space
+        # Desktop ISOs (GNOME/LXQt + a full Ubuntu base) are large, and
+        # ubuntu-latest runners ship a lot of preinstalled toolchains
+        # (.NET, Android SDK, etc.) this build doesn't need. Removing them
+        # up front rather than discovering a "no space left on device"
+        # failure partway through a multi-hour-feeling live-build run.
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          df -h /
+
+      - name: Install live-build
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y live-build
+
+      - name: Build ISO
+        working-directory: iso
+        run: |
+          set -euo pipefail
+          sudo ./build.sh "${{ inputs.strain }}"
+
+      - name: Upload ISO artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crucible-os-${{ inputs.strain }}
+          # Glob, not a fixed filename: if build.sh's rename step doesn't
+          # run (build failed before producing output), this still uploads
+          # whatever live-build did produce for debugging instead of the
+          # whole step failing on a missing-file error.
+          path: iso/*.iso
+          if-no-files-found: warn
+          retention-days: 7

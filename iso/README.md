@@ -67,11 +67,27 @@ pattern `build.sh` already uses for Calamares and the casper-bottom hook.
 - `config/includes.chroot/` — populated by `build.sh`, gitignored, not
   committed (avoids two copies of the same scripts drifting apart)
 
+## CI: `.github/workflows/build-iso.yml`
+
+A `workflow_dispatch`-only GitHub Actions workflow (strain chosen via a
+dropdown input) that actually runs `./build.sh` on a real Ubuntu runner —
+GitHub's `ubuntu-latest` runners have root and loop-device access, unlike
+this Mac, so this is genuinely the first place the full pipeline CAN run,
+not just another lint pass. Deliberately **not** wired to `push`/`schedule`:
+the pipeline has never succeeded even once yet, so an automatic nightly
+build would just be a guaranteed-red CI run with no information value
+until a manual run actually gets it working. **Not yet triggered** — this
+costs real CI minutes/runner time for a multi-stage live-build that may
+take well over an hour and is unverified, so it's left for an explicit,
+deliberate manual run rather than fired automatically as part of this
+session's work.
+
 ## Status
 
 **`lb build` itself has never run — at all.** live-build doesn't run on
 macOS (debootstrap, chroot, bind-mounts), so only `lb config`'s arguments
-and the file-copy mechanics have had any real execution.
+and the file-copy mechanics have had any real execution. The new CI
+workflow above is where that would actually get tested next.
 
 What HAS actually been verified (not just read and assumed): the strain
 selection logic itself — `build.sh`'s copy-in/clean-up of
