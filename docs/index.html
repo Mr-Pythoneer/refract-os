@@ -3,20 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Crucible OS — a Linux distro that switches modes</title>
+<title>Crucible OS — one Linux install, five modes</title>
+<meta name="description" content="An Ubuntu-based Linux distro that switches its whole personality on command — Gaming, AI, Server, Creative, or a polished Normal mode — built around local-first AI.">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/3.35.0/tabler-icons.min.css">
 <style>
   :root {
-    --bg: #0b0c0f;
-    --bg-card: #15171c;
-    --bg-card2: #1b1e25;
-    --border: #262a33;
-    --border-hi: #3a4150;
-    --text: #e6e8ec;
-    --text-dim: #9aa0ab;
-    --accent: #ff6a3d;
-    --accent-dim: #c44f2b;
-    --ok: #51cf66;
-    --warn: #ffb84d;
+    --bg: #0a0b0d;
+    --bg-card: #14161a;
+    --bg-card2: #1a1d22;
+    --border: #232730;
+    --border-hi: #343944;
+    --text: #e9eaed;
+    --text-dim: #93989f;
+    --text-faint: #5d6168;
+    --accent: #ff7a47;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --m-gaming: #f04848;
+    --m-ai: #4f8df5;
+    --m-server: #34c98f;
+    --m-creative: #d666e0;
+    --m-normal: #b8bcc4;
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
@@ -26,108 +33,191 @@
     color: var(--text);
     font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     line-height: 1.6;
+    font-size: 16px;
   }
-  .wrap { max-width: 980px; margin: 0 auto; padding: 0 24px; }
-  a { color: var(--accent); }
-  header {
-    padding: 80px 0 40px;
-    background: radial-gradient(ellipse at top, rgba(255,106,61,0.15), transparent 60%);
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { background: var(--bg-card2); padding: 2px 7px; border-radius: 5px; font-size: 0.88em; font-family: "SF Mono", Menlo, Consolas, monospace; }
+
+  nav {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(10,11,13,0.85); backdrop-filter: blur(8px);
     border-bottom: 1px solid var(--border);
   }
+  nav .wrap { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; }
+  .brand { font-weight: 700; font-size: 1.05rem; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .brand i { color: var(--accent); }
+  .navlinks { display: flex; gap: 26px; font-size: 0.92rem; }
+  .navlinks a { color: var(--text-dim); }
+  .navlinks a:hover { color: var(--text); text-decoration: none; }
+  @media (max-width: 640px) { .navlinks { display: none; } }
+
+  header { padding: 76px 0 56px; border-bottom: 1px solid var(--border); }
   .badge {
     display: inline-flex; align-items: center; gap: 8px;
     background: var(--bg-card2); border: 1px solid var(--warn);
     color: var(--warn); font-size: 0.82rem; font-weight: 600;
-    padding: 6px 14px; border-radius: 999px; margin-bottom: 22px;
+    padding: 6px 14px; border-radius: 999px; margin-bottom: 26px;
   }
-  .badge::before { content: "●"; font-size: 0.6rem; }
-  h1 { font-size: 2.7rem; margin: 0 0 12px; letter-spacing: -0.02em; }
+  .badge i { font-size: 0.95em; }
+  h1 { font-size: 3rem; margin: 0 0 14px; letter-spacing: -0.025em; line-height: 1.08; }
   h1 span { color: var(--accent); }
-  .tagline { color: var(--text-dim); font-size: 1.15rem; max-width: 680px; }
-  .cta { margin-top: 30px; display: flex; gap: 12px; flex-wrap: wrap; }
-  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 22px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 0.95rem; cursor: pointer; border: none; }
+  .tagline { color: var(--text-dim); font-size: 1.2rem; max-width: 640px; margin: 0 0 34px; }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 44px; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 22px; border-radius: 9px; font-weight: 600; font-size: 0.95rem; cursor: pointer; border: none; }
   .btn-primary { background: var(--accent); color: #1a0a04; }
   .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border-hi); }
-  section { padding: 52px 0; border-bottom: 1px solid var(--border); }
+  .btn:hover { text-decoration: none; opacity: 0.92; }
+
+  .terminal {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+    max-width: 560px; overflow: hidden; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.86rem;
+  }
+  .terminal .bar { display: flex; gap: 7px; padding: 11px 14px; border-bottom: 1px solid var(--border); }
+  .terminal .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .terminal .body { padding: 18px 20px; color: var(--text-dim); }
+  .terminal .prompt { color: var(--ok); }
+  .terminal .out { color: var(--text); margin: 4px 0 14px 0; }
+  .terminal .out:last-child { margin-bottom: 0; }
+
+  section { padding: 60px 0; border-bottom: 1px solid var(--border); }
   section:last-of-type { border-bottom: none; }
-  h2 { font-size: 1.5rem; margin: 0 0 8px; }
-  .sub { color: var(--text-dim); margin: 0 0 24px; }
+  h2 { font-size: 1.65rem; margin: 0 0 10px; letter-spacing: -0.01em; }
+  .sub { color: var(--text-dim); margin: 0 0 30px; max-width: 700px; }
+
   .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-  .mode-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
-  .mode-card .label { color: var(--accent); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
-  .mode-card .value { font-size: 1.1rem; margin-top: 6px; font-weight: 600; }
-  .mode-card .role { color: var(--text-dim); font-size: 0.88rem; margin-top: 8px; }
-  @media (max-width: 760px) { .modes { grid-template-columns: 1fr; } h1 { font-size: 2.1rem; } .honesty { grid-template-columns: 1fr; } }
+  .mode-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 20px;
+    border-top: 3px solid var(--mode-color);
+  }
+  .mode-card .icon-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .mode-card i { font-size: 1.3rem; color: var(--mode-color); }
+  .mode-card .value { font-size: 1.12rem; font-weight: 700; }
+  .mode-card .role { color: var(--text-dim); font-size: 0.88rem; }
+  .mode-card code { font-size: 0.78rem; }
+
+  .strains { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .strain-card { background: var(--bg-card2); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .strain-card .name { font-weight: 700; font-size: 0.98rem; margin-bottom: 4px; }
+  .strain-card .desc { color: var(--text-dim); font-size: 0.85rem; }
+  .strain-card .tag { display: inline-block; margin-top: 8px; font-size: 0.72rem; color: var(--text-faint); border: 1px solid var(--border); border-radius: 5px; padding: 2px 7px; }
+
+  @media (max-width: 760px) {
+    .modes, .strains, .honesty { grid-template-columns: 1fr; }
+    h1 { font-size: 2.15rem; }
+    .tagline { font-size: 1.05rem; }
+  }
+
   .honesty { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  .honesty-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
-  .honesty-card.yes { border-color: rgba(81,207,102,0.3); }
-  .honesty-card.no { border-color: rgba(255,184,77,0.3); }
-  .honesty-card .head { font-weight: 700; margin-bottom: 10px; }
+  .honesty-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .honesty-card.yes { border-top: 3px solid var(--ok); }
+  .honesty-card.no { border-top: 3px solid var(--warn); }
+  .honesty-card .head { font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
   .honesty-card.yes .head { color: var(--ok); }
   .honesty-card.no .head { color: var(--warn); }
   .honesty-card ul { margin: 0; padding-left: 20px; color: var(--text-dim); font-size: 0.92rem; }
-  .honesty-card li { margin-bottom: 6px; }
-  footer { padding: 40px 0 60px; color: var(--text-dim); font-size: 0.88rem; }
+  .honesty-card li { margin-bottom: 8px; }
+
+  .status-box { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+
+  footer { padding: 44px 0 64px; color: var(--text-faint); font-size: 0.88rem; }
   footer a { color: var(--text-dim); text-decoration: underline; }
-  code { background: var(--bg-card2); padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  footer .links { margin-top: 10px; display: flex; gap: 18px; flex-wrap: wrap; }
 </style>
 </head>
 <body>
 
+<nav>
+  <div class="wrap">
+    <div class="brand"><i class="ti ti-flame" aria-hidden="true"></i>Crucible OS</div>
+    <div class="navlinks">
+      <a href="#modes">Modes</a>
+      <a href="#strains">Strains</a>
+      <a href="#promises">Promises</a>
+      <a href="#status">Status</a>
+      <a href="https://github.com/Mr-Pythoneer/crucible-os">GitHub</a>
+    </div>
+  </div>
+</nav>
+
 <header>
   <div class="wrap">
-    <div class="badge">Early design stage — nothing bootable yet</div>
-    <h1>Crucible <span>OS</span></h1>
-    <p class="tagline">An Ubuntu-based Linux distro that switches its whole personality on command — Gaming, AI, Server, Creative, or a polished macOS-style Normal mode — built around local-first AI, not a cloud assistant bolted onto a browser.</p>
+    <div class="badge"><i class="ti ti-alert-triangle" aria-hidden="true"></i>Early design stage — nothing bootable yet</div>
+    <h1>One Linux install.<br>Five <span>modes</span>.</h1>
+    <p class="tagline">An Ubuntu-based distro that switches its whole personality on command — Gaming, AI, Server, Creative, or a polished Normal mode — built around local-first AI, not a cloud assistant bolted onto a browser.</p>
     <div class="cta">
       <a class="btn btn-primary" href="https://github.com/Mr-Pythoneer/crucible-os">View the repo</a>
       <a class="btn btn-secondary" href="https://github.com/Mr-Pythoneer/crucible-os/blob/main/TODO.md">Build checklist</a>
       <a class="btn btn-secondary" href="https://github.com/Mr-Pythoneer/crucible-os/blob/main/DESIGN.md">Architecture plan</a>
     </div>
+    <div class="terminal">
+      <div class="bar">
+        <div class="dot" style="background:#ff5f56"></div>
+        <div class="dot" style="background:#ffbd2e"></div>
+        <div class="dot" style="background:#27c93f"></div>
+      </div>
+      <div class="body">
+        <div><span class="prompt">$</span> distro-modectl switch gaming</div>
+        <div class="out">Switching to: Gaming mode<br>Now in: Gaming mode</div>
+        <div><span class="prompt">$</span> distro-modectl switch ai</div>
+        <div class="out">Starting preset: crucible<br>Now running: crucible</div>
+      </div>
+    </div>
   </div>
 </header>
 
-<section>
+<section id="modes">
   <div class="wrap">
     <h2>One system, five modes</h2>
     <p class="sub">Not five separate OS images — one base install, switched live via <code>distro-modectl switch &lt;mode&gt;</code>.</p>
     <div class="modes">
-      <div class="mode-card">
-        <div class="label">Mode</div>
-        <div class="value">Gaming</div>
+      <div class="mode-card" style="--mode-color: var(--m-gaming)">
+        <div class="icon-row"><i class="ti ti-device-gamepad-2" aria-hidden="true"></i><span class="value">Gaming</span></div>
         <div class="role">Proton-GE, Wine-staging, Bottles, GameMode, MangoHud. Performance governor, max GPU state.</div>
       </div>
-      <div class="mode-card">
-        <div class="label">Mode</div>
-        <div class="value">AI</div>
-        <div class="role">Built around Crucible12 — local llama.cpp + OpenCode, no API keys, no cloud, no usage limits.</div>
+      <div class="mode-card" style="--mode-color: var(--m-ai)">
+        <div class="icon-row"><i class="ti ti-brain" aria-hidden="true"></i><span class="value">AI</span></div>
+        <div class="role">Built around <a href="https://github.com/Mr-Pythoneer/Crucible12">Crucible12</a> — local llama.cpp + OpenCode, no API keys, no cloud, no usage limits.</div>
       </div>
-      <div class="mode-card">
-        <div class="label">Mode</div>
-        <div class="value">Server</div>
+      <div class="mode-card" style="--mode-color: var(--m-server)">
+        <div class="icon-row"><i class="ti ti-server-2" aria-hidden="true"></i><span class="value">Server</span></div>
         <div class="role">SSH (key-only), Docker, Netdata. Power-saving profile, headless-capable.</div>
       </div>
-      <div class="mode-card">
-        <div class="label">Mode</div>
-        <div class="value">Creative</div>
+      <div class="mode-card" style="--mode-color: var(--m-creative)">
+        <div class="icon-row"><i class="ti ti-palette" aria-hidden="true"></i><span class="value">Creative</span></div>
         <div class="role">FreeCAD, Blender, DaVinci Resolve, NVENC/NVDEC-accelerated ffmpeg.</div>
       </div>
-      <div class="mode-card">
-        <div class="label">Mode</div>
-        <div class="value">Normal</div>
+      <div class="mode-card" style="--mode-color: var(--m-normal)">
+        <div class="icon-row"><i class="ti ti-layout-dashboard" aria-hidden="true"></i><span class="value">Normal</span></div>
         <div class="role">A polished, macOS-style default look — dock, theme, balanced power.</div>
       </div>
     </div>
   </div>
 </section>
 
-<section>
+<section id="strains">
+  <div class="wrap">
+    <h2>Six hardware strains</h2>
+    <p class="sub">Strains are a build-time hardware-class profile — what desktop environment and packages ship by default. Every strain still gets all 5 modes above; a strain just picks a sensible starting point. Selected via <code>iso/build.sh &lt;strain&gt;</code>.</p>
+    <div class="strains">
+      <div class="strain-card"><div class="name">workstation</div><div class="desc">Full GNOME desktop, no special tuning. The default.</div></div>
+      <div class="strain-card"><div class="name">laptop</div><div class="desc">Same desktop + battery/power management (tlp).</div></div>
+      <div class="strain-card"><div class="name">lowspec</div><div class="desc">LXQt instead of GNOME — the lightest official Ubuntu desktop.</div></div>
+      <div class="strain-card"><div class="name">server</div><div class="desc">No desktop environment at all. Fully headless.</div></div>
+      <div class="strain-card"><div class="name">handheld</div><div class="desc">Steam-Deck-class devices.<span class="tag">scaffolded, not differentiated yet</span></div></div>
+      <div class="strain-card"><div class="name">cloud</div><div class="desc">cloud-init, no DE.<span class="tag">delivery format still TODO</span></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="promises">
   <div class="wrap">
     <h2>What this actually promises</h2>
     <p class="sub">No "runs every Windows app" claims — that promise isn't real anywhere, including SteamOS or CrossOver. Here's the honest split.</p>
     <div class="honesty">
       <div class="honesty-card yes">
-        <div class="head">What's real</div>
+        <div class="head"><i class="ti ti-circle-check" aria-hidden="true"></i>What's real</div>
         <ul>
           <li>Broad game/app compatibility via Proton-GE + Wine-staging + Bottles, pre-tuned out of the box</li>
           <li>Fully local AI coding agent (Crucible12: llama.cpp + OpenCode), zero forced cloud round-trips</li>
@@ -136,7 +226,7 @@
         </ul>
       </div>
       <div class="honesty-card no">
-        <div class="head">What's explicitly not attempted</div>
+        <div class="head"><i class="ti ti-circle-x" aria-hidden="true"></i>What's explicitly not attempted</div>
         <ul>
           <li>Kernel-anticheat multiplayer games where the publisher blocks Linux — that's policy, not a technical gap any distro can engineer around</li>
           <li>SolidWorks / AutoCAD / Premiere / After Effects under Wine — years of dedicated effort elsewhere hasn't solved this well</li>
@@ -147,17 +237,24 @@
   </div>
 </section>
 
-<section>
+<section id="status">
   <div class="wrap">
     <h2>Status</h2>
-    <p class="sub">Said plainly, not buried: this is design-and-scaffolding stage. The full framework — driver scripts, all 5 mode bundles, a live-build ISO skeleton, a Calamares installer config, CI — exists and is static-analyzed, but <strong>no ISO has been built yet</strong> and nothing has run on real target hardware. The <a href="https://github.com/Mr-Pythoneer/crucible-os/blob/main/TODO.md">TODO.md</a> in the repo is the live, itemized source of truth — check there before believing anything here is further along than it is.</p>
+    <div class="status-box">
+      <p style="margin:0 0 12px;">Said plainly, not buried: this is design-and-scaffolding stage. The full framework — driver scripts, all 5 mode bundles, 6 hardware strains, a live-build ISO pipeline, a Calamares installer config, CI — exists and is execution-tested where possible without real hardware, but <strong>no ISO has been built yet</strong> and nothing has run on real target hardware.</p>
+      <p style="margin:0; color: var(--text-dim);">The <a href="https://github.com/Mr-Pythoneer/crucible-os/blob/main/TODO.md">TODO.md</a> in the repo is the live, itemized source of truth — check there before believing anything here is further along than it is.</p>
+    </div>
   </div>
 </section>
 
 <footer>
   <div class="wrap">
-    Built on Ubuntu 24.04 LTS · live-build · Calamares · <a href="https://github.com/Mr-Pythoneer/Crucible12">Crucible12</a> for local AI ·
-    <a href="https://github.com/Mr-Pythoneer/crucible-os">github.com/Mr-Pythoneer/crucible-os</a>
+    Built on Ubuntu 24.04 LTS · live-build · Calamares · <a href="https://github.com/Mr-Pythoneer/Crucible12">Crucible12</a> for local AI
+    <div class="links">
+      <a href="https://github.com/Mr-Pythoneer/crucible-os">github.com/Mr-Pythoneer/crucible-os</a>
+      <a href="https://github.com/Mr-Pythoneer/crucible-os/blob/main/TODO.md">TODO.md</a>
+      <a href="https://github.com/Mr-Pythoneer/crucible-os/blob/main/DESIGN.md">DESIGN.md</a>
+    </div>
   </div>
 </footer>
 
