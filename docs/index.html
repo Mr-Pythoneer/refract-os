@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crucible OS — a Linux distro that switches modes</title>
+<style>
+  :root {
+    --bg: #0b0c0f;
+    --bg-card: #15171c;
+    --bg-card2: #1b1e25;
+    --border: #262a33;
+    --border-hi: #3a4150;
+    --text: #e6e8ec;
+    --text-dim: #9aa0ab;
+    --accent: #ff6a3d;
+    --accent-dim: #c44f2b;
+    --ok: #51cf66;
+    --warn: #ffb84d;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 24px; }
+  a { color: var(--accent); }
+  header {
+    padding: 80px 0 40px;
+    background: radial-gradient(ellipse at top, rgba(255,106,61,0.15), transparent 60%);
+    border-bottom: 1px solid var(--border);
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--bg-card2); border: 1px solid var(--warn);
+    color: var(--warn); font-size: 0.82rem; font-weight: 600;
+    padding: 6px 14px; border-radius: 999px; margin-bottom: 22px;
+  }
+  .badge::before { content: "●"; font-size: 0.6rem; }
+  h1 { font-size: 2.7rem; margin: 0 0 12px; letter-spacing: -0.02em; }
+  h1 span { color: var(--accent); }
+  .tagline { color: var(--text-dim); font-size: 1.15rem; max-width: 680px; }
+  .cta { margin-top: 30px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 22px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 0.95rem; cursor: pointer; border: none; }
+  .btn-primary { background: var(--accent); color: #1a0a04; }
+  .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border-hi); }
+  section { padding: 52px 0; border-bottom: 1px solid var(--border); }
+  section:last-of-type { border-bottom: none; }
+  h2 { font-size: 1.5rem; margin: 0 0 8px; }
+  .sub { color: var(--text-dim); margin: 0 0 24px; }
+  .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .mode-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+  .mode-card .label { color: var(--accent); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
+  .mode-card .value { font-size: 1.1rem; margin-top: 6px; font-weight: 600; }
+  .mode-card .role { color: var(--text-dim); font-size: 0.88rem; margin-top: 8px; }
+  @media (max-width: 760px) { .modes { grid-template-columns: 1fr; } h1 { font-size: 2.1rem; } .honesty { grid-template-columns: 1fr; } }
+  .honesty { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .honesty-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+  .honesty-card.yes { border-color: rgba(81,207,102,0.3); }
+  .honesty-card.no { border-color: rgba(255,184,77,0.3); }
+  .honesty-card .head { font-weight: 700; margin-bottom: 10px; }
+  .honesty-card.yes .head { color: var(--ok); }
+  .honesty-card.no .head { color: var(--warn); }
+  .honesty-card ul { margin: 0; padding-left: 20px; color: var(--text-dim); font-size: 0.92rem; }
+  .honesty-card li { margin-bottom: 6px; }
+  footer { padding: 40px 0 60px; color: var(--text-dim); font-size: 0.88rem; }
+  footer a { color: var(--text-dim); text-decoration: underline; }
+  code { background: var(--bg-card2); padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="badge">Early design stage — nothing bootable yet</div>
+    <h1>Crucible <span>OS</span></h1>
+    <p class="tagline">An Ubuntu-based Linux distro that switches its whole personality on command — Gaming, AI, Server, Creative, or a polished macOS-style Normal mode — built around local-first AI, not a cloud assistant bolted onto a browser.</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="https://github.com/Mr-Pythoneer/crucible-os">View the repo</a>
+      <a class="btn btn-secondary" href="https://github.com/Mr-Pythoneer/crucible-os/blob/main/TODO.md">Build checklist</a>
+      <a class="btn btn-secondary" href="https://github.com/Mr-Pythoneer/crucible-os/blob/main/DESIGN.md">Architecture plan</a>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>One system, five modes</h2>
+    <p class="sub">Not five separate OS images — one base install, switched live via <code>distro-modectl switch &lt;mode&gt;</code>.</p>
+    <div class="modes">
+      <div class="mode-card">
+        <div class="label">Mode</div>
+        <div class="value">Gaming</div>
+        <div class="role">Proton-GE, Wine-staging, Bottles, GameMode, MangoHud. Performance governor, max GPU state.</div>
+      </div>
+      <div class="mode-card">
+        <div class="label">Mode</div>
+        <div class="value">AI</div>
+        <div class="role">Built around Crucible12 — local llama.cpp + OpenCode, no API keys, no cloud, no usage limits.</div>
+      </div>
+      <div class="mode-card">
+        <div class="label">Mode</div>
+        <div class="value">Server</div>
+        <div class="role">SSH (key-only), Docker, Netdata. Power-saving profile, headless-capable.</div>
+      </div>
+      <div class="mode-card">
+        <div class="label">Mode</div>
+        <div class="value">Creative</div>
+        <div class="role">FreeCAD, Blender, DaVinci Resolve, NVENC/NVDEC-accelerated ffmpeg.</div>
+      </div>
+      <div class="mode-card">
+        <div class="label">Mode</div>
+        <div class="value">Normal</div>
+        <div class="role">A polished, macOS-style default look — dock, theme, balanced power.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>What this actually promises</h2>
+    <p class="sub">No "runs every Windows app" claims — that promise isn't real anywhere, including SteamOS or CrossOver. Here's the honest split.</p>
+    <div class="honesty">
+      <div class="honesty-card yes">
+        <div class="head">What's real</div>
+        <ul>
+          <li>Broad game/app compatibility via Proton-GE + Wine-staging + Bottles, pre-tuned out of the box</li>
+          <li>Fully local AI coding agent (Crucible12: llama.cpp + OpenCode), zero forced cloud round-trips</li>
+          <li>Native CAD/video tools that actually work well on Linux today: FreeCAD, Blender, DaVinci Resolve</li>
+          <li>Nvidia + AMD drivers preinstalled, Secure Boot handled, not ignored</li>
+        </ul>
+      </div>
+      <div class="honesty-card no">
+        <div class="head">What's explicitly not attempted</div>
+        <ul>
+          <li>Kernel-anticheat multiplayer games where the publisher blocks Linux — that's policy, not a technical gap any distro can engineer around</li>
+          <li>SolidWorks / AutoCAD / Premiere / After Effects under Wine — years of dedicated effort elsewhere hasn't solved this well</li>
+          <li>A literal macOS global app-menu / Mission Control clone — no stable GNOME equivalent exists yet</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Status</h2>
+    <p class="sub">Said plainly, not buried: this is design-and-scaffolding stage. The full framework — driver scripts, all 5 mode bundles, a live-build ISO skeleton, a Calamares installer config, CI — exists and is static-analyzed, but <strong>no ISO has been built yet</strong> and nothing has run on real target hardware. The <a href="https://github.com/Mr-Pythoneer/crucible-os/blob/main/TODO.md">TODO.md</a> in the repo is the live, itemized source of truth — check there before believing anything here is further along than it is.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    Built on Ubuntu 24.04 LTS · live-build · Calamares · <a href="https://github.com/Mr-Pythoneer/Crucible12">Crucible12</a> for local AI ·
+    <a href="https://github.com/Mr-Pythoneer/crucible-os">github.com/Mr-Pythoneer/crucible-os</a>
+  </div>
+</footer>
+
+</body>
+</html>
