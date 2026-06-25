@@ -25,7 +25,7 @@ Alternative considered: **Arch-based** (like Pop's old base flirtations, or Cach
 
 **Pragmatic middle ground**: Ubuntu LTS base + HWE (Hardware Enablement) kernel stack + Mesa/kernel backports via the same PPAs CachyOS/Pop pull from. This gets Arch-tier freshness for the gaming-critical bits (kernel, GPU drivers, Mesa, Wine/Proton builds) without inheriting rolling-release instability everywhere else.
 
----
+**Pinned, as of 2026-06-25**: base point release is whatever the current Ubuntu 24.04.x is at build time — `iso/build.sh` doesn't hard-pin a specific `.x` release number, it targets `--distribution noble` and `--linux-flavours generic-hwe-24.04`, and that HWE metapackage always pulls the *current* HWE kernel/Mesa stack automatically. As of this writing that's **Ubuntu 24.04.4 LTS** (released 2026-02-12), shipping **Linux kernel 6.17** and **Mesa 25.2.7** via the HWE stack — current enough that no separate Mesa/kernel backport PPA is needed on top of it. Canonical's own roadmap has one more HWE bump landing ~August 2026 (kernel 6.20/7.0, Ubuntu 26.04's Mesa stack, shipping as 24.04.5) — `generic-hwe-24.04` will pick that up automatically on any build run after that lands, no config change required here.
 
 ## 2. "Run every Windows app" — what's actually true and what to build
 

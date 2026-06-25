@@ -12,9 +12,9 @@ Living checklist for the whole distro. Organized by the same structure as `DESIG
 
 ## 1. Base system
 
-- [ ] Ubuntu 24.04 LTS base image pinned (specific point release to build from)
-- [ ] HWE kernel + Mesa backport PPA selection finalized and documented
-- [ ] Base package list (minimal install + the tools every mode needs: `curl`, `jq`, `git`, `cpupower`, `power-profiles-daemon`)
+- [x] Ubuntu 24.04 base image — not hard-pinned to a specific `.x`, `iso/build.sh` targets `--distribution noble` + `--linux-flavours generic-hwe-24.04`, which auto-tracks whatever HWE stack is current. As of 2026-06-25 that's Ubuntu 24.04.4 LTS / kernel 6.17 / Mesa 25.2.7 — current enough that no extra Mesa/kernel PPA is needed on top. See DESIGN.md §1.
+- [x] HWE kernel + Mesa: resolved by the above — `generic-hwe-24.04` IS the backport mechanism, no separate PPA needed. Canonical's roadmap has another HWE bump (~August 2026, kernel 6.20/7.0) that this will pick up automatically with no config change.
+- [x] Base package list — see `iso/config/package-lists/base.list.chroot` (universal CLI tools) + `iso/strains/*.list.chroot` (DE + strain-specific). `cpupower` itself isn't a literal apt package name — it's provided by `linux-tools-common` + `linux-tools-generic`, which IS what's listed (caught and fixed earlier, not a remaining gap, just correcting this TODO line's wording).
 
 ## 2. Drivers (§3) — `drivers/`
 
@@ -105,7 +105,7 @@ Living checklist for the whole distro. Organized by the same structure as `DESIG
 - [x] Strain-selection file-copy/cleanup logic actually execution-tested (stubbed `lb`, ran `build.sh lowspec` then `build.sh laptop`, confirmed no cross-contamination between strains) — the one part of `iso/` that's been run for real, not just read and trusted
 - [ ] **(needs Linux build host — live-build doesn't run on macOS at all)** actually run `./build.sh` for the first time, for each strain
 - [ ] First buildable ISO (boots in a VM, even before all modes are polished) — **(needs Linux build host)**
-- [ ] Confirm `lubuntu-desktop`/`ubuntu-desktop-minimal` package names are still current on whatever Ubuntu release is actually targeted
+- [x] Confirmed `lubuntu-desktop`/`ubuntu-desktop-minimal` are both current real Noble (24.04) metapackages (Launchpad-verified, 2026-06-25). Also confirmed `lubuntu-desktop` is LXQt, not legacy LXDE (transitioned in 2018) — the `iso/strains/lowspec.list.chroot` comment describing it as LXQt was already correct.
 - [ ] `handheld` strain's actual differentiation (touch/gamepad UI) — currently identical to workstation, scaffolded but not built
 - [ ] `cloud` strain's delivery format — should eventually be a qcow2/raw cloud image + cloud-init, not an installer ISO; currently only the package-selection half exists
 - [ ] Decide whether to invest in `config/archives/` to bake Docker/Steam/etc. in at build time, once verified against a real host
