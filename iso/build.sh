@@ -48,6 +48,37 @@ echo -e "\033[36mStrain: $STRAIN\033[0m"
 find "$PACKAGE_LISTS" -maxdepth 1 -name "strain-*.list.chroot" -delete
 cp "$STRAIN_FILE" "$PACKAGE_LISTS/strain-${STRAIN}.list.chroot"
 
+# Calamares only makes sense for strains that ship a DE -- server/cloud are
+# headless and would use cloud-init/preseed instead of an interactive
+# installer GUI, not Calamares at all.
+HEADLESS_STRAINS=(server cloud)
+rm -f "$PACKAGE_LISTS/calamares.list.chroot"
+rm -rf "$INCLUDES/etc/calamares"
+rm -f "$INCLUDES/usr/share/applications/install-crucible-os.desktop"
+if [[ ! " ${HEADLESS_STRAINS[*]} " == *" $STRAIN "* ]]; then
+    echo -e "\033[36mWiring in Calamares (installer config, untested -- see iso/calamares/README.md)...\033[0m"
+    echo "calamares" > "$PACKAGE_LISTS/calamares.list.chroot"
+    mkdir -p "$INCLUDES/etc/calamares"
+    rsync -a --delete "$REPO_ROOT/iso/calamares/" "$INCLUDES/etc/calamares/" --exclude README.md
+    # Manual-launch desktop entry, not an auto-launch-on-live-boot hook --
+    # I don't have a build host to verify which live-session autostart
+    # mechanism (casper hook vs. autostart .desktop with a live-media
+    # check) is actually correct for this live-build/Calamares combination,
+    # so this doesn't guess at one. Whoever first boots a real image needs
+    # to confirm this actually shows up and works, then decide whether an
+    # autostart hook is worth adding.
+    mkdir -p "$INCLUDES/usr/share/applications"
+    cat > "$INCLUDES/usr/share/applications/install-crucible-os.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Install Crucible OS
+Exec=calamares
+Icon=system-software-install
+Terminal=false
+Categories=System;
+EOF
+fi
+
 echo -e "\033[36mCopying repo scripts into the image (opt/distro/, /usr/local/bin)...\033[0m"
 # Copied fresh from the repo at build time rather than committed as a
 # duplicate in git — there is exactly one copy of these scripts to keep in

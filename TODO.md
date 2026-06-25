@@ -7,7 +7,8 @@ Living checklist for the whole distro. Organized by the same structure as `DESIG
 - [x] Architecture plan (`DESIGN.md`)
 - [x] Repo scaffolding, disk-as-cache workflow established
 - [x] Name picked: **Crucible OS** (2026-06-25). No collisions found (checked against existing "Forge OS"/"Anvil Linux" projects, which were taken — Crucible OS/Crucible Linux was clear). Repo renamed to `crucible-os`, Calamares branding/build.sh/ISO strings updated to match.
-- [ ] LICENSE for the distro project itself (currently has none — Crucible12's MIT license doesn't automatically cover this repo)
+- [x] LICENSE (MIT, matching Crucible12) + NOTICE crediting upstream projects without vendoring them
+- [x] Top-level README.md (was missing entirely — repo had DESIGN.md/TODO.md but nothing GitHub would show on the repo homepage), links the landing page
 
 ## 1. Base system
 
@@ -110,7 +111,8 @@ Living checklist for the whole distro. Organized by the same structure as `DESIG
 - [ ] Decide whether to invest in `config/archives/` to bake Docker/Steam/etc. in at build time, once verified against a real host
 - [x] Calamares installer config skeleton (`iso/calamares/`: settings, welcome, users, partition modules + branding descriptor) — YAML-validated, but unverified against a real Calamares run; `partition.conf` flagged as lowest confidence
 - [ ] Brand assets (logo.png, welcome.png, show.qml slideshow) — not created, need a real logo now that the name exists, and a renderer to check the QML slideshow actually displays correctly
-- [ ] Wire Calamares config + package into `iso/build.sh`/`includes.chroot` (deliberately not done yet — installer polish is last per DESIGN.md §7's build order)
+- [x] Wire Calamares config + package into `iso/build.sh`/`includes.chroot` — moved up ahead of DESIGN.md §7's original "do this last" ordering since a real test host is imminent and it's cheaper to have everything ready for one end-to-end pass than to do this in two passes. Only wired for GUI strains (workstation/laptop/lowspec/handheld); server/cloud stay headless (cloud-init/preseed territory, not Calamares). Execution-tested the strain-switch cleanup logic with a stubbed `lb` across workstation→server→lowspec — caught and fixed a real bug where the installer desktop-entry file leaked across strain switches (cleaned up `etc/calamares` but not the separate `.desktop` file).
+- [ ] No live-session autostart hook for Calamares — added a manual-launch desktop entry only, since I'm not confident which autostart mechanism (casper hook vs. autostart `.desktop` with a live-media check) is correct for this live-build/Calamares combination without a host to verify against
 - [ ] **(needs Linux host)** install Calamares package, drop this config in, run an actual install end to end
 - [ ] CI: automated nightly/release ISO builds (GitHub Actions)
 

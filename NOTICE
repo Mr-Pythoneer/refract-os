@@ -1,0 +1,23 @@
+Crucible OS is a Linux distro build (live-build + Calamares config) plus a
+set of setup/mode-switching scripts. It does not vendor, fork, or modify any
+of the upstream projects it installs or builds on — they are pulled in as
+ordinary packages/repos and configured via the files in modes/, drivers/,
+and iso/.
+
+- Ubuntu — base distribution. https://ubuntu.com — Canonical Ltd.
+- live-build (Debian Live Systems Project) — ISO build tooling.
+  https://salsa.debian.org/live-team/live-build
+- Calamares — installer framework. https://calamares.io
+- Crucible12 — the local AI stack modes/ai/ is ported from.
+  https://github.com/Mr-Pythoneer/Crucible12 (MIT) — see its own NOTICE for
+  the further upstream projects it depends on (OpenCode, llama.cpp, Qwen3,
+  Unsloth GGUF quantizations).
+- Proton-GE, Wine (WineHQ), Bottles, GameMode, MangoHud, Lutris, Steam —
+  installed by modes/gaming/setup/*.sh, each under its own license.
+- FreeCAD, Blender, Kdenlive, DaVinci Resolve, ffmpeg / BtbN's FFmpeg-Builds —
+  installed by modes/creative/setup/*.sh, each under its own license.
+- WhiteSur GTK/icon/shell themes (vinceliuice) — installed by
+  modes/normal/setup/01-install-whitesur-theme.sh, MIT License.
+
+Crucible OS's own scripts, configs, and documentation are MIT-licensed — see
+LICENSE.
