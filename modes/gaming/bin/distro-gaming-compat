@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+#
+# Loader for the curated compatibility-fix database (compat-db/apps.json),
+# per DESIGN.md §2: "a compatibility database/launcher (similar in spirit to
+# Lutris' install scripts) curated for your distro specifically." Three
+# entry statuses, handled differently:
+#   workaround                  -- apply winetricks verbs to a Wine prefix
+#   broken                      -- print the honest "don't bother" notes
+#   native-alternative-recommended -- print/run the install for a real
+#                                     native Linux app instead of Wine
+#
+# Usage:
+#   distro-gaming-compat list
+#   distro-gaming-compat show <id>
+#   distro-gaming-compat apply <id> [WINEPREFIX path]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DB="$SCRIPT_DIR/../compat-db/apps.json"
+
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "distro-gaming-compat: python3 is required (used for JSON parsing) but not found" >&2
+    exit 1
+fi
+
+if [ ! -f "$DB" ]; then
+    echo "distro-gaming-compat: database not found at $DB" >&2
+    exit 1
+fi
+
+usage() {
+    echo "Usage: $(basename "$0") list | show <id> | apply <id> [WINEPREFIX path]" >&2
+    exit 1
+}
+
+case "${1:-}" in
+    list)
+        DB="$DB" python3 -c '
+import json, os
+data = json.load(open(os.environ["DB"]))
+for app in data["apps"]:
+    print("{:30s} [{:30s}] {}".format(app["id"], app["status"], app["name"]))
+'
+        ;;
+    show)
+        id="${2:-}"
+        [ -n "$id" ] || usage
+        DB="$DB" APP_ID="$id" python3 -c '
+import json, os, sys
+data = json.load(open(os.environ["DB"]))
+app_id = os.environ["APP_ID"]
+matches = [a for a in data["apps"] if a["id"] == app_id]
+if not matches:
+    print(f"No entry for id: {app_id}", file=sys.stderr)
+    sys.exit(1)
+print(json.dumps(matches[0], indent=2))
+'
+        ;;
+    apply)
+        id="${2:-}"
+        [ -n "$id" ] || usage
+        prefix="${3:-$HOME/.wine-$id}"
+
+        entry="$(DB="$DB" APP_ID="$id" python3 -c '
+import json, os, sys
+data = json.load(open(os.environ["DB"]))
+app_id = os.environ["APP_ID"]
+matches = [a for a in data["apps"] if a["id"] == app_id]
+if not matches:
+    print(f"No entry for id: {app_id}", file=sys.stderr)
+    sys.exit(1)
+print(json.dumps(matches[0]))
+')" || exit 1
+
+        status="$(printf '%s' "$entry" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')"
+        name="$(printf '%s' "$entry" | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')"
+        notes="$(printf '%s' "$entry" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("notes",""))')"
+
+        case "$status" in
+            workaround)
+                verbs="$(printf '%s' "$entry" | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)["winetricks_verbs"]))')"
+                if [ -z "$verbs" ]; then
+                    echo "Entry '$id' is marked 'workaround' but lists no winetricks verbs -- see notes:"
+                    echo "$notes"
+                    exit 0
+                fi
+                if ! command -v winetricks >/dev/null 2>&1; then
+                    echo "distro-gaming-compat: winetricks not found -- run modes/gaming/setup/03-install-wine-staging.sh first" >&2
+                    exit 1
+                fi
+                echo "Applying to $name (WINEPREFIX=$prefix): $verbs"
+                echo "Notes: $notes"
+                read -ra verb_array <<< "$verbs"
+                WINEPREFIX="$prefix" winetricks -q "${verb_array[@]}"
+                ;;
+            broken)
+                echo "$name has no reliable Wine workaround."
+                echo "$notes"
+                exit 1
+                ;;
+            native-alternative-recommended)
+                flatpak_id="$(printf '%s' "$entry" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("native_alternative",{}).get("flatpak_id") or "")')"
+                apt_pkg="$(printf '%s' "$entry" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("native_alternative",{}).get("apt_package") or "")')"
+                echo "$name has a native Linux alternative -- skipping Wine entirely."
+                echo "$notes"
+                if [ -n "$apt_pkg" ]; then
+                    echo
+                    echo "Install with: sudo apt-get install -y $apt_pkg"
+                elif [ -n "$flatpak_id" ]; then
+                    echo
+                    echo "Install with: flatpak install -y flathub $flatpak_id"
+                fi
+                ;;
+            *)
+                echo "distro-gaming-compat: unknown status '$status' for entry '$id'" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    *)
+        usage
+        ;;
+esac

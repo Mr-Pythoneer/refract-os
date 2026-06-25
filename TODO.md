@@ -59,7 +59,7 @@ Living checklist for the whole distro. Organized by the same structure as `DESIG
 - [x] Steam + Lutris install scripts
 - [x] verify-gaming.sh sanity check
 - [ ] DXVK + VKD3D-Proton standalone install for raw Wine prefixes outside Bottles/Proton-GE (low priority — both already bundle their own)
-- [ ] Curated compatibility-fix database for known-troublesome apps (Lutris-install-script style)
+- [x] Curated compatibility-fix database for known-troublesome apps (`compat-db/apps.json` + `bin/distro-gaming-compat`, Lutris-install-script style) — 11 entries across workaround/broken/native-alternative statuses, execution-tested end to end with a stubbed `winetricks`
 - [ ] Confirm `PINNED_APPS` desktop-file IDs in `modes/modectl/profiles/gaming.conf` against a real install
 - [ ] **(needs hardware/VM)** verify a real Proton-GE game launch end to end
 

@@ -1,0 +1,127 @@
+{
+  "$comment": "Curated compatibility database for known-troublesome Windows apps under Wine, per DESIGN.md §2: 'a compatibility database/launcher (similar in spirit to Lutris' install scripts) curated for your distro specifically, so common known-troublesome apps get auto-applied workarounds on install.' Entries are limited to apps/fixes with well-established, widely-documented behavior (WineHQ AppDB consensus, winetricks' own verb set) -- status 'native-alternative-recommended' apps point at a real native Linux option instead of fabricating a Wine fix that doesn't reliably exist. Loaded by bin/distro-gaming-compat. Each 'winetricks_verbs' entry is a real, current winetricks verb name -- not invented.",
+  "schema_version": 1,
+  "apps": [
+    {
+      "id": "ms-office-classic",
+      "name": "Microsoft Office 2010/2013/2016 (classic MSI installer, not Click-to-Run/365)",
+      "category": "productivity",
+      "status": "workaround",
+      "winetricks_verbs": ["gdiplus", "riched20", "riched30", "msxml6", "fontsmooth=rgb"],
+      "wine_version": "staging",
+      "notes": "Classic MSI-based Office installs are the long-documented WineHQ AppDB baseline case for this verb set. Click-to-Run (modern 365 installer) and license activation are far less reliable -- don't expect this to cover those.",
+      "source": "WineHQ AppDB general guidance for the MS Office product line"
+    },
+    {
+      "id": "ms-office-365-clicktorun",
+      "name": "Microsoft Office 365 (Click-to-Run installer)",
+      "category": "productivity",
+      "status": "broken",
+      "winetricks_verbs": [],
+      "notes": "Click-to-Run's installer and licensing/activation flow are not reliably functional under Wine. Use the classic MSI offline installer if you have access to one (see ms-office-classic), or use Office's web apps (office.com) in a browser, which work natively and fully.",
+      "source": "Long-standing WineHQ AppDB consensus on Click-to-Run vs classic MSI Office installers"
+    },
+    {
+      "id": "adobe-acrobat-reader-dc",
+      "name": "Adobe Acrobat Reader DC",
+      "category": "productivity",
+      "status": "native-alternative-recommended",
+      "winetricks_verbs": [],
+      "native_alternative": {
+        "apt_package": "evince",
+        "notes": "GNOME's native PDF viewer (already pulled in by ubuntu-desktop-minimal/lubuntu-desktop on most strains) handles standard PDFs, forms, and annotations. Reader DC under Wine is a known-poor experience (installer issues, plugin/update-service crashes) with no reliable fix."
+      },
+      "source": "Long-standing WineHQ AppDB consensus"
+    },
+    {
+      "id": "adobe-creative-cloud",
+      "name": "Adobe Creative Cloud desktop apps (Photoshop CC, Illustrator CC, Premiere/After Effects)",
+      "category": "creative",
+      "status": "broken",
+      "winetricks_verbs": [],
+      "notes": "The Creative Cloud installer/licensing service and the apps themselves are not reliably functional under Wine -- this is the same DRM/licensing-service problem flagged in DESIGN.md §2/§4 for Premiere/After Effects. Don't attempt; see modes/creative/README.md for the native alternatives Crucible OS actually ships (FreeCAD, Blender, DaVinci Resolve, Kdenlive).",
+      "source": "DESIGN.md §2/§4; WineHQ AppDB"
+    },
+    {
+      "id": "itunes",
+      "name": "Apple iTunes",
+      "category": "media",
+      "status": "broken",
+      "winetricks_verbs": [],
+      "notes": "Long-standing, never-fully-resolved WineHQ AppDB case -- installer/service crashes, Apple Mobile Device Support failures. No reliable workaround exists; there's also no good native-Linux equivalent for iOS device sync specifically. If only used for music playback, a native player (Rhythmbox/Clementine) plus moving the music library off-device is the realistic path, not a Wine fix.",
+      "source": "WineHQ AppDB"
+    },
+    {
+      "id": "epic-games-launcher",
+      "name": "Epic Games Launcher",
+      "category": "launcher",
+      "status": "native-alternative-recommended",
+      "winetricks_verbs": [],
+      "native_alternative": {
+        "apt_package": null,
+        "flatpak_id": "com.heroicgameslauncher.hgl",
+        "notes": "Heroic Games Launcher is a native, actively-maintained open-source client for Epic (and GOG/Amazon) game libraries -- a far more reliable path than running Epic's own launcher under Wine, which has long-standing UI rendering and login issues."
+      },
+      "source": "Heroic Games Launcher project (heroicgameslauncher.com); widely known as the standard Linux alternative to Epic's launcher"
+    },
+    {
+      "id": "gog-galaxy",
+      "name": "GOG Galaxy",
+      "category": "launcher",
+      "status": "native-alternative-recommended",
+      "winetricks_verbs": [],
+      "native_alternative": {
+        "apt_package": null,
+        "flatpak_id": "com.heroicgameslauncher.hgl",
+        "notes": "Heroic Games Launcher also covers GOG library management/installs natively. GOG itself also sells DRM-free installers that work fine standalone without Galaxy at all."
+      },
+      "source": "Heroic Games Launcher project"
+    },
+    {
+      "id": "battlenet",
+      "name": "Battle.net launcher (Blizzard)",
+      "category": "launcher",
+      "status": "workaround",
+      "winetricks_verbs": ["vcrun2022"],
+      "wine_version": "staging",
+      "notes": "Use Lutris' own maintained Battle.net install script rather than a hand-rolled prefix -- Lutris tracks Blizzard's frequent launcher updates more closely than a static verb list here ever could. This entry exists so the database is honest about the recommended path (defer to Lutris) instead of pretending to have a static fix.",
+      "source": "Lutris install-script database (lutris.net) maintains the current Battle.net recipe"
+    },
+    {
+      "id": "discord",
+      "name": "Discord",
+      "category": "communication",
+      "status": "native-alternative-recommended",
+      "winetricks_verbs": [],
+      "native_alternative": {
+        "apt_package": null,
+        "flatpak_id": "com.discordapp.Discord",
+        "notes": "Discord ships an official native Linux client (also available as a .deb from discord.com or via Flathub). No reason to run the Windows build under Wine."
+      },
+      "source": "Discord's own official Linux downloads page"
+    },
+    {
+      "id": "spotify",
+      "name": "Spotify",
+      "category": "media",
+      "status": "native-alternative-recommended",
+      "winetricks_verbs": [],
+      "native_alternative": {
+        "apt_package": null,
+        "flatpak_id": "com.spotify.Client",
+        "notes": "Spotify ships an official native Linux client (Snap, or Flathub). No reason to run the Windows build under Wine."
+      },
+      "source": "Spotify's own official Linux downloads page"
+    },
+    {
+      "id": "generic-dotnet-app",
+      "name": "Generic .NET Framework desktop app (no native Linux build)",
+      "category": "generic",
+      "status": "workaround",
+      "winetricks_verbs": ["dotnet48", "corefonts", "fontsmooth=rgb"],
+      "wine_version": "staging",
+      "notes": "Not a specific app -- a generic starting point for the very common 'this one app needs .NET and a specific font' case DESIGN.md §2 calls out winetricks as the answer for. Try this verb set first for unlisted .NET-based Windows utilities before assuming Wine can't run it at all.",
+      "source": "winetricks' own documented verb set"
+    }
+  ]
+}
