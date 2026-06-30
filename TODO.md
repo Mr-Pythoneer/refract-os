@@ -125,7 +125,7 @@ Living checklist for the whole distro. Organized by the same structure as `DESIG
 - [x] Workflow excludes `modes/modectl/profiles/*.conf` from shellcheck (sourced data fragments, not standalone scripts — checking them standalone produces false-positive "unused variable" warnings)
 - [x] Caught a real bug class via manual bash-5 execution (not just `-n`/shellcheck, which can't see this): `set -e` does NOT trigger on a non-last command failing inside a `&&` chain (verified empirically, not just asserted). Found and fixed 5 instances: `distro-modectl status` exiting 1 just because `powerprofilesctl` wasn't installed; 4 `apt-get update && apt-get install` lines that would silently continue past a failed `update`; an `sshd -t && systemctl reload` that would silently skip the reload (and still print a success message) if the config test failed. Fixed by splitting into sequential statements or explicit `if`-checks.
 - [ ] Run the same kind of manual bash-5 execution pass on a real Ubuntu box, not just locally via homebrew bash on macOS — this caught real bugs but isn't a substitute for testing in the actual target environment
-- [ ] CI currently only lints/parses — no job actually executes any script (can't, most need real system state). Worth revisiting whether any script could get a meaningful smoke test in CI (e.g. `distro-modectl status` with no root needed) once this is on a real Linux runner doing more than syntax checks
+- [x] CI now EXECUTES scripts, not just lints: `.github/workflows/tests.yml` runs `tests/run.sh` on `ubuntu-latest` — a stub-based suite (6 files, 44 assertions) for the pure-logic scripts (modectl, gaming-compat, creative-scratch, ai-ask, cloud-toggle) + a compat-db schema validator. The CI run does what a macOS box can't: e.g. asserts the `df -l --output` form works on real GNU coreutils. See `tests/README.md`.
 - [x] Final full-repo sweep after this session's additions: shellcheck + `bash -n` across all 45 bash scripts (clean), shellcheck + `sh -n` across both POSIX-sh casper hooks (clean), every JSON/YAML/Calamares config re-validated (all parse), the `distro-modectl status` smoke test re-run (exit 0), `show.qml`'s brace/paren balance re-checked, and all 3 `branding.desc`-referenced image/QML files confirmed to actually exist on disk. Also found and removed real local debris this sweep would have missed otherwise: a stray `iso/cloud-image/noble/` directory left by an early (buggy) stub during this session's own testing, and leftover gitignored `includes.chroot/{opt,usr,etc}` content from earlier strain-switch tests — neither was ever committed, but both were cleaned off disk per the disk-as-cache rule.
 
 ## 12. Adversarial audit pass (2026-06-30, ahead of first hardware)
@@ -165,6 +165,25 @@ rejected). 19 confirmed-real bugs fixed across 5 commits.
 - [ ] **(needs hardware)** Everything above is web-verified or static/stub
   tested, NOT run on the real 5090 — the runbook + readiness checklist are what
   close that gap when the card arrives (~early August 2026).
+
+### 12b. Hardening pass (test suite + security review)
+
+- [x] **Stub-based test suite + CI execution** (`tests/`, `.github/workflows/tests.yml`)
+  — 6 files / 44 assertions, runs on `ubuntu-latest` so scripts actually
+  execute on the target OS (real GNU coreutils), not just lint. Plus
+  `tests/validate-compat-db.py` (the schema check the audit recommended) wired
+  into CI to prevent the gaming-compat KeyError-regression class as the DB grows.
+- [x] **Adversarial security review** (root/sudo, GPG keys, curl|sh, temp files,
+  injection, file perms) — 12 candidates, **1 confirmed real** (most correctly
+  rejected: npm-as-root is the expected operator; unpinned llama.cpp master has
+  the same trust root as any source build). Fixed: `01-install-whitesur-theme.sh`
+  cloned **unpinned upstream HEAD** of third-party theme repos and ran their
+  `install.sh` (supply-chain RCE surface) — now pins both repos to verified
+  commit SHAs with fetch-by-SHA + verify-abort. This also fixed a real
+  functional bug the review surfaced: the script cloned a **nonexistent**
+  `WhiteSur-gnome-shell-theme` repo (404), which under `set -e` aborted the
+  whole script so even the GTK/icon themes never installed; the GTK repo's own
+  install.sh installs the shell theme anyway.
 
 ## 11. Open questions (carried over from DESIGN.md) — resolved or defaulted
 

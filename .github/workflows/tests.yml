@@ -1,0 +1,24 @@
+name: tests
+
+# Actually EXECUTES the pure-logic scripts against stubs on a real Ubuntu
+# runner — distinct from shellcheck.yml, which only lints. This is where the
+# GNU-coreutils-dependent behaviour (e.g. the `df -l --output` fix) is verified
+# on the real target OS, which a macOS dev box can't do. See tests/README.md.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the stub-based test suite
+        run: bash tests/run.sh
+
+      - name: Validate the gaming compat-db schema
+        # Also covered by the suite, but a standalone, clearly-named check so a
+        # malformed compat-db/apps.json fails CI with an obvious signal.
+        run: python3 tests/validate-compat-db.py
