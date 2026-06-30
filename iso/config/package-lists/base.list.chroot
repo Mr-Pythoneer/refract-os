@@ -11,7 +11,13 @@ git
 build-essential
 cmake
 linux-tools-common
-linux-tools-generic
+## Must match the HWE kernel build.sh installs (--linux-flavours
+## generic-hwe-24.04), NOT the GA kernel. linux-tools-common ships the
+## /usr/bin/cpupower|perf wrappers that exec /usr/lib/linux-tools/$(uname -r)/<tool>;
+## the GA linux-tools-generic never installs the HWE-ABI directory, so cpupower
+## (used by distro-modectl for every performance mode) would fail at runtime
+## once the HWE ABI diverges from GA. The -hwe-24.04 tools track the HWE ABI.
+linux-tools-generic-hwe-24.04
 power-profiles-daemon
 mokutil
 ffmpeg

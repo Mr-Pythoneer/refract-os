@@ -57,15 +57,21 @@ mkdir -p "$MOUNT_DIR"
 echo "Creating ${SIZE_GB}G raw image: $RAW_IMG"
 qemu-img create -f raw "$RAW_IMG" "${SIZE_GB}G"
 
-LOOP_DEV="$(losetup -f)"
-losetup "$LOOP_DEV" "$RAW_IMG"
+# --partscan is REQUIRED: a loop device attached without it (and with the loop
+# module's default max_part=0) never gets /dev/loopXp1 partition nodes created,
+# so mkfs.ext4 on ${LOOP_DEV}p1 would fail with "No such file or directory".
+# --find --show also makes the attach atomic, avoiding the losetup -f / losetup
+# two-step TOCTOU race.
+LOOP_DEV="$(losetup --partscan --find --show "$RAW_IMG")"
 
 echo "Partitioning $LOOP_DEV (single ext4 partition, BIOS/GRUB legacy boot -- no ESP, see Status notes)..."
 parted -s "$LOOP_DEV" mklabel msdos
 parted -s "$LOOP_DEV" mkpart primary ext4 1MiB 100%
 parted -s "$LOOP_DEV" set 1 boot on
 partprobe "$LOOP_DEV"
-sleep 1   # let the kernel register the new partition device node
+# Wait deterministically for the partition node to appear rather than guessing a
+# fixed sleep. Fall back to a bounded poll if udevadm isn't present.
+udevadm settle 2>/dev/null || { for _ in $(seq 1 10); do [ -b "${LOOP_DEV}p1" ] && break; sleep 0.5; done; }
 
 PART_DEV="${LOOP_DEV}p1"
 mkfs.ext4 -F "$PART_DEV"
@@ -85,7 +91,12 @@ mount -t proc proc "$MOUNT_DIR/proc"
 mount -t sysfs sysfs "$MOUNT_DIR/sys"
 
 echo "Installing kernel, GRUB, cloud-init, and the cloud strain's package list inside the chroot..."
+# Inner chroot bash -c shells do NOT inherit the outer set -euo pipefail, so
+# each gets its own — otherwise a failed apt-get whose block ends on a
+# succeeding `rm` would return 0 and the outer set -e would never see it,
+# producing a "Done" image silently missing packages.
 chroot "$MOUNT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive bash -c '
+    set -euo pipefail
     apt-get update
     apt-get install -y --no-install-recommends \
         linux-image-generic grub-pc cloud-init cloud-guest-utils openssh-server
@@ -94,6 +105,7 @@ chroot "$MOUNT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive bash -c '
 cp "$(dirname "${BASH_SOURCE[0]}")/../strains/cloud.list.chroot" "$MOUNT_DIR/tmp/cloud.list.chroot" 2>/dev/null || true
 if [ -f "$MOUNT_DIR/tmp/cloud.list.chroot" ]; then
     chroot "$MOUNT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive bash -c '
+        set -euo pipefail
         grep -v "^##" /tmp/cloud.list.chroot | xargs -r apt-get install -y --no-install-recommends
         rm -f /tmp/cloud.list.chroot
     '

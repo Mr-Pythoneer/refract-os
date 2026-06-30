@@ -34,16 +34,28 @@ if ! command -v qlmanage >/dev/null 2>&1; then
     exit 1
 fi
 
-# Renders one SVG to an exact W x H PNG, auto-cropping qlmanage's square
-# letterbox padding back out based on the SVG's own viewBox aspect ratio.
+# Renders one SVG to an exact W x H PNG. qlmanage renders into a SQUARE canvas
+# (scaling to fit the SVG's own viewBox aspect, white-letterboxing the rest), so
+# the real content band is determined by the SOURCE viewBox aspect, NOT the
+# target — crop the band using the parsed viewBox, then resize to the target.
 rasterize() {
     local svg="$1" width="$2" height="$3" out_name="$4"
     local square=$(( width > height ? width : height ))
 
-    rm -f "$OUT/${out_name}.svg.png"
+    # Parse "viewBox='minx miny W H'" -> src_w/src_h (3rd/4th tokens).
+    local vb src_w src_h
+    vb="$(grep -o 'viewBox="[^"]*"' "$svg" | head -n1 | sed -E 's/viewBox="([^"]*)"/\1/')"
+    src_w="$(printf '%s\n' "$vb" | awk '{print $3}')"
+    src_h="$(printf '%s\n' "$vb" | awk '{print $4}')"
+    if [ -z "$src_w" ] || [ -z "$src_h" ]; then
+        echo "build.sh: could not parse viewBox from $svg" >&2
+        return 1
+    fi
+
+    rm -f "$OUT/$(basename "$svg").png"
     qlmanage -t -s "$square" -o "$OUT" "$svg" >/dev/null
 
-    PYW="$square" PYH="$height" PYTARGETW="$width" PYTARGETH="$height" \
+    PYTARGETW="$width" PYTARGETH="$height" PYSRCW="$src_w" PYSRCH="$src_h" \
     SRC_PNG="$OUT/$(basename "$svg").png" DEST_PNG="$OUT/$out_name" python3 -c '
 import os
 from PIL import Image
@@ -52,16 +64,17 @@ im = Image.open(os.environ["SRC_PNG"]).convert("RGBA")
 square = im.size[0]
 target_w = int(os.environ["PYTARGETW"])
 target_h = int(os.environ["PYTARGETH"])
+src_w = float(os.environ["PYSRCW"])
+src_h = float(os.environ["PYSRCH"])
 
-# Scale-to-fit within the square (qlmanage preserves aspect ratio, centers it),
-# so the rendered content height within the square is square * (target_h/target_w)
-# when target_w is the limiting dimension, else full square height.
-if target_w >= target_h:
-    content_h = round(square * (target_h / target_w))
+# The non-white content band inside the square is fixed by the SOURCE aspect:
+# qlmanage scaled the viewBox to fit the square and centered it.
+if src_w >= src_h:
+    content_h = round(square * (src_h / src_w))
     top = (square - content_h) // 2
     box = (0, top, square, top + content_h)
 else:
-    content_w = round(square * (target_w / target_h))
+    content_w = round(square * (src_w / src_h))
     left = (square - content_w) // 2
     box = (left, 0, left + content_w, square)
 
