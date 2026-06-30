@@ -128,6 +128,44 @@ Living checklist for the whole distro. Organized by the same structure as `DESIG
 - [ ] CI currently only lints/parses — no job actually executes any script (can't, most need real system state). Worth revisiting whether any script could get a meaningful smoke test in CI (e.g. `distro-modectl status` with no root needed) once this is on a real Linux runner doing more than syntax checks
 - [x] Final full-repo sweep after this session's additions: shellcheck + `bash -n` across all 45 bash scripts (clean), shellcheck + `sh -n` across both POSIX-sh casper hooks (clean), every JSON/YAML/Calamares config re-validated (all parse), the `distro-modectl status` smoke test re-run (exit 0), `show.qml`'s brace/paren balance re-checked, and all 3 `branding.desc`-referenced image/QML files confirmed to actually exist on disk. Also found and removed real local debris this sweep would have missed otherwise: a stray `iso/cloud-image/noble/` directory left by an early (buggy) stub during this session's own testing, and leftover gitignored `includes.chroot/{opt,usr,etc}` content from earlier strain-switch tests — neither was ever committed, but both were cleaned off disk per the disk-as-cache rule.
 
+## 12. Adversarial audit pass (2026-06-30, ahead of first hardware)
+
+A multi-agent audit ahead of the 5090 arriving: web-verified every external
+dependency + an adversarial code review where each candidate bug was
+independently verified before acceptance (3 false positives correctly
+rejected). 19 confirmed-real bugs fixed across 5 commits.
+
+- [x] **5090/Blackwell driver blocker** — RTX 5090 needs the `-open` kernel
+  module (closed module → "No devices found") AND driver branch ≥570 (550
+  example was wrong). `drivers/install-nvidia.sh` defaults to `-open`,
+  installs `nvidia-driver-<v>-open`, documents the 570+/graphics-drivers-PPA
+  fallback. Also fixed: Secure-Boot MOK false "no signing needed" when mokutil
+  absent/unknown.
+- [x] **HIGH bugs** — `df -lP --output` mutually exclusive (creative-scratch
+  NVMe detection silently always fell back to /var/tmp); `--yes` dropped on
+  modectl's sudo re-exec (broke non-interactive server switch); cloud-image
+  loop device missing `--partscan` (mkfs would abort the build).
+- [x] **MEDIUM/LOW bugs** — microcode grep dead on kernel 6.8; opencode Node
+  guard never fired for pre-existing Node; systemd unit missing
+  `LimitMEMLOCK=infinity`; gaming-compat KeyError traceback; steam multiverse
+  DEB822-blind; sshd validate-after-apply; proton-ge pre-creating ~/.steam/root;
+  davinci `dpkg -s nvidia-driver-*` glob; modectl usage() separator + AI-start
+  abort-before-state-write; base.list HWE linux-tools mismatch; branding crop
+  band + dead pre-clean rm.
+- [x] **External deps confirmed correct** (no change needed) — all llama.cpp
+  build/runtime flags, the `Qwen3-Coder-Next` model + all 3 HF repos/quants,
+  WineHQ noble repo, Lutris PPA, GE-Proton/BtbN asset naming, all Flatpak IDs,
+  Netdata/Docker/live-build/Calamares/casper. The OpenCode `{env:VAR}` syntax
+  previously flagged as a guess is now confirmed documented (caveat removed).
+- [x] `preflight.sh` — build-host readiness check (env/static/network/apt),
+  whose network section live-reconfirmed all 16 external endpoints (200 OK).
+- [x] `docs/blackwell-readiness.md` — consolidated, web-verified 5090 reference.
+- [x] `docs/first-hardware-runbook.md` — ordered 6-stage test plan (OVH server
+  track + 5090 track).
+- [ ] **(needs hardware)** Everything above is web-verified or static/stub
+  tested, NOT run on the real 5090 — the runbook + readiness checklist are what
+  close that gap when the card arrives (~early August 2026).
+
 ## 11. Open questions (carried over from DESIGN.md) — resolved or defaulted
 
 - ~~Distro name~~ — **resolved**: Crucible OS (see §0).
