@@ -39,23 +39,41 @@ fi
 echo -e "\033[36mQuerying latest GE-Proton release...\033[0m"
 RELEASE_JSON=$(curl -fsSL -H "User-Agent: distro-setup" "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest")
 TAG=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
-ASSET_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test("\\.tar\\.gz$")) | .browser_download_url' | head -n1)
+# Exclude the aarch64 asset — pin the x86-64 tarball (GE-Proton<tag>.tar.gz).
+ASSET_NAME=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test("\\.tar\\.gz$")) | select(.name | test("aarch64") | not) | .name' | head -n1)
+ASSET_URL=$(echo "$RELEASE_JSON" | jq -r --arg n "$ASSET_NAME" '.assets[] | select(.name == $n) | .browser_download_url' | head -n1)
 
 if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
-    echo "Could not find a .tar.gz asset in the latest release ($TAG). Check https://github.com/GloriousEggroll/proton-ge-custom/releases manually." >&2
+    echo "Could not find an x86-64 .tar.gz asset in the latest release ($TAG). Check https://github.com/GloriousEggroll/proton-ge-custom/releases manually." >&2
     exit 1
 fi
 
+# GE-Proton ships a per-tarball SHA-512 checksum file (<tarball>.sha512sum, in
+# canonical 'hash  filename' form), so verify the download before extracting it
+# into Steam — a corrupted/tampered Proton build would otherwise run games.
+SUM_NAME="${ASSET_NAME%.tar.gz}.sha512sum"
+SUM_URL=$(echo "$RELEASE_JSON" | jq -r --arg n "$SUM_NAME" '.assets[] | select(.name == $n) | .browser_download_url' | head -n1)
+
 echo -e "\033[32mLatest: $TAG\033[0m"
 mkdir -p "$INSTALL_DIR"
-TMP_FILE=$(mktemp --suffix=.tar.gz)
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
 
-echo "Downloading $ASSET_URL ..."
-curl -fL -o "$TMP_FILE" "$ASSET_URL"
+echo "Downloading $ASSET_NAME ..."
+curl -fL -o "$TMP_DIR/$ASSET_NAME" "$ASSET_URL"
+
+if [ -n "$SUM_URL" ] && [ "$SUM_URL" != "null" ]; then
+    curl -fL -o "$TMP_DIR/$SUM_NAME" "$SUM_URL"
+    echo "Verifying SHA-512 ..."
+    ( cd "$TMP_DIR" && sha512sum -c "$SUM_NAME" ) \
+        || { echo "CHECKSUM MISMATCH for $ASSET_NAME — refusing to install a corrupted/tampered Proton build." >&2; exit 1; }
+else
+    echo "WARNING: no .sha512sum published for $ASSET_NAME — installing UNVERIFIED." >&2
+fi
 
 echo "Extracting to $INSTALL_DIR ..."
-tar -xzf "$TMP_FILE" -C "$INSTALL_DIR"
-rm -f "$TMP_FILE"
+tar -xzf "$TMP_DIR/$ASSET_NAME" -C "$INSTALL_DIR"
+rm -rf "$TMP_DIR"; trap - EXIT
 
 echo -e "\033[32m\nInstalled $TAG to $INSTALL_DIR\033[0m"
 echo "Restart Steam, then enable it per-game: right-click a game -> Properties -> Compatibility -> check 'Force the use of a specific Steam Play compatibility tool' -> select $TAG."

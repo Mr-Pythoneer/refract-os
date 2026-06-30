@@ -21,7 +21,7 @@ Matches DESIGN.md's stance exactly: native, working apps are the pitch — Windo
 - **Blender** — Flatpak, native, modeling/CAD-adjacent + full render pipeline
 - **Kdenlive** — Flatpak, native, lighter video editor
 - **DaVinci Resolve** — official native Linux build, headline video app. **Cannot be auto-downloaded**: Blackmagic Design requires an email registration on their site before generating a download link, so there's no stable URL to curl. `04-install-davinci-resolve.sh` takes a path to a .zip you download yourself once, then handles extraction + running BMD's own `.run` installer.
-- **ffmpeg with NVENC/NVDEC** — Ubuntu's repo build typically lacks NVENC (build-dependency/licensing reasons). The script checks the system ffmpeg first, and if it's missing NVENC, fetches BtbN's prebuilt static Linux build (which does include it) rather than building from source.
+- **ffmpeg with NVENC/NVDEC** — Ubuntu's repo build typically lacks NVENC (build-dependency/licensing reasons). The script checks the system ffmpeg first, and if it's missing NVENC, fetches BtbN's prebuilt static Linux build (which does include it) rather than building from source. The download is integrity-checked against BtbN's `checksums.sha256` manifest before install.
 
 **Not attempted, by design**: SolidWorks, AutoCAD, Premiere Pro, After Effects under Wine. DESIGN.md §4 covers why — DRM, .NET dependencies, and plugin-architecture issues that even CodeWeavers (CrossOver, years of dedicated AutoCAD-support work) hasn't fully solved. Promising these would repeat the same overreach risk flagged for "every Windows app" in DESIGN.md §2. Fusion 360's browser/cloud tier is the one realistic path for CAD users who specifically need an Autodesk product, and it sidesteps Wine entirely.
 
@@ -60,4 +60,4 @@ script still exits 0 when the non-fatal Blender step fails).
 
 - `01-install-freecad.sh`'s Flathub app ID guess (tries `org.freecad.FreeCAD` then falls back to `org.freecadweb.FreeCAD`, then a live search) — FreeCAD rebranded their Flathub ID around the 0.21 release and I'm not certain which is current as of whenever this actually runs. The script handles either outcome instead of assuming.
 - Nothing here has run against a real Nvidia GPU yet (NVENC check, Resolve's GPU dependency) — same hardware-availability gap as everywhere else in this repo.
-- Color-managed display profile loading (mentioned in DESIGN.md for Creative mode) is not implemented — monitor-specific, needs a real display attached, tracked in `modes/modectl/README.md`.
+- Color-managed display profile loading — now **scaffolded** as `bin/distro-creative-color` (colord/colormgr import + assign-to-default-display; web-verified command sequence). It can only be *run* on a machine with a real connected monitor + a measured `.icc` profile and colord running — so it's a correct, parameterized scaffold, not something verifiable headless. Usage: `distro-creative-color apply <profile.icc>`.

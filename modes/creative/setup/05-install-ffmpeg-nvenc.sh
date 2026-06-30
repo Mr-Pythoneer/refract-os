@@ -29,7 +29,13 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 RELEASE_JSON=$(curl -fsSL -H "User-Agent: distro-setup" "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest")
-ASSET_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test("linux64-gpl\\.tar\\.xz$")) | .browser_download_url' | head -n1)
+# Anchor on the literal suffix so this picks the STATIC master GPL build
+# (ffmpeg-master-latest-linux64-gpl.tar.xz) and not the -shared or numbered
+# variants (which end -gpl-shared.tar.xz / -gpl-7.1.tar.xz).
+ASSET_NAME=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | test("linux64-gpl\\.tar\\.xz$")) | .name' | head -n1)
+ASSET_URL=$(echo "$RELEASE_JSON" | jq -r --arg n "$ASSET_NAME" '.assets[] | select(.name == $n) | .browser_download_url' | head -n1)
+# BtbN ships ONE combined manifest (checksums.sha256) listing every asset.
+SUM_URL=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name == "checksums.sha256") | .browser_download_url' | head -n1)
 
 if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
     echo "Could not find a linux64-gpl build in the latest release. Check https://github.com/BtbN/FFmpeg-Builds/releases manually." >&2
@@ -37,9 +43,19 @@ if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
 fi
 
 TMP_DIR=$(mktemp -d)
-TMP_FILE="$TMP_DIR/ffmpeg.tar.xz"
-echo "Downloading $ASSET_URL ..."
+TMP_FILE="$TMP_DIR/$ASSET_NAME"
+echo "Downloading $ASSET_NAME ..."
 curl -fL -o "$TMP_FILE" "$ASSET_URL"
+
+if [ -n "$SUM_URL" ] && [ "$SUM_URL" != "null" ]; then
+    curl -fL -o "$TMP_DIR/checksums.sha256" "$SUM_URL"
+    echo "Verifying SHA-256 (--ignore-missing: the manifest lists ~60 assets, we only fetched one)..."
+    ( cd "$TMP_DIR" && sha256sum --ignore-missing -c checksums.sha256 ) \
+        || { echo "CHECKSUM MISMATCH for $ASSET_NAME — refusing to install a corrupted/tampered ffmpeg." >&2; rm -rf "$TMP_DIR"; exit 1; }
+else
+    echo "WARNING: no checksums.sha256 published — installing UNVERIFIED." >&2
+fi
+
 tar -xJf "$TMP_FILE" -C "$TMP_DIR"
 
 BIN_DIR=$(find "$TMP_DIR" -type d -name bin | head -n1)

@@ -6,11 +6,21 @@ Compatibility stack per DESIGN.md §2/§4. Run in order:
 ./setup/01-install-steam.sh
 ./setup/02-install-lutris.sh
 ./setup/03-install-wine-staging.sh
-./setup/04-install-proton-ge.sh
+./setup/04-install-proton-ge.sh                 # checksum-verified (.sha512sum)
 ./setup/05-install-bottles.sh
 ./setup/06-install-gamemode-mangohud.sh
+./setup/07-install-dxvk-vkd3d.sh ~/.wine both   # OPTIONAL: only for raw Wine prefixes (not Steam/Bottles)
 ./setup/verify-gaming.sh
 ```
+
+`07-install-dxvk-vkd3d.sh` installs DXVK (D3D9/10/11→Vulkan) and VKD3D-Proton
+(D3D12→Vulkan) into a **raw Wine prefix** you name — for non-Steam apps run via
+plain Wine. Steam's Proton and Bottles already bundle their own copies, so you
+do **not** need this for those. Both downloads are integrity-checked against the
+SHA-256 the GitHub API publishes (these projects ship no checksum file). Web-
+verified against current upstream: DXVK (v3.x) ships a `.tar.gz` with no setup
+script anymore (installed manually), VKD3D-Proton (v3.x) ships a `.tar.zst` with
+its own `setup_vkd3d_proton.sh`.
 
 Then `distro-modectl switch gaming` (see `modes/modectl/`) applies the
 performance governor/power profile and (best-effort) pins these apps to the
@@ -44,11 +54,14 @@ distro-gaming-compat apply <id> [WINEPREFIX path]
 ```
 
 Execution-tested end to end (bash 5, stubbed `winetricks`) across all three
-status branches plus the unknown-id and missing-winetricks error paths.
-Deliberately small and honest rather than broad and speculative — entries
-are limited to apps/fixes with well-established WineHQ AppDB consensus or
-winetricks' own documented verbs, not invented fixes for apps that don't
-reliably have one.
+status branches plus the unknown-id and missing-winetricks error paths, and
+**validated in CI** against `tests/validate-compat-db.py` (so a malformed entry
+fails the build). **25 entries** as of 2026-06 (Office, Adobe, iTunes, the game
+launchers, Discord/Spotify, Notepad++/IrfanView/foobar2000/Photoshop CS6,
+7-Zip/WinRAR/Teams/Afterburner/Rufus/Paint.NET/SketchUp/Roblox natives, Affinity
++ kernel-anticheat games as honestly-broken). Entries are limited to apps/fixes
+with well-established WineHQ AppDB / winetricks / Lutris consensus — not invented
+fixes for apps that don't reliably have one.
 
 ## Known gaps / unverified
 
