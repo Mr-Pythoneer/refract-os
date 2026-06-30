@@ -103,7 +103,7 @@ Optional, explicit opt-in only: a toggle to also route through Claude (cloud) wh
 
 This is the part of the project most worth prototyping first — you already have a working stack, the task is porting + systemd-wrapping it, not inventing it.
 
-**Status: built**, see `modes/ai/`. Bash ports of all setup/run/benchmark scripts, systemd unit template, and `distro-ai-preset` control script. **Not yet run end-to-end — the target GPU hardware (RTX 5090 + 9950X3D box) doesn't exist yet; ETA ~3 months (~September 2026).** This is a known, expected gap, not something blocking the rest of the project.
+**Status: built**, see `modes/ai/`. Bash ports of all setup/run/benchmark scripts, systemd unit template, and `distro-ai-preset` control script. **Not yet run end-to-end — but the RTX 5090 arrives ~late July 2026 and the full build (5090 + 9950X3D) is ready ~early August 2026, so this is weeks out, not months.** All external deps (driver branch ≥570 + open module, CUDA 12.8+/13.x for sm_120, llama.cpp flags, HF model repos) are web-verified — see `docs/blackwell-readiness.md` — but unrun on the real card.
 
 ---
 

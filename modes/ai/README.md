@@ -99,7 +99,7 @@ time.
 
 ## Status
 
-Ported but **not yet run end-to-end** — same caveat the original Crucible12 README carries: built without access to the target GPU hardware. **The hardware itself doesn't exist yet — target build is ~3 months out (ETA ~September 2026).** This is a known, expected gap, not a blocker on other work; everything below stays unchecked until that box is built. Needs verification once it exists:
+Ported but **not yet run end-to-end** — built without access to the target GPU hardware. **The RTX 5090 is arriving ~late July 2026, with the full build (5090 + 9950X3D) ready ~early August 2026** — so this is weeks from being testable, not months. Every external dependency here has been web-verified (driver branch, CUDA version, llama.cpp flags, HF model repos — see [Blackwell readiness](../../docs/blackwell-readiness.md)), but nothing has run on the real card. Needs verification once it's built:
 - [ ] `01-install-llamacpp.sh` actually builds successfully against CUDA 12.8+ for sm_120
 - [ ] Each preset's `run-*.sh` starts cleanly and `nvidia-smi` shows expected GPU utilization (use `benchmark.sh`)
 - [ ] systemd unit (`crucible12@<preset>.service`) starts/stops correctly under the `crucible12` service user, with correct file permissions on `/opt/crucible12/models` and `/opt/crucible12/bin`

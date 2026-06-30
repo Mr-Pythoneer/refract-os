@@ -1,6 +1,6 @@
 # Project TODO — full framework
 
-Living checklist for the whole distro. Organized by the same structure as `DESIGN.md`. Check items off as they're built; every item should eventually link to the file/dir that implements it. Items marked **(needs hardware)** can't be verified until the GPU server exists (~3 months out, see `modes/ai/README.md`) or a generic test VM/box is available; items marked **(needs live desktop)** need an actual running GNOME session to build/verify against, not just a remote shell.
+Living checklist for the whole distro. Organized by the same structure as `DESIGN.md`. Check items off as they're built; every item should eventually link to the file/dir that implements it. Items marked **(needs hardware)** can't be verified until the real build lands (**RTX 5090 ~late July 2026, full 5090+9950X3D build ~early August 2026** — see `modes/ai/README.md` and `docs/blackwell-readiness.md`) or a generic test VM/box is available; items marked **(needs live desktop)** need an actual running GNOME session to build/verify against, not just a remote shell.
 
 ## 0. Foundation
 
