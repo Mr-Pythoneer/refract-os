@@ -12,9 +12,11 @@
 # accepting the EULA themselves) is fine. LM Studio is free for personal AND
 # commercial use as of mid-2025.
 #
-# Requirements (Blackwell/5090): an Nvidia driver >= 550.54.14 and CUDA 12
-# (see drivers/install-nvidia.sh + docs/blackwell-readiness.md). Run as the
-# normal desktop user, NOT root — LM Studio installs per-user into ~/.lmstudio.
+# Requirements: LM Studio's llmster installer wants an Nvidia driver >= 550 and
+# CUDA 12 in general — BUT the RTX 5090 (Blackwell) specifically needs the
+# >=570 OPEN driver (nvidia-driver-<v>-open); the 550 branch doesn't support the
+# 5090 at all. Install that first: drivers/install-nvidia.sh + docs/blackwell-readiness.md.
+# Run as the normal desktop user, NOT root — LM Studio installs per-user into ~/.lmstudio.
 #
 # Usage: ./01-install-lmstudio.sh
 

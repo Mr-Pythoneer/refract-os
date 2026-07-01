@@ -2,7 +2,7 @@
 #
 # Shared backend for the hotkey overlay and the Nautilus "ask AI about this
 # file" action (modes/ai/integrations/nautilus-ask-ai). Both are thin clients
-# on top of whatever Crucible12 preset is already running -- per DESIGN.md
+# on top of whatever model LM Studio has loaded -- per DESIGN.md
 # §5 this just does an OpenAI-compatible HTTP call to localhost:8080, no new
 # inference logic.
 #
@@ -51,7 +51,7 @@ print(json.dumps({
 response="$(curl -sS --max-time 60 -X POST "$ENDPOINT" \
     -H "Content-Type: application/json" \
     -d "$payload" 2>&1)" || {
-    echo "distro-ai-ask: could not reach $ENDPOINT -- is a Crucible12 preset running? (distro-ai-preset status)" >&2
+    echo "distro-ai-ask: could not reach $ENDPOINT -- is a model loaded and the server up? Try: distro-ai-model status  (start it: distro-ai-model server start)" >&2
     echo "$response" >&2
     exit 1
 }

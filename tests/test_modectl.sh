@@ -27,4 +27,17 @@ out="$(PATH="$sd:$PATH" "$MODECTL" switch server </dev/null 2>&1)"; rc=$?
 assert_contains "non-interactive switch w/o --yes refuses" "$out" "Refusing to prompt"
 rm -rf "$sd"
 
+# REGRESSION (symlink blocker): invoked via a /usr/local/bin-style symlink,
+# PROFILE_DIR must resolve to the REAL profiles dir, not the symlink's dir.
+# `switch` reads the profile (before the sudo re-exec), so it exercises this;
+# stub id (non-root) + sudo so it reaches the profile read without escalating.
+symdir="$(new_stubdir)"
+ln -s "$MODECTL" "$symdir/distro-modectl"
+stub "$symdir" id 'if [ "$1" = "-u" ]; then echo 1000; else exit 0; fi'
+stub "$symdir" sudo 'echo "REEXEC"; exit 0'
+out="$(PATH="$symdir:$PATH" "$symdir/distro-modectl" switch gaming </dev/null 2>&1)"
+assert_not_contains "switch via symlink resolves profiles (no 'No profile found')" "$out" "No profile found"
+assert_contains "switch via symlink reads the gaming profile" "$out" "Gaming"
+rm -rf "$symdir"
+
 finish

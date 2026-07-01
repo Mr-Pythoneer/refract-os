@@ -59,8 +59,11 @@ for i in ids:
 PY
 }
 
-mapfile -t ROWS < <(resolve_ids "$@") || { echo "Failed to resolve models from catalog." >&2; exit 1; }
-if [ "${#ROWS[@]}" -eq 0 ]; then echo "No LM Studio models matched." >&2; exit 1; fi
+# Capture resolve_ids' status directly — a process substitution's exit status
+# is NOT seen by mapfile, so `mapfile ... || ...` can't detect resolve failure.
+rows_out="$(resolve_ids "$@")" || { echo "Failed to resolve models from catalog." >&2; exit 1; }
+if [ -z "$rows_out" ]; then echo "No LM Studio models matched." >&2; exit 1; fi
+mapfile -t ROWS <<< "$rows_out"
 
 total=0
 echo -e "\033[36mModels to download:\033[0m"
@@ -75,9 +78,10 @@ echo "Models with vision (qwen2.5-vl*) pull their mmproj projector automatically
 for row in "${ROWS[@]}"; do
     IFS=$'\t' read -r id repo quant size <<< "$row"
     echo -e "\033[36m\n== $id : $repo@$quant ==\033[0m"
-    # Full HF-URL form + @quant resolves to a single artifact and minimizes prompting.
+    # Full HF-URL form + @quant resolves to a single artifact and minimizes
+    # prompting. Both attempts pass --yes so neither blocks on a confirm.
     "$LMS" get "https://huggingface.co/$repo@$quant" --yes 2>/dev/null \
-        || "$LMS" get "$repo@$quant" \
+        || "$LMS" get "$repo@$quant" --yes \
         || echo "WARNING: 'lms get' failed for $id — pull it manually in the LM Studio Discover tab ($repo)." >&2
 done
 

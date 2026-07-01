@@ -2,9 +2,9 @@
 #
 # Global-hotkey assistant overlay, per DESIGN.md §5: "a global hotkey
 # assistant overlay (thin client hitting localhost:8080)". Meant to be bound
-# to a keyboard shortcut (see bind-hotkey.sh in this same directory) so a
+# to a keyboard shortcut (see distro-ai-bind-hotkey in this same directory) so a
 # user anywhere on the desktop can pop a prompt box, send it to whichever
-# Crucible12 preset is running, and read the reply -- no terminal needed.
+# model is loaded in LM Studio, and read the reply -- no terminal needed.
 #
 # Deliberately built on `zenity` (GTK dialog tool, present on every
 # GNOME-based strain via libgtk's standard tooling) instead of a custom GUI
@@ -18,7 +18,10 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve through the /usr/local/bin symlink (build.sh installs these as
+# symlinks) so paths relative to the real script dir resolve correctly.
+SELF="${BASH_SOURCE[0]}"; [ -L "$SELF" ] && SELF="$(readlink "$SELF")"
+SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 
 if ! command -v zenity >/dev/null 2>&1; then
     echo "distro-ai-overlay: zenity is required but not found (apt install zenity)" >&2

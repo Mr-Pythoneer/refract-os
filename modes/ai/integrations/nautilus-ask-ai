@@ -19,7 +19,9 @@
 
 set -euo pipefail
 
-BIN_DIR="/opt/crucible12/bin"
+# Resolve distro-ai-ask via PATH (iso/build.sh symlinks it into /usr/local/bin);
+# fall back to that path explicitly if PATH isn't set for the Nautilus process.
+ASK_BIN="$(command -v distro-ai-ask 2>/dev/null || echo /usr/local/bin/distro-ai-ask)"
 MAX_BYTES=4000
 
 if ! command -v zenity >/dev/null 2>&1; then
@@ -55,7 +57,7 @@ $excerpt
 
 Describe what this file is and what it's likely for, in a few sentences."
 
-if ! reply="$("$BIN_DIR/distro-ai-ask" "$prompt" 2>&1)"; then
+if ! reply="$("$ASK_BIN" "$prompt" 2>&1)"; then
     zenity --error --title="Ask AI about this file" --text="$reply" --width=480 2>/dev/null
     exit 1
 fi

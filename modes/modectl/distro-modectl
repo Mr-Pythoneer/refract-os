@@ -32,7 +32,10 @@
 
 set -euo pipefail
 
-PROFILE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/profiles"
+# Resolve through the /usr/local/bin symlink so profiles/ is found on an
+# installed system (build.sh symlinks this script into PATH).
+SELF="${BASH_SOURCE[0]}"; [ -L "$SELF" ] && SELF="$(readlink "$SELF")"
+PROFILE_DIR="$(cd "$(dirname "$SELF")" && pwd)/profiles"
 STATE_FILE="/run/distro-modectl/current-mode"
 VALID_MODES=(gaming ai server creative normal)
 ASSUME_YES=false
@@ -94,8 +97,10 @@ apply_gpu_perf() {
     if [ "$want" = "max" ]; then
         sudo nvidia-smi -pm 1 >/dev/null 2>&1 || echo "WARNING: could not enable GPU persistence mode" >&2
         # Lock the graphics clock to the GPU's max supported value (headless-safe).
-        local maxclk
-        maxclk=$(nvidia-smi -q -d SUPPORTED_CLOCKS 2>/dev/null | awk '/Graphics/{print $3; exit}')
+        # Guard the substitution: under `set -euo pipefail` a failing nvidia-smi
+        # here would otherwise abort the whole mode switch.
+        local maxclk=""
+        maxclk=$(nvidia-smi -q -d SUPPORTED_CLOCKS 2>/dev/null | awk '/Graphics/{print $3; exit}') || maxclk=""
         if [ -n "${maxclk:-}" ]; then
             sudo nvidia-smi -lgc "0,${maxclk}" >/dev/null 2>&1 || echo "WARNING: could not lock GPU clocks" >&2
         fi

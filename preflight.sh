@@ -122,15 +122,18 @@ if have curl; then
     url_ok "Netdata kickstart"         "https://get.netdata.cloud/kickstart.sh"
     url_ok "Docker noble repo"         "https://download.docker.com/linux/ubuntu/dists/noble/Release"
     url_ok "CUDA keyring (ubuntu2404)" "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb"
-    url_ok "llama.cpp repo"            "https://github.com/ggml-org/llama.cpp"
     url_ok "Flathub repo file"         "https://flathub.org/repo/flathub.flatpakrepo"
     url_ok "Flatpak: FreeCAD"          "https://flathub.org/api/v2/appstream/org.freecad.FreeCAD"
     url_ok "Flatpak: Blender"          "https://flathub.org/api/v2/appstream/org.blender.Blender"
     url_ok "Flatpak: Kdenlive"         "https://flathub.org/api/v2/appstream/org.kde.kdenlive"
     url_ok "Flatpak: Bottles"          "https://flathub.org/api/v2/appstream/com.usebottles.bottles"
-    url_ok "HF: Qwen3-Coder-Next"      "https://huggingface.co/api/models/unsloth/Qwen3-Coder-Next-GGUF"
-    url_ok "HF: Qwen3-Coder-30B-A3B"   "https://huggingface.co/api/models/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF"
-    url_ok "HF: gpt-oss-120b"          "https://huggingface.co/api/models/ggml-org/gpt-oss-120b-GGUF"
+    # AI mode (LM Studio + ComfyUI) deps
+    url_ok "LM Studio installer"       "https://lmstudio.ai/install.sh"
+    url_ok "ComfyUI repo"              "https://github.com/comfyanonymous/ComfyUI"
+    url_ok "PyTorch cu130 index"       "https://download.pytorch.org/whl/cu130"
+    url_ok "HF: Qwen2.5-Coder-32B"     "https://huggingface.co/api/models/lmstudio-community/Qwen2.5-Coder-32B-Instruct-GGUF"
+    url_ok "HF: Qwen2.5-VL-32B"        "https://huggingface.co/api/models/lmstudio-community/Qwen2.5-VL-32B-Instruct-GGUF"
+    url_ok "HF: SDXL base"             "https://huggingface.co/api/models/stabilityai/stable-diffusion-xl-base-1.0"
 else
     skip "network checks (curl missing)"
 fi

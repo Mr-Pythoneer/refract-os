@@ -94,11 +94,18 @@ rsync -a --delete "$REPO_ROOT/modes" "$REPO_ROOT/drivers" "$INCLUDES/opt/distro/
 # own location (see modes/modectl/distro-modectl's PROFILE_DIR), so it must
 # stay next to that directory rather than be flattened into /usr/local/bin.
 ln -sf /opt/distro/modes/modectl/distro-modectl "$INCLUDES/usr/local/bin/distro-modectl"
-# AI-mode CLIs (LM Studio model switcher + ComfyUI image launcher). The thin
-# clients (distro-ai-ask/overlay/cloud-toggle) are picked up by the find-chmod
-# below; symlink the ones users invoke directly into PATH.
-for aibin in distro-ai-model distro-ai-image distro-ai-ask distro-ai-overlay distro-ai-cloud-toggle distro-ai-bind-hotkey; do
-    ln -sf "/opt/distro/modes/ai/bin/$aibin" "$INCLUDES/usr/local/bin/$aibin"
+# Symlink every user-facing distro-* CLI into PATH. These resolve their own
+# real dir through the symlink (readlink) so relative config/profiles/compat-db
+# lookups work. Paths are the /opt/distro layout the rsync above produces.
+declare -A DISTRO_BINS=(
+    [distro-ai-model]=modes/ai/bin        [distro-ai-image]=modes/ai/bin
+    [distro-ai-ask]=modes/ai/bin          [distro-ai-overlay]=modes/ai/bin
+    [distro-ai-cloud-toggle]=modes/ai/bin [distro-ai-bind-hotkey]=modes/ai/bin
+    [distro-gaming-compat]=modes/gaming/bin
+    [distro-creative-scratch]=modes/creative/bin [distro-creative-color]=modes/creative/bin
+)
+for bin in "${!DISTRO_BINS[@]}"; do
+    ln -sf "/opt/distro/${DISTRO_BINS[$bin]}/$bin" "$INCLUDES/usr/local/bin/$bin"
 done
 find "$INCLUDES/opt/distro" -type f \( -name "*.sh" -o -name "distro-*" \) -exec chmod +x {} +
 

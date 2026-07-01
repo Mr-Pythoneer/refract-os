@@ -75,12 +75,18 @@ install_dxvk() {
     tar -xzf "$tmp/$ASSET_NAME" -C "$tmp"
     local src; src=$(find "$tmp" -maxdepth 1 -type d -name 'dxvk-*' | head -n1)
 
-    # DXVK no longer ships setup_dxvk.sh — install manually: x64 DLLs to
-    # system32, x32 DLLs to syswow64 (64-bit prefix layout), then register
-    # native overrides for each translated DLL.
+    # DXVK no longer ships setup_dxvk.sh — install manually, then register native
+    # overrides. Layout depends on the prefix arch: a WoW64 (win64) prefix has
+    # both system32 (64-bit) and syswow64 (32-bit); a pure win32 prefix has only
+    # system32 (which holds the 32-bit DLLs). Presence of syswow64 is the test.
     local sys32="$WINEPREFIX/drive_c/windows/system32" syswow="$WINEPREFIX/drive_c/windows/syswow64"
-    cp "$src/x64/"*.dll "$sys32/" 2>/dev/null || true
-    [ -d "$syswow" ] && cp "$src/x32/"*.dll "$syswow/" 2>/dev/null || true
+    if [ -d "$syswow" ]; then
+        cp "$src/x64/"*.dll "$sys32/"  2>/dev/null || echo "WARNING: could not copy 64-bit DXVK DLLs into $sys32" >&2
+        cp "$src/x32/"*.dll "$syswow/" 2>/dev/null || echo "WARNING: could not copy 32-bit DXVK DLLs into $syswow" >&2
+    else
+        # Pure 32-bit prefix: the x32 DLLs go to system32; x64 DLLs don't apply.
+        cp "$src/x32/"*.dll "$sys32/"  2>/dev/null || echo "WARNING: could not copy 32-bit DXVK DLLs into $sys32" >&2
+    fi
     for dll in d3d8 d3d9 d3d10core d3d11 dxgi; do
         wine reg add 'HKCU\Software\Wine\DllOverrides' /v "$dll" /d native /f >/dev/null 2>&1 || \
             echo "WARNING: could not register override for $dll — set it manually in winecfg (Libraries -> $dll -> native)." >&2

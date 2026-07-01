@@ -29,5 +29,5 @@ echo "Installed. Right-click any file in Nautilus (GNOME Files) -> Scripts -> \"
 echo "If Nautilus is already running, you may need to refresh (Ctrl+R) or restart it"
 echo "for the new script to show up in the Scripts submenu."
 echo
-echo "Requires /opt/crucible12/bin/distro-ai-ask to exist (installed by modes/ai's"
-echo "main install, see modes/ai/README.md) and a Crucible12 preset to be running."
+echo "Requires distro-ai-ask on PATH (the ISO symlinks it into /usr/local/bin; see"
+echo "modes/ai/README.md) and a model loaded via 'distro-ai-model use <case>'."

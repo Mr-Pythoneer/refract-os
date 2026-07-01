@@ -35,7 +35,7 @@ distro-creative-scratch detect   # print the best local mount, do nothing else
 distro-creative-scratch setup    # create the scratch dir + wire it up
 ```
 
-Detection: `df -lP` (local filesystems only) for every mounted filesystem +
+Detection: `df -l` (local filesystems only) for every mounted filesystem +
 free space, cross-checked against `lsblk -ndo ROTA` on each mount's backing
 device to find non-rotational storage, preferring devices named `nvme*`
 over any other SSD, and the most free space within whichever tier is

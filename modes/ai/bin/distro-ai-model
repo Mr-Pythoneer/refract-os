@@ -20,7 +20,10 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve through the /usr/local/bin symlink (build.sh installs these as
+# symlinks) so paths relative to the real script dir resolve correctly.
+SELF="${BASH_SOURCE[0]}"; [ -L "$SELF" ] && SELF="$(readlink "$SELF")"
+SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 CATALOG="$SCRIPT_DIR/../config/models.catalog.json"
 PORT=8080
 LMS="$HOME/.lmstudio/bin/lms"
@@ -42,12 +45,12 @@ import json, os, sys
 cat = json.load(open(os.environ["CATALOG"]))
 uc_name = sys.argv[1]; variant = sys.argv[2] if len(sys.argv) > 2 else None
 uc = cat["use_cases"].get(uc_name)
-if not uc: print(f"__ERR__ unknown use-case: {uc_name}", file=sys.stderr); sys.exit(2)
+if not uc: print(f"error: unknown use-case: {uc_name}", file=sys.stderr); sys.exit(2)
 if variant:
     mid = uc.get(variant)
     if not mid:
         have = [k for k in uc if k not in ("label", "runtime")]
-        print("__ERR__ use-case {} has no variant {} (have: {})".format(uc_name, variant, have), file=sys.stderr); sys.exit(2)
+        print("error: use-case {} has no variant {} (have: {})".format(uc_name, variant, have), file=sys.stderr); sys.exit(2)
 else:
     mid = uc.get("best") or next((v for k,v in uc.items() if k not in ("label","runtime")), None)
 print(mid)
@@ -113,8 +116,8 @@ for mid, m in cat["models"].items():
         ;;
     use)
         [ $# -ge 2 ] || die "Usage: $(basename "$0") use <use-case> [variant]"
+        # resolve_usecase_model prints its own error to stderr and exits 2.
         mid="$(resolve_usecase_model "$2" "${3:-}")" || exit 2
-        case "$mid" in __ERR__*) echo "${mid#__ERR__ }" >&2; exit 2 ;; esac
         [ -n "$mid" ] || die "No model mapped for use-case '$2'."
         # Image use-case routes to ComfyUI.
         if [ "$(model_field "$mid" runtime)" = "comfyui" ]; then
