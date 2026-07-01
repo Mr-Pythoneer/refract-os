@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crucible OS — download &amp; install guide</title>
+<meta name="description" content="How to build the Crucible OS ISO from source, write it to a USB, install it, and set up local AI sized to your GPU.">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/3.35.0/tabler-icons.min.css">
+<style>
+  :root {
+    --bg: #0a0b0d; --bg-card: #14161a; --bg-card2: #1a1d22;
+    --border: #232730; --border-hi: #343944;
+    --text: #e9eaed; --text-dim: #93989f; --text-faint: #5d6168;
+    --accent: #ff7a47; --ok: #4ade80; --warn: #fbbf24; --m-ai: #4f8df5;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; font-size: 16px; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { background: var(--bg-card2); padding: 2px 7px; border-radius: 5px; font-size: 0.88em; font-family: "SF Mono", Menlo, Consolas, monospace; }
+
+  nav { position: sticky; top: 0; z-index: 10; background: rgba(10,11,13,0.85); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+  nav .wrap { max-width: 1040px; display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; }
+  .brand { font-weight: 700; font-size: 1.05rem; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .brand img { width: 28px; height: 28px; border-radius: 50%; }
+  .navlinks { display: flex; gap: 26px; font-size: 0.92rem; }
+  .navlinks a { color: var(--text-dim); }
+  .navlinks a:hover { color: var(--text); text-decoration: none; }
+
+  header { padding: 60px 0 34px; border-bottom: 1px solid var(--border); }
+  .back { color: var(--text-dim); font-size: 0.9rem; display: inline-flex; align-items: center; gap: 6px; margin-bottom: 22px; }
+  h1 { font-size: 2.4rem; margin: 0 0 12px; letter-spacing: -0.02em; line-height: 1.1; }
+  .tagline { color: var(--text-dim); font-size: 1.1rem; max-width: 640px; margin: 0; }
+
+  .callout { display: flex; gap: 12px; background: var(--bg-card); border: 1px solid var(--warn); border-left: 3px solid var(--warn); border-radius: 10px; padding: 16px 18px; margin: 28px 0 0; }
+  .callout i { color: var(--warn); font-size: 1.15rem; margin-top: 1px; flex: none; }
+  .callout .t { font-size: 0.92rem; color: var(--text-dim); }
+  .callout .t strong { color: var(--text); }
+
+  section { padding: 40px 0; border-bottom: 1px solid var(--border); }
+  section:last-of-type { border-bottom: none; }
+  h2 { font-size: 1.2rem; margin: 0 0 8px; letter-spacing: -0.01em; }
+
+  .prereq { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 20px; }
+  .prereq li { display: flex; gap: 9px; font-size: 0.92rem; color: var(--text-dim); }
+  .prereq i { color: var(--m-ai); margin-top: 3px; flex: none; }
+  @media (max-width: 620px) { .prereq { grid-template-columns: 1fr; } }
+
+  .step { display: flex; gap: 18px; padding: 26px 0; border-bottom: 1px solid var(--border); }
+  .step:last-child { border-bottom: none; }
+  .step .num { flex: none; width: 34px; height: 34px; border-radius: 50%; background: var(--bg-card2); border: 1px solid var(--m-ai); color: var(--m-ai); font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 0.95rem; }
+  .step .body { flex: 1; min-width: 0; }
+  .step h3 { margin: 4px 0 8px; font-size: 1.08rem; }
+  .step p { margin: 0 0 12px; color: var(--text-dim); font-size: 0.95rem; }
+  .step p:last-child { margin-bottom: 0; }
+  .step ul { margin: 0 0 12px; padding-left: 18px; color: var(--text-dim); font-size: 0.93rem; }
+  .step li { margin-bottom: 6px; }
+
+  pre.code { background: var(--bg-card); border: 1px solid var(--border); border-radius: 9px; padding: 14px 16px; overflow-x: auto; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.85rem; color: var(--text); margin: 0 0 12px; line-height: 1.55; }
+  pre.code .c { color: var(--text-faint); }
+  pre.code .p { color: var(--ok); }
+  .warn-inline { color: var(--warn); }
+
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; border-radius: 9px; font-weight: 600; font-size: 0.95rem; border: none; }
+  .btn-primary { background: var(--accent); color: #1a0a04; }
+  .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border-hi); }
+  .btn:hover { text-decoration: none; opacity: 0.92; }
+  .endcta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+
+  footer { padding: 40px 0 64px; color: var(--text-faint); font-size: 0.88rem; }
+  footer a { color: var(--text-dim); text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <div class="brand"><img src="logo.png" alt="Crucible OS logo">Crucible OS</div>
+    <div class="navlinks">
+      <a href="index.html">Home</a>
+      <a href="index.html#download">Configure</a>
+      <a href="https://github.com/Mr-Pythoneer/crucible-os">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header>
+  <div class="wrap">
+    <a class="back" href="index.html"><i class="ti ti-arrow-left" aria-hidden="true"></i>Back to home</a>
+    <h1>Download &amp; install guide</h1>
+    <p class="tagline">Zero to a working Crucible OS install with local AI sized to your GPU. It's one image, built from source — here's the whole path.</p>
+    <div class="callout">
+      <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+      <div class="t"><strong>No prebuilt ISO yet.</strong> Crucible OS is at the design-and-scaffolding stage — the build pipeline and installer config are execution-tested where they can be, but no ISO has been built and nothing has run on real hardware yet. This is the <em>intended</em> path; treat it as such and cross-check <a href="https://github.com/Mr-Pythoneer/crucible-os/blob/main/TODO.md">TODO.md</a>. When releases exist they'll appear on <a href="https://github.com/Mr-Pythoneer/crucible-os/releases">the releases page</a> and this step 1–2 becomes "download the ISO."</div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>Before you start</h2>
+    <ul class="prereq">
+      <li><i class="ti ti-brand-ubuntu" aria-hidden="true"></i><span>A <strong>Debian/Ubuntu Linux machine to build on</strong> — <code>live-build</code> uses debootstrap + chroot, so it can't build on macOS or Windows.</span></li>
+      <li><i class="ti ti-database" aria-hidden="true"></i><span><strong>~20&nbsp;GB free disk</strong> on the build host and a little patience — the build is not quick.</span></li>
+      <li><i class="ti ti-usb" aria-hidden="true"></i><span>A <strong>USB stick ≥&nbsp;8&nbsp;GB</strong> (it gets erased) for the target machine.</span></li>
+      <li><i class="ti ti-device-desktop" aria-hidden="true"></i><span>A <strong>target PC</strong> — recent Nvidia RTX (Turing/20-series or newer) or recent AMD gets the best driver + local-AI story.</span></li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="step">
+      <div class="num">1</div>
+      <div class="body">
+        <h3>Get the source &amp; run pre-flight</h3>
+        <p>On the Linux build host, clone the repo, install live-build, and run the read-only pre-flight check so the build doesn't fail an hour in on something checkable in seconds.</p>
+        <pre class="code"><span class="p">$</span> git clone https://github.com/Mr-Pythoneer/crucible-os
+<span class="p">$</span> cd crucible-os
+<span class="p">$</span> sudo apt-get install live-build
+<span class="p">$</span> ./preflight.sh            <span class="c"># build-host readiness (safe to re-run)</span></pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">2</div>
+      <div class="body">
+        <h3>Build the ISO</h3>
+        <p>Pick the hardware <strong>strain</strong> — it only sets the default desktop + base packages; every strain still gets all five modes. Output is <code>crucible-os-&lt;strain&gt;.iso</code>.</p>
+        <pre class="code"><span class="p">$</span> cd iso
+<span class="p">$</span> ./build.sh workstation   <span class="c"># or: laptop | lowspec | server | handheld | cloud</span>
+  <span class="c"># … long build … → crucible-os-workstation.iso</span></pre>
+        <p>Run this on the build host, not a thin laptop — it needs the disk and time.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">3</div>
+      <div class="body">
+        <h3>Write it to a USB stick</h3>
+        <p>This <span class="warn-inline">erases the stick</span>. On Linux/macOS, find the device with <code>lsblk</code> (Linux) or <code>diskutil list</code> (macOS), then:</p>
+        <pre class="code"><span class="p">$</span> sudo dd if=crucible-os-workstation.iso of=/dev/sdX bs=4M status=progress oflag=sync</pre>
+        <p><span class="warn-inline">⚠ Replace <code>/dev/sdX</code> with your actual USB device</span> — the wrong device will overwrite the wrong disk. Prefer a GUI if unsure:</p>
+        <ul>
+          <li>Any OS: <a href="https://etcher.balena.io/">balenaEtcher</a> (point-and-click, hard to get wrong).</li>
+          <li>Windows: <a href="https://rufus.ie/">Rufus</a> — write in <em>DD Image</em> mode.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">4</div>
+      <div class="body">
+        <h3>Boot from the USB</h3>
+        <p>Reboot the target PC and open the one-time boot menu (usually <code>F12</code>, <code>F2</code>, <code>Del</code>, or <code>Esc</code> — it varies by vendor), then pick the USB stick.</p>
+        <p><strong>Secure Boot:</strong> on Nvidia Blackwell (RTX 50-series) and other recent GPUs you may need to turn Secure Boot off for the first boot. The driver installer (step 7) walks you through MOK signing so you can turn it back on afterwards — see <a href="blackwell-readiness.md">blackwell-readiness</a>.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">5</div>
+      <div class="body">
+        <h3>Try it live, or install</h3>
+        <p>You boot into a live session first. To install to disk, launch the installer — the <strong>Calamares</strong> wizard walks through language → keyboard → partitioning (guided or manual) → user account → install. Reboot and pull the USB when it's done.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">6</div>
+      <div class="body">
+        <h3>First login — pick your mode</h3>
+        <p>Crucible OS is one install that switches personality on command. Set the mode for what you're doing:</p>
+        <pre class="code"><span class="p">$</span> distro-modectl switch gaming    <span class="c"># or: ai | server | creative | normal</span></pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">7</div>
+      <div class="body">
+        <h3>GPU drivers + local AI</h3>
+        <p>Install the GPU driver, then set up local AI — <code>distro-ai-setup</code> detects your GPU, picks the tier that fits, and preloads exactly those models (nothing your card can't run).</p>
+        <pre class="code"><span class="p">$</span> sudo ./drivers/install-nvidia.sh   <span class="c"># RTX/Blackwell -open module + Secure Boot MOK</span>
+  <span class="c"># AMD instead: sudo ./drivers/install-amd-microcode.sh</span>
+<span class="p">$</span> distro-ai-setup --install          <span class="c"># detect tier → install LM Studio/ComfyUI → preload fitting models</span></pre>
+        <p>Switching into AI mode the first time also auto-detects your tier. Not sure what you'll get? <a href="index.html#download">Preview it in the configurator</a> — pick your GPU and it shows the exact models.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="num">8</div>
+      <div class="body">
+        <h3>Verify it works</h3>
+        <pre class="code"><span class="p">$</span> distro-ai-model list      <span class="c"># your tier's model menu</span>
+<span class="p">$</span> distro-ai-model status    <span class="c"># what's loaded + the :8080 server</span>
+<span class="p">$</span> distro-ai-ask "write a haiku about linux"</pre>
+        <p>That's it — local, private AI on your own hardware, plus a distro that retunes itself per task.</p>
+      </div>
+    </div>
+
+    <div class="endcta">
+      <a class="btn btn-primary" href="index.html#download">Configure your build</a>
+      <a class="btn btn-secondary" href="https://github.com/Mr-Pythoneer/crucible-os">View the repo</a>
+      <a class="btn btn-secondary" href="https://github.com/Mr-Pythoneer/crucible-os/blob/main/TODO.md">Build checklist</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    Built on Ubuntu 24.04 LTS · live-build · Calamares · <a href="https://lmstudio.ai">LM Studio</a> + <a href="https://github.com/comfyanonymous/ComfyUI">ComfyUI</a> for local AI ·
+    <a href="index.html">Home</a>
+  </div>
+</footer>
+
+</body>
+</html>
