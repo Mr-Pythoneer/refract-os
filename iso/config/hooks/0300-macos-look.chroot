@@ -31,13 +31,15 @@ clone_pin() {  # url sha dir
 if clone_pin https://github.com/vinceliuice/WhiteSur-gtk-theme.git "$GTK_SHA" "$WORK/ws-gtk"; then
     echo "macos-look: installing WhiteSur GTK + GNOME Shell theme..."
     mkdir -p "$WORK/ws-out"
-    if command -v script >/dev/null 2>&1; then
-        # pseudo-TTY: the installer's animated output no-ops on a non-tty.
-        script -qfec "$WORK/ws-gtk/install.sh -d $WORK/ws-out" /dev/null \
-            || echo "macos-look: WhiteSur GTK installer returned non-zero (continuing)." >&2
+    # Try a plain root install first (we ARE root here); only if that fails fall
+    # back to a pseudo-TTY wrapper. bash explicitly, since the installer is bash.
+    if bash "$WORK/ws-gtk/install.sh" -d "$WORK/ws-out" 2>&1; then
+        :
+    elif command -v script >/dev/null 2>&1 \
+         && script -qfec "bash $WORK/ws-gtk/install.sh -d $WORK/ws-out" /dev/null 2>&1; then
+        :
     else
-        "$WORK/ws-gtk/install.sh" -d "$WORK/ws-out" \
-            || echo "macos-look: WhiteSur GTK installer returned non-zero (continuing)." >&2
+        echo "macos-look: WhiteSur GTK installer failed (desktop keeps dark Yaru frames)." >&2
     fi
     cp -a "$WORK/ws-out/." /usr/share/themes/ 2>/dev/null || true
 fi

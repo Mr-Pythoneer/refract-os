@@ -108,8 +108,11 @@ jobs:
       - name: Boot under UEFI (OVMF) and assert userspace
         run: |
           set -euxo pipefail
-          CODE=$(ls /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd 2>/dev/null | head -n1)
-          VARS=$(ls /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd 2>/dev/null | head -n1)
+          # NB: avoid `ls a b | head` — under pipefail a missing path makes ls
+          # exit non-zero and aborts the step. Probe with a test loop instead.
+          CODE=""; for c in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do [ -f "$c" ] && CODE="$c" && break; done
+          VARS=""; for v in /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd; do [ -f "$v" ] && VARS="$v" && break; done
+          [ -n "$CODE" ] && [ -n "$VARS" ] || { echo "OVMF firmware not found under /usr/share/OVMF" >&2; ls -la /usr/share/OVMF/ || true; exit 1; }
           cp "$VARS" vars.fd
           mkdir -p "$PWD/shots"
           qemu-system-x86_64 -machine q35 -accel "$ACCEL" -m 4096 -smp 4 \

@@ -78,24 +78,40 @@ jobs:
 
       - name: Publish to Releases (public, no-login download)
         if: ${{ success() && inputs.publish_release }}
+        continue-on-error: true   # the ISO is already an artifact; a publish hiccup must not red-X the build
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           ISO=$(ls iso/*.iso | head -n1)
-          [ -n "$ISO" ] || { echo "no ISO produced — nothing to publish" >&2; exit 1; }
-          strain="${{ inputs.strain }}"; tag="latest-${strain}"
+          [ -n "$ISO" ] || { echo "no ISO produced — nothing to publish" >&2; exit 0; }
+          base=$(basename "$ISO"); strain="${{ inputs.strain }}"; tag="latest-${strain}"
           sha=$(sha256sum "$ISO" | cut -d' ' -f1)
-          echo "$sha  $(basename "$ISO")" > "iso/${strain}.sha256"
+          echo "$sha  $base" > "iso/${strain}.sha256"
+          # GitHub release assets are capped at 2 GiB. Split larger ISOs into
+          # < 2 GiB parts (users rejoin them) and upload the parts instead.
+          limit=$((1900*1024*1024)); sz=$(stat -c%s "$ISO")
+          assets=("iso/${strain}.sha256")
+          if [ "$sz" -le "$limit" ]; then
+            assets+=("$ISO")
+            reasm="It's a single file — just flash it."
+          else
+            ( cd iso && split -b 1900M --numeric-suffixes=0 --suffix-length=2 "$base" "${base}.part" )
+            for p in iso/"${base}".part*; do assets+=("$p"); done
+            reasm=$'This ISO is split (GitHub caps assets at 2 GiB) — download every `.part*`, rejoin, then flash:\n- **Linux/macOS:** `cat '"${base}"'.part* > '"${base}"'`\n- **Windows (cmd):** `copy /b '"${base}"'.part00 + '"${base}"'.part01 '"${base}"'`'
+          fi
           notes="Rolling latest **${strain}** build of Refract OS.
 
-          **Flash it (any OS):** balenaEtcher (Windows / macOS / Linux) or Rufus (Windows, *DD Image* mode). No Linux needed to install.
-          SHA-256: \`${sha}\`
+          **Flash it — Windows, macOS, or Linux:** balenaEtcher (any OS) or Rufus (Windows, *DD Image* mode). No Linux needed to install.
+
+          ${reasm}
+
+          SHA-256 of the joined ISO: \`${sha}\`
 
           ⚠ Boots via BIOS/CSM for now (UEFI in progress). Apple-Silicon Macs can create the USB but can't boot an x86 OS."
-          # Rolling per-strain release tag: create if missing, then clobber the asset.
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            && gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes "$notes" \
             || gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
                  --title "Refract OS — latest ${strain}" --notes "$notes" --prerelease
-          gh release upload "$tag" "$ISO" "iso/${strain}.sha256" --repo "$GITHUB_REPOSITORY" --clobber
-          echo "Published $(basename "$ISO") to release '$tag'."
+          gh release upload "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          echo "Published ${#assets[@]} asset(s) to release '$tag'."
