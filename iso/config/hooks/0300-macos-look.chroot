@@ -64,4 +64,15 @@ if [ -d /usr/share/themes/WhiteSur-Dark ]; then
 else
     echo "macos-look: WhiteSur NOT installed — desktop falls back to dark Yaru." >&2
 fi
+
+# Blur-my-Shell — the frosted "liquid glass" blur behind the panel/dock/overview.
+# Normal mode enables it (distro-modectl + the dconf default); every other mode
+# disables it, since real-time blur is GPU-heavy. Debian-packaged, so system-wide
+# and safe. If it's not available, Normal mode simply has no blur (WhiteSur still
+# applies) — never fail the ISO over an optional cosmetic extension.
+if apt-get install -y --no-install-recommends gnome-shell-extension-blur-my-shell 2>/dev/null; then
+    echo "macos-look: Blur-my-Shell installed — Normal-mode liquid glass available."
+else
+    echo "macos-look: blur-my-shell package unavailable — Normal mode has no glass (WhiteSur still applies)." >&2
+fi
 exit 0

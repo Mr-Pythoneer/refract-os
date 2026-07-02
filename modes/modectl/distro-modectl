@@ -184,11 +184,13 @@ apply_pinned_apps() {
 }
 
 apply_theme() {
-    # Per-mode desktop look: swap the wallpaper + Yaru accent (GTK + icons) so
-    # each mode is visually distinct (gaming=red, ai=blue, server=green,
-    # creative=magenta, normal=orange). GNOME-only and needs the invoking user's
-    # session bus, so it runs pre-sudo like apply_pinned_apps; a no-op otherwise.
-    [ -n "${WALLPAPER:-}" ] || [ -n "${YARU_ACCENT:-}" ] || return 0
+    # Per-mode desktop look. The BASE look is macOS-style (WhiteSur GTK/icons +
+    # bottom dock), baked into the image as the default; here we (re)assert it on
+    # every switch so it survives mode changes instead of reverting to Ubuntu's
+    # Yaru, swap the per-mode WALLPAPER, and toggle the frosted "liquid glass"
+    # blur — ON for Normal only, OFF elsewhere (real-time blur is GPU-heavy, and
+    # Gaming/AI/Creative want every GPU cycle). GNOME-only, needs the invoking
+    # user's session bus, so it runs pre-sudo like apply_pinned_apps.
     command -v gsettings >/dev/null 2>&1 || return 0
     if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
         echo "NOTE: no session bus — skipping per-mode theme (needs a graphical login)." >&2
@@ -200,12 +202,21 @@ apply_theme() {
         gsettings set org.gnome.desktop.background picture-options 'zoom' 2>/dev/null || true
     fi
     gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
-    # Ubuntu 24.04 ships Yaru-<accent>-dark GTK themes + Yaru-<accent> icons.
-    local gtk="Yaru-dark" icon="Yaru"
-    if [ -n "${YARU_ACCENT:-}" ]; then gtk="Yaru-${YARU_ACCENT}-dark"; icon="Yaru-${YARU_ACCENT}"; fi
-    gsettings set org.gnome.desktop.interface gtk-theme "$gtk" 2>/dev/null || true
-    gsettings set org.gnome.desktop.interface icon-theme "$icon" 2>/dev/null || true
-    echo "Applied ${MODE_NAME} look: ${WALLPAPER:+wallpaper + }${YARU_ACCENT:-orange} accent."
+    # Keep the macOS (WhiteSur) look consistent across ALL modes — do not revert
+    # to Yaru. WhiteSur-Dark ships system-wide via iso 0300-macos-look.chroot.
+    gsettings set org.gnome.desktop.interface gtk-theme 'WhiteSur-Dark' 2>/dev/null || true
+    gsettings set org.gnome.desktop.interface icon-theme 'WhiteSur-dark' 2>/dev/null || true
+    gsettings set org.gnome.shell.extensions.user-theme name 'WhiteSur-Dark' 2>/dev/null || true
+    # Liquid glass (frosted blur via the Blur-my-Shell extension): Normal ONLY.
+    if command -v gnome-extensions >/dev/null 2>&1; then
+        if [ "${LIQUID_GLASS:-false}" = "true" ]; then
+            gnome-extensions enable blur-my-shell@aunetx 2>/dev/null \
+                || echo "NOTE: could not enable Blur-my-Shell (install it / new-session needed) — glass off." >&2
+        else
+            gnome-extensions disable blur-my-shell@aunetx 2>/dev/null || true
+        fi
+    fi
+    echo "Applied ${MODE_NAME} look: macOS-style (WhiteSur-Dark)${WALLPAPER:+ + wallpaper}, liquid-glass=${LIQUID_GLASS:-false}."
 }
 
 confirm_or_abort() {

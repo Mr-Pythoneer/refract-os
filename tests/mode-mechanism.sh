@@ -87,7 +87,7 @@ make_stubs() {
     local rec
     for rec in gsettings cpupower powerprofilesctl \
                distro-ai-model distro-ai-detect-tier \
-               gtk-update-icon-cache dconf nvidia-settings; do
+               gtk-update-icon-cache dconf nvidia-settings gnome-extensions; do
         {
             printf '#!/usr/bin/env bash\n'
             printf 'echo "%s $*" >> "%s/%s.log"\n' "$rec" "$LOG_DIR" "$rec"
@@ -191,8 +191,10 @@ run_switch() {  # run_switch <mode>
 # --- per-mode contract assertions -------------------------------------------
 # Shared invariants every mode must satisfy, plus the mode-specific ones.
 
-assert_common() {  # assert_common <mode> <gov> <power> <accent> <gpu:max|auto>
-    local mode="$1" gov="$2" power="$3" accent="$4" gpu="$5"
+assert_common() {  # assert_common <mode> <gov> <power> <accent:ignored> <gpu:max|auto>
+    # $4 (accent) is legacy — the look is now the mode-agnostic WhiteSur theme, so
+    # the per-mode accent no longer drives GTK; kept in the call signature only.
+    local mode="$1" gov="$2" power="$3" gpu="$5"
     local wall="$WALL_DIR/$mode.png"
 
     # CPU governor + power profile (root pass).
@@ -214,19 +216,27 @@ assert_common() {  # assert_common <mode> <gov> <power> <accent> <gpu:max|auto>
     # DISPLAY is empty in this harness, so GpuPowerMizerMode must NOT be touched.
     tool_silent "$mode" nvidia-settings "nvidia-settings NOT called (no X DISPLAY)"
 
-    # Theme: wallpaper -> the mode's png, dark scheme, and the accent-derived
-    # gtk/icon theme. Empty accent (normal) => Yaru-dark / Yaru.
+    # Theme: wallpaper -> the mode's png, dark scheme, and the CONSISTENT macOS
+    # (WhiteSur) GTK/icon/shell theme across EVERY mode — a switch must NOT revert
+    # the desktop to Ubuntu's Yaru.
     log_has "$mode" gsettings "picture-uri file://$wall" "wallpaper picture-uri -> $mode.png"
     log_has "$mode" gsettings "picture-uri-dark file://$wall" "wallpaper picture-uri-dark -> $mode.png"
     log_has "$mode" gsettings "picture-options zoom" "wallpaper picture-options 'zoom'"
     log_has "$mode" gsettings "color-scheme prefer-dark" "color-scheme 'prefer-dark'"
-    if [ -n "$accent" ]; then
-        log_has "$mode" gsettings "gtk-theme Yaru-${accent}-dark" "gtk-theme 'Yaru-${accent}-dark'"
-        log_has "$mode" gsettings "icon-theme Yaru-${accent}" "icon-theme 'Yaru-${accent}'"
+    log_has "$mode" gsettings "gtk-theme WhiteSur-Dark" "gtk-theme 'WhiteSur-Dark' (macOS look kept)"
+    log_has "$mode" gsettings "icon-theme WhiteSur-dark" "icon-theme 'WhiteSur-dark'"
+    log_has "$mode" gsettings "name WhiteSur-Dark" "shell user-theme 'WhiteSur-Dark'"
+    log_lacks "$mode" gsettings "gtk-theme Yaru" "does NOT revert to Yaru"
+
+    # Liquid glass (frosted blur): Normal ENABLES blur-my-shell; every other mode
+    # DISABLES it, since real-time blur is GPU-heavy and gaming/ai/creative need
+    # every cycle. This is the whole point of scoping glass to Normal.
+    if [ "$mode" = normal ]; then
+        log_has  "$mode" gnome-extensions "enable blur-my-shell@aunetx"  "liquid glass ENABLED (Normal)"
+        log_lacks "$mode" gnome-extensions "disable blur-my-shell@aunetx" "glass not disabled in Normal"
     else
-        log_has "$mode" gsettings "gtk-theme Yaru-dark" "gtk-theme 'Yaru-dark' (empty accent)"
-        log_has "$mode" gsettings "icon-theme Yaru" "icon-theme 'Yaru' (empty accent)"
-        log_lacks "$mode" gsettings "gtk-theme Yaru--dark" "no malformed 'Yaru--dark' from empty accent"
+        log_has  "$mode" gnome-extensions "disable blur-my-shell@aunetx" "liquid glass DISABLED ($mode)"
+        log_lacks "$mode" gnome-extensions "enable blur-my-shell@aunetx"  "glass not enabled in $mode"
     fi
 
     # State file records the mode.
