@@ -1,26 +1,18 @@
 name: theme-probe
-# Throwaway (v6, final): HOME/USER fix gets WhiteSur past its early exit but it
-# still dies in install_themes with stderr hidden. Correctly neuter the stderr
-# redirect (| delimiter) and bash -x trace to see the exact failing command.
-on:
-  workflow_dispatch:
-
+on: { workflow_dispatch: {} }
 jobs:
   probe:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Deps
-        run: sudo apt-get update && sudo apt-get install -y sassc libglib2.0-dev-bin libxml2-utils git
-      - name: Trace WhiteSur install_themes failure
+        run: sudo apt-get update && sudo apt-get install -y sassc libglib2.0-dev-bin libxml2-utils git util-linux
+      - name: WhiteSur under pseudo-TTY + HOME/USER (candidate final fix)
         run: |
           set +e
           git clone --depth 1 https://github.com/vinceliuice/WhiteSur-gtk-theme.git ws
-          sed -i 's|exec 2> "${WHITESUR_TMP_DIR}/error_log.txt"|true|' ws/libs/lib-core.sh
-          echo "--- confirm redirect neutered ---"; grep -n 'exec 2>' ws/libs/lib-core.sh || echo "(redirect removed)"
-          rm -rf /tmp/WhiteSur.lock
-          echo "==================== bash -x trace (HOME/USER set) ===================="
-          env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME=/root USER=root bash -x ws/install.sh -d /tmp/outB 2>&1 | tail -70
-          echo "==================== result ===================="
-          ls -d /tmp/outB/WhiteSur-Dark 2>/dev/null && echo "OK_B" || echo "MISSING_B"
-          ls -la /tmp/outB 2>/dev/null || true
+          rm -rf /tmp/WhiteSur.lock; mkdir -p /tmp/outC
+          env HOME=/root USER=root script -qfec "bash ws/install.sh -d /tmp/outC" /dev/null 2>&1 | tail -22
+          echo "==== result ===="
+          ls -d /tmp/outC/WhiteSur-Dark 2>/dev/null && echo "OK_C" || echo "MISSING_C"
+          ls /tmp/outC 2>/dev/null || true
