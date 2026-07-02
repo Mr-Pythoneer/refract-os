@@ -178,6 +178,10 @@ cp "$REPO_ROOT/iso/branding/glib/99_crucible.gschema.override" "$INCLUDES/usr/sh
 mkdir -p "$INCLUDES/etc/dconf/db/local.d" "$INCLUDES/etc/dconf/profile"
 cp "$REPO_ROOT/iso/branding/dconf/local.d/00-crucible" "$INCLUDES/etc/dconf/db/local.d/00-crucible"
 cp "$REPO_ROOT/iso/branding/dconf/profile/user"        "$INCLUDES/etc/dconf/profile/user"
+# GDM greeter branding (crucible logo + background on the login screen). The
+# gdm dconf profile ships with gdm3; the hook compiles this db.
+mkdir -p "$INCLUDES/etc/dconf/db/gdm.d"
+cp "$REPO_ROOT/iso/branding/dconf/gdm.d/01-crucible" "$INCLUDES/etc/dconf/db/gdm.d/01-crucible"
 
 # The identity package list (plymouth-themes/fastfetch/dconf-cli) and the
 # 0200-crucible-identity chroot hook are committed source files under

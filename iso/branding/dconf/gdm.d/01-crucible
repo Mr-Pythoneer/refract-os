@@ -1,0 +1,9 @@
+[org/gnome/login-screen]
+logo='/usr/share/crucible/logo-small.png'
+banner-message-enable=true
+banner-message-text='Crucible OS'
+
+[org/gnome/desktop/background]
+picture-uri='file:///usr/share/backgrounds/crucible-os.png'
+picture-uri-dark='file:///usr/share/backgrounds/crucible-os.png'
+picture-options='zoom'

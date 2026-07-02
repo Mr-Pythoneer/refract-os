@@ -1,30 +1,60 @@
 #!/bin/sh
-# Crucible OS identity — runs inside the chroot (config/hooks/*.chroot is the
-# path THIS live-build fork scans; the modern config/hooks/live/*.hook.chroot
-# is silently ignored, which is why an earlier build stayed all-Ubuntu).
-# os-release/hostname/wallpaper files themselves arrive via includes.chroot
-# (applied before hooks); this hook does the pieces that must EXECUTE.
+# Crucible OS identity — strip EVERY visible sign of Ubuntu and replace with
+# Crucible branding. Runs inside the chroot (config/hooks/*.chroot is the path
+# this live-build fork actually scans). Static files (os-release, wallpaper,
+# glib override, gdm dconf) arrive via includes.chroot, applied before hooks.
 set -e
-
-# Boot splash: rebrand by REPLACING the logo images the stock default theme
-# (bgrt/spinner) shows — robust, needs no custom plymouth 'script' module.
 CL=/usr/share/crucible/logo.png
+
+# 1) BOOT SPLASH — replace every plymouth logo/watermark image with our logo,
+#    so whichever theme renders shows the crucible, not the Ubuntu circle/word.
 if [ -f "$CL" ]; then
-    for t in /usr/share/plymouth/ubuntu-logo.png \
-             /usr/share/plymouth/themes/spinner/watermark.png \
-             /usr/share/plymouth/themes/bgrt/watermark.png ; do
-        [ -f "$t" ] && cp "$CL" "$t" 2>/dev/null || true
-    done
+    find /usr/share/plymouth -type f \
+        \( -iname "*logo*.png" -o -iname "watermark*.png" -o -iname "*ubuntu*.png" \) \
+        -exec cp "$CL" {} \; 2>/dev/null || true
 fi
 
-# GNOME default wallpaper/theme via a glib schema override (shipped via
-# includes.chroot). 99_ sorts after Ubuntu's 10_ override, so ours wins.
-if command -v glib-compile-schemas >/dev/null 2>&1; then
-    glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true
+# 2) GRUB — the installed-system boot menu title (live boot is our own isolinux).
+if [ -f /etc/default/grub ]; then
+    if grep -q '^GRUB_DISTRIBUTOR=' /etc/default/grub; then
+        sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="Crucible OS"/' /etc/default/grub
+    else
+        echo 'GRUB_DISTRIBUTOR="Crucible OS"' >> /etc/default/grub
+    fi
 fi
-# dconf db for favorites etc.
+
+# 3) MOTD / legal — the "Welcome to Ubuntu ..." shell login banner + ads.
+[ -f /etc/legal ] && : > /etc/legal || true
+for m in 00-header 10-help-text 50-motd-news 88-esm-announce \
+         91-release-upgrade 91-contract-ua-esm-status 92-unattended-upgrades; do
+    [ -e "/etc/update-motd.d/$m" ] && chmod -x "/etc/update-motd.d/$m" 2>/dev/null || true
+done
+cat > /etc/update-motd.d/00-crucible <<'M'
+#!/bin/sh
+printf '\n  Crucible OS 1.0 (Forge)  —  one install, five modes, local-first AI\n'
+printf '  switch look+behaviour:  distro-modectl switch gaming|ai|server|creative|normal\n\n'
+M
+chmod +x /etc/update-motd.d/00-crucible 2>/dev/null || true
+
+# 4) SESSION NAMES shown in the GDM login gear menu.
+for s in /usr/share/xsessions/ubuntu.desktop /usr/share/xsessions/ubuntu-xorg.desktop \
+         /usr/share/wayland-sessions/ubuntu.desktop /usr/share/wayland-sessions/ubuntu-wayland.desktop; do
+    [ -f "$s" ] && sed -i 's/^Name=.*/Name=Crucible OS/; s/^Comment=.*/Comment=Crucible OS desktop/' "$s" 2>/dev/null || true
+done
+
+# 5) The Ubuntu "swirl" app-grid / dock icons — swap any ubuntu-logo icon.
+find /usr/share/icons /usr/share/pixmaps -type f -iname "*ubuntu-logo*" \
+    -exec cp "$CL" {} \; 2>/dev/null || true
+# GNOME About distributor logo (os-release LOGO=crucible resolves to this).
+mkdir -p /usr/share/icons/hicolor/256x256/apps
+cp "$CL" /usr/share/icons/hicolor/256x256/apps/crucible.png 2>/dev/null || true
+command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
+
+# 6) Compile the GNOME schema override (wallpaper/dark default) + dconf dbs
+#    (gdm greeter branding ships as a dconf db via includes.chroot).
+command -v glib-compile-schemas >/dev/null 2>&1 && glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true
 command -v dconf >/dev/null 2>&1 && dconf update 2>/dev/null || true
 
-# Rebuild initramfs so the rebranded plymouth images are embedded in it.
+# 7) Rebuild the initramfs so the rebranded plymouth images are embedded.
 update-initramfs -u 2>/dev/null || true
-echo "crucible-identity: splash images + GNOME schema defaults applied."
+echo "crucible-identity: de-Ubuntu'd splash/grub/motd/sessions/icons + GNOME defaults."
