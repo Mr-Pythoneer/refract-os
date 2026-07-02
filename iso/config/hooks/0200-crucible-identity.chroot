@@ -1,0 +1,30 @@
+#!/bin/sh
+# Crucible OS identity — runs inside the chroot (config/hooks/*.chroot is the
+# path THIS live-build fork scans; the modern config/hooks/live/*.hook.chroot
+# is silently ignored, which is why an earlier build stayed all-Ubuntu).
+# os-release/hostname/wallpaper files themselves arrive via includes.chroot
+# (applied before hooks); this hook does the pieces that must EXECUTE.
+set -e
+
+# Boot splash: rebrand by REPLACING the logo images the stock default theme
+# (bgrt/spinner) shows — robust, needs no custom plymouth 'script' module.
+CL=/usr/share/crucible/logo.png
+if [ -f "$CL" ]; then
+    for t in /usr/share/plymouth/ubuntu-logo.png \
+             /usr/share/plymouth/themes/spinner/watermark.png \
+             /usr/share/plymouth/themes/bgrt/watermark.png ; do
+        [ -f "$t" ] && cp "$CL" "$t" 2>/dev/null || true
+    done
+fi
+
+# GNOME default wallpaper/theme via a glib schema override (shipped via
+# includes.chroot). 99_ sorts after Ubuntu's 10_ override, so ours wins.
+if command -v glib-compile-schemas >/dev/null 2>&1; then
+    glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true
+fi
+# dconf db for favorites etc.
+command -v dconf >/dev/null 2>&1 && dconf update 2>/dev/null || true
+
+# Rebuild initramfs so the rebranded plymouth images are embedded in it.
+update-initramfs -u 2>/dev/null || true
+echo "crucible-identity: splash images + GNOME schema defaults applied."

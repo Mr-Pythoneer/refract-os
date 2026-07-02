@@ -1,0 +1,13 @@
+[org.gnome.desktop.background]
+picture-uri='file:///usr/share/backgrounds/crucible-os.png'
+picture-uri-dark='file:///usr/share/backgrounds/crucible-os.png'
+picture-options='zoom'
+primary-color='#0b0b0d'
+
+[org.gnome.desktop.screensaver]
+picture-uri='file:///usr/share/backgrounds/crucible-os.png'
+picture-options='zoom'
+primary-color='#0b0b0d'
+
+[org.gnome.desktop.interface]
+color-scheme='prefer-dark'

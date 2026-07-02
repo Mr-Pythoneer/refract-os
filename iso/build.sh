@@ -169,8 +169,12 @@ cp "$REPO_ROOT/iso/branding/plymouth/crucible/crucible.plymouth" "$INCLUDES/usr/
 cp "$REPO_ROOT/iso/branding/plymouth/crucible/crucible.script"   "$INCLUDES/usr/share/plymouth/themes/crucible/"
 cp "$REPO_ROOT/branding/out/logo-clean.png" "$INCLUDES/usr/share/plymouth/themes/crucible/logo.png"
 
-# GNOME defaults (wallpaper/dark/favorites) via a system dconf db — harmless on
-# non-GNOME strains (dconf just isn't consulted there).
+# GNOME default wallpaper + dark theme via a glib SCHEMA OVERRIDE — the reliable
+# mechanism (99_ sorts after Ubuntu's own 10_ override, so ours wins); compiled
+# by the 0200-crucible-identity chroot hook. Harmless on non-GNOME strains.
+mkdir -p "$INCLUDES/usr/share/glib-2.0/schemas"
+cp "$REPO_ROOT/iso/branding/glib/99_crucible.gschema.override" "$INCLUDES/usr/share/glib-2.0/schemas/99_crucible.gschema.override"
+# dconf db for favorites (belt-and-suspenders alongside the schema override).
 mkdir -p "$INCLUDES/etc/dconf/db/local.d" "$INCLUDES/etc/dconf/profile"
 cp "$REPO_ROOT/iso/branding/dconf/local.d/00-crucible" "$INCLUDES/etc/dconf/db/local.d/00-crucible"
 cp "$REPO_ROOT/iso/branding/dconf/profile/user"        "$INCLUDES/etc/dconf/profile/user"
