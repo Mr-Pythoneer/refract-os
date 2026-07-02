@@ -1,7 +1,7 @@
 name: theme-probe
-# Throwaway (v5): WhiteSur's installer hides its stderr in a file it then deletes,
-# and derives MY_USERNAME via logname/$USER which are empty in a chroot. Reveal the
-# real error, and test the HOME=/root USER=root fix. Delete once folded into the hook.
+# Throwaway (v6, final): HOME/USER fix gets WhiteSur past its early exit but it
+# still dies in install_themes with stderr hidden. Correctly neuter the stderr
+# redirect (| delimiter) and bash -x trace to see the exact failing command.
 on:
   workflow_dispatch:
 
@@ -12,21 +12,15 @@ jobs:
     steps:
       - name: Deps
         run: sudo apt-get update && sudo apt-get install -y sassc libglib2.0-dev-bin libxml2-utils git
-      - name: Reveal WhiteSur's real error + test USER/HOME fix
+      - name: Trace WhiteSur install_themes failure
         run: |
           set +e
           git clone --depth 1 https://github.com/vinceliuice/WhiteSur-gtk-theme.git ws
-          # Neuter the "exec 2> error_log.txt" so stderr reaches the console.
-          sed -i 's#exec 2>.*error_log.txt.*#: # stderr redirect disabled for debug#' ws/libs/lib-core.sh
-          grep -n "error_log.txt" ws/libs/lib-core.sh | head
-
-          echo "==================== A: chroot-like clean env (no USER/HOME/tty) ===================="
+          sed -i 's|exec 2> "${WHITESUR_TMP_DIR}/error_log.txt"|true|' ws/libs/lib-core.sh
+          echo "--- confirm redirect neutered ---"; grep -n 'exec 2>' ws/libs/lib-core.sh || echo "(redirect removed)"
           rm -rf /tmp/WhiteSur.lock
-          env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin bash ws/install.sh -d /tmp/outA 2>&1 | tail -30
-          echo "rcA -> checking result"; ls -d /tmp/outA/WhiteSur-Dark 2>/dev/null && echo "OK_A" || echo "MISSING_A"
-
-          echo "==================== B: candidate fix — HOME=/root USER=root ===================="
-          rm -rf /tmp/WhiteSur.lock
-          env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME=/root USER=root bash ws/install.sh -d /tmp/outB 2>&1 | tail -30
-          echo "rcB -> checking result"; ls -d /tmp/outB/WhiteSur-Dark 2>/dev/null && echo "OK_B" || echo "MISSING_B"
-          echo "=== themes produced in B ==="; ls /tmp/outB 2>/dev/null || true
+          echo "==================== bash -x trace (HOME/USER set) ===================="
+          env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME=/root USER=root bash -x ws/install.sh -d /tmp/outB 2>&1 | tail -70
+          echo "==================== result ===================="
+          ls -d /tmp/outB/WhiteSur-Dark 2>/dev/null && echo "OK_B" || echo "MISSING_B"
+          ls -la /tmp/outB 2>/dev/null || true
