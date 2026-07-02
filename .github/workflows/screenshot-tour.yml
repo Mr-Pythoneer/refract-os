@@ -1,0 +1,98 @@
+name: screenshot-tour
+# Boots a built ISO in QEMU and drives GNOME over VNC to capture a rich set of
+# "inside the OS" screenshots: desktop, Activities overview, app grid, a terminal
+# showing /etc/os-release = "Refract OS", Settings -> About, and Files. Best-effort
+# (VNC pixel-driving is flaky) — every step screenshots and all shots are uploaded.
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: "build-iso run id (empty = latest successful)"
+        required: false
+        default: ""
+
+jobs:
+  tour:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve build run id
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_RUN: ${{ inputs.build_run_id }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_RUN" ]; then id="$INPUT_RUN"
+          else id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-iso.yml --status success --limit 1 --json databaseId -q '.[0].databaseId'); fi
+          [ -n "$id" ] || { echo "no successful build" >&2; exit 1; }
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+      - name: Download ISO
+        uses: actions/download-artifact@v4
+        with:
+          pattern: refract-os-*
+          run-id: ${{ steps.run.outputs.id }}
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: iso-dl
+      - name: Prepare QEMU + vncdotool
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils socat python3-pip imagemagick
+          pipx install vncdotool 2>/dev/null || pip install --user vncdotool
+          ISO=$(find iso-dl -name "*.iso" | head -n1); [ -n "$ISO" ] || { echo "no iso" >&2; exit 1; }
+          mv "$ISO" refract.iso
+          [ -e /dev/kvm ] && sudo chmod 666 /dev/kvm && echo "ACCEL=kvm" >> "$GITHUB_ENV" || echo "ACCEL=tcg" >> "$GITHUB_ENV"
+      - name: Boot + drive GNOME, capture the tour
+        run: |
+          set -uo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          mkdir -p "$PWD/shots"
+          qemu-system-x86_64 -accel "$ACCEL" -m 4096 -smp 4 \
+            -cdrom refract.iso -boot d -display none -vga std -vnc :0 \
+            -monitor "unix:$PWD/mon.sock,server,nowait" -pidfile "$PWD/qemu.pid" -daemonize
+          mon() { printf '%s\n' "$1" | socat - "unix-connect:$PWD/mon.sock" >/dev/null 2>&1; }
+          shot() { mon "screendump $PWD/shots/$1.ppm"; sleep 1; }
+          vd() { vncdo -s localhost:0 "$@" 2>/dev/null || true; }
+
+          echo "Waiting for the live GNOME desktop (~3.5 min)..."
+          sleep 210
+          shot 00-desktop
+          vd key super;  sleep 3; shot 01-overview
+          # App grid: the 9-dots is the rightmost dock icon (dock centered at bottom).
+          vd key esc; sleep 2; vd move 831 763; vd click 1; sleep 3; shot 02-app-grid
+          vd key esc; sleep 2
+
+          # Terminal -> show the OS identity from /etc/os-release.
+          vd key super; sleep 2; vd type "Terminal"; sleep 2; vd key enter; sleep 8
+          shot 03-terminal
+          vd type "cat /etc/os-release; echo; hostnamectl 2>/dev/null | head -3"; vd key enter; sleep 4
+          shot 04-os-release
+          vd type "distro-modectl status"; vd key enter; sleep 3
+          shot 05-modectl-status
+
+          # Settings -> About (shows "Refract OS" + the logo).
+          vd key super; sleep 2; vd type "About"; sleep 2; vd key enter; sleep 8
+          shot 06-about
+
+          # Files.
+          vd key super; sleep 2; vd type "Files"; sleep 2; vd key enter; sleep 6
+          shot 07-files
+
+          shot 08-final
+          mon "quit" || true
+          for f in shots/*.ppm; do convert "$f" "${f%.ppm}.png" 2>/dev/null && rm -f "$f" || true; done
+          ls -lh shots/ || true
+      - name: Upload tour screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: refract-tour
+          path: shots/
+          if-no-files-found: warn
+          retention-days: 14
