@@ -183,6 +183,31 @@ apply_pinned_apps() {
     gsettings set org.gnome.shell favorite-apps "$joined" || echo "WARNING: gsettings call failed — desktop-file IDs may not match what's actually installed." >&2
 }
 
+apply_theme() {
+    # Per-mode desktop look: swap the wallpaper + Yaru accent (GTK + icons) so
+    # each mode is visually distinct (gaming=red, ai=blue, server=green,
+    # creative=magenta, normal=orange). GNOME-only and needs the invoking user's
+    # session bus, so it runs pre-sudo like apply_pinned_apps; a no-op otherwise.
+    [ -n "${WALLPAPER:-}" ] || [ -n "${YARU_ACCENT:-}" ] || return 0
+    command -v gsettings >/dev/null 2>&1 || return 0
+    if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+        echo "NOTE: no session bus — skipping per-mode theme (needs a graphical login)." >&2
+        return 0
+    fi
+    if [ -n "${WALLPAPER:-}" ] && [ -f "$WALLPAPER" ]; then
+        gsettings set org.gnome.desktop.background picture-uri "file://$WALLPAPER" 2>/dev/null || true
+        gsettings set org.gnome.desktop.background picture-uri-dark "file://$WALLPAPER" 2>/dev/null || true
+        gsettings set org.gnome.desktop.background picture-options 'zoom' 2>/dev/null || true
+    fi
+    gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
+    # Ubuntu 24.04 ships Yaru-<accent>-dark GTK themes + Yaru-<accent> icons.
+    local gtk="Yaru-dark" icon="Yaru"
+    if [ -n "${YARU_ACCENT:-}" ]; then gtk="Yaru-${YARU_ACCENT}-dark"; icon="Yaru-${YARU_ACCENT}"; fi
+    gsettings set org.gnome.desktop.interface gtk-theme "$gtk" 2>/dev/null || true
+    gsettings set org.gnome.desktop.interface icon-theme "$icon" 2>/dev/null || true
+    echo "Applied ${MODE_NAME} look: ${WALLPAPER:+wallpaper + }${YARU_ACCENT:-orange} accent."
+}
+
 confirm_or_abort() {
     local prompt="$1"
     if [ "$ASSUME_YES" = "true" ]; then
@@ -223,6 +248,7 @@ do_switch() {
     # own session bus, and LM Studio (distro-ai-model) is per-user, not root's.
     # Both are no-ops / skipped on the root re-exec pass.
     apply_pinned_apps PINNED_APPS
+    apply_theme
     apply_ai_model
 
     require_root_for switch "$mode"

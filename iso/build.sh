@@ -155,8 +155,11 @@ echo "crucible" > "$INCLUDES/etc/hostname"
 printf '127.0.0.1\tlocalhost\n127.0.1.1\tcrucible\n' > "$INCLUDES/etc/hosts"
 
 # Wallpaper + logos into the image.
-mkdir -p "$INCLUDES/usr/share/backgrounds" "$INCLUDES/usr/share/crucible"
-cp "$REPO_ROOT/branding/out/wallpaper.png"  "$INCLUDES/usr/share/backgrounds/crucible-os.png"
+mkdir -p "$INCLUDES/usr/share/backgrounds/crucible" "$INCLUDES/usr/share/crucible"
+# The full per-mode wallpaper set (base/gaming/ai/server/creative/normal) —
+# distro-modectl swaps between them on `switch <mode>`.
+cp "$REPO_ROOT"/branding/out/wallpapers/*.png "$INCLUDES/usr/share/backgrounds/crucible/"
+cp "$REPO_ROOT/branding/out/wallpapers/base.png" "$INCLUDES/usr/share/backgrounds/crucible-os.png"  # GNOME default (login/base)
 cp "$REPO_ROOT/branding/out/logo-clean.png" "$INCLUDES/usr/share/crucible/logo.png"
 cp "$REPO_ROOT/branding/out/logo-small.png" "$INCLUDES/usr/share/crucible/logo-small.png"
 
@@ -165,10 +168,6 @@ mkdir -p "$INCLUDES/usr/share/plymouth/themes/crucible"
 cp "$REPO_ROOT/iso/branding/plymouth/crucible/crucible.plymouth" "$INCLUDES/usr/share/plymouth/themes/crucible/"
 cp "$REPO_ROOT/iso/branding/plymouth/crucible/crucible.script"   "$INCLUDES/usr/share/plymouth/themes/crucible/"
 cp "$REPO_ROOT/branding/out/logo-clean.png" "$INCLUDES/usr/share/plymouth/themes/crucible/logo.png"
-
-# fastfetch terminal identity.
-mkdir -p "$INCLUDES/etc/fastfetch"
-cp "$REPO_ROOT/iso/branding/fastfetch.jsonc" "$INCLUDES/etc/fastfetch/config.jsonc"
 
 # GNOME defaults (wallpaper/dark/favorites) via a system dconf db — harmless on
 # non-GNOME strains (dconf just isn't consulted there).
