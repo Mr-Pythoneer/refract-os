@@ -296,7 +296,7 @@
   <div class="wrap">
     <h2>Status</h2>
     <div class="status-box">
-      <p style="margin:0 0 12px;">Said plainly, not buried: <strong>the first ISO built successfully in CI on 2026-07-02</strong> (workstation strain, 2.45&nbsp;GB — six decade-old live-build bugs fixed along the way), but it has <strong>not booted on anything yet</strong> — no VM smoke test, no real hardware, and the Calamares installer has never run. The full framework — driver scripts, all 5 mode bundles, 6 hardware strains, the build pipeline, CI — exists and is execution-tested where possible. Known limitation: the ISO is BIOS/CSM-boot only for now (Ubuntu's live-build fork has no EFI support).</p>
+      <p style="margin:0 0 12px;">Said plainly, not buried: <strong>the first ISO built AND booted to a full GNOME desktop on 2026-07-02</strong> — built in CI (workstation strain, 2.45&nbsp;GB, six decade-old live-build bugs fixed), then boot-verified the same day in QEMU/KVM on a CI runner: SeaBIOS &rarr; isolinux &rarr; kernel &rarr; live desktop, with casper/systemd assertions on a serial console and screenshots as artifacts. Still true: <strong>no real hardware yet</strong>, and the Calamares installer has never run. The full framework — driver scripts, all 5 mode bundles, 6 hardware strains, the build pipeline, CI — exists and is execution-tested where possible. Known limitation: the ISO is BIOS/CSM-boot only for now (Ubuntu's live-build fork has no EFI support).</p>
       <p style="margin:0; color: var(--text-dim);">The <a href="https://github.com/Mr-Pythoneer/crucible-os/blob/main/TODO.md">TODO.md</a> in the repo is the live, itemized source of truth — check there before believing anything here is further along than it is.</p>
     </div>
   </div>
