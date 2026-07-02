@@ -1,0 +1,39 @@
+name: theme-probe
+# Throwaway diagnostic: reproduce the WhiteSur GTK install + blur-my-shell
+# availability on the SAME ubuntu-24.04 userland the ISO uses, with full output
+# (the real ISO hook suppressed stderr). Delete once the macOS-look hook is fixed.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Deps
+        run: |
+          set -x
+          sudo apt-get update
+          sudo apt-get install -y sassc libglib2.0-dev-bin libxml2-utils git gnome-themes-extra
+          sassc --version || true
+          glib-compile-resources --version || true
+
+      - name: WhiteSur GTK install (full output)
+        run: |
+          set -x
+          git init -q ws && git -C ws remote add origin https://github.com/vinceliuice/WhiteSur-gtk-theme.git
+          git -C ws fetch -q --depth 1 origin a83f467e4c16b1ed1c960f3d89e2472d9639477c
+          git -C ws checkout -q FETCH_HEAD
+          echo "=== install.sh --help ==="; ws/install.sh --help 2>&1 | head -40 || true
+          echo "=== try: -d /tmp/themes (no color flags) ==="
+          sudo mkdir -p /tmp/themes
+          sudo ws/install.sh -d /tmp/themes 2>&1 | tail -40 ; echo "rc=$?"
+          echo "=== what landed ==="; ls -la /tmp/themes || true
+
+      - name: blur-my-shell availability
+        run: |
+          set -x
+          apt-cache search blur | grep -i blur || echo "no apt match for 'blur'"
+          apt-cache policy gnome-shell-extension-blur-my-shell || true
+          sudo apt-get install -y --no-install-recommends gnome-shell-extension-blur-my-shell 2>&1 | tail -15 ; echo "rc=$?"
+          dpkg -L gnome-shell-extension-blur-my-shell 2>/dev/null | grep -i extension | head || echo "(not installed)"
