@@ -1,7 +1,7 @@
 name: theme-probe
-# Throwaway diagnostic: reproduce the WhiteSur GTK install + blur-my-shell
-# availability on the SAME ubuntu-24.04 userland the ISO uses, with full output
-# (the real ISO hook suppressed stderr). Delete once the macOS-look hook is fixed.
+# Throwaway diagnostic (v2): verify the FIXED install paths before a full ISO
+# build — WhiteSur to a temp dir then copy, and blur-my-shell built from source
+# (it is NOT in Ubuntu apt). Delete once the macOS-look hook is fixed.
 on:
   workflow_dispatch:
 
@@ -14,26 +14,30 @@ jobs:
         run: |
           set -x
           sudo apt-get update
-          sudo apt-get install -y sassc libglib2.0-dev-bin libxml2-utils git gnome-themes-extra
-          sassc --version || true
-          glib-compile-resources --version || true
+          sudo apt-get install -y sassc libglib2.0-dev-bin libxml2-utils git \
+            gnome-themes-extra make gettext
 
-      - name: WhiteSur GTK install (full output)
+      - name: WhiteSur GTK — temp install then copy to /usr/share/themes
         run: |
-          set -x
+          set -xe
           git init -q ws && git -C ws remote add origin https://github.com/vinceliuice/WhiteSur-gtk-theme.git
           git -C ws fetch -q --depth 1 origin a83f467e4c16b1ed1c960f3d89e2472d9639477c
           git -C ws checkout -q FETCH_HEAD
-          echo "=== install.sh --help ==="; ws/install.sh --help 2>&1 | head -40 || true
-          echo "=== try: -d /tmp/themes (no color flags) ==="
-          sudo mkdir -p /tmp/themes
-          sudo ws/install.sh -d /tmp/themes 2>&1 | tail -40 ; echo "rc=$?"
-          echo "=== what landed ==="; ls -la /tmp/themes || true
+          mkdir -p /tmp/ws-out
+          ws/install.sh -d /tmp/ws-out          # NO -c flags, NOT a system dir
+          echo "=== built theme dirs ==="; ls /tmp/ws-out
+          sudo cp -a /tmp/ws-out/. /usr/share/themes/
+          echo "=== WhiteSur-Dark present system-wide? ==="
+          ls -d /usr/share/themes/WhiteSur-Dark && echo "WHITESUR_OK" || echo "WHITESUR_MISSING"
 
-      - name: blur-my-shell availability
+      - name: blur-my-shell — build from source (not in apt) + locate extension
         run: |
-          set -x
-          apt-cache search blur | grep -i blur || echo "no apt match for 'blur'"
-          apt-cache policy gnome-shell-extension-blur-my-shell || true
-          sudo apt-get install -y --no-install-recommends gnome-shell-extension-blur-my-shell 2>&1 | tail -15 ; echo "rc=$?"
-          dpkg -L gnome-shell-extension-blur-my-shell 2>/dev/null | grep -i extension | head || echo "(not installed)"
+          set -xe
+          git init -q bms && git -C bms remote add origin https://github.com/aunetx/blur-my-shell.git
+          git -C bms fetch -q --depth 1 origin main
+          git -C bms checkout -q FETCH_HEAD
+          echo "PINNED_HEAD=$(git -C bms rev-parse HEAD)"
+          make -C bms build 2>&1 | tail -20 || make -C bms 2>&1 | tail -20 || true
+          echo "=== where is the built extension (metadata.json)? ==="
+          find bms -name metadata.json -not -path '*/node_modules/*'
+          echo "=== uuid ==="; find bms -name metadata.json -exec grep -H uuid {} \; | head
