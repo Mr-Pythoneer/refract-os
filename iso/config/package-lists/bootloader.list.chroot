@@ -1,0 +1,9 @@
+# BIOS bootloader bits that must PERSIST in the chroot so the
+# config/hooks/500-crucible-bootfix.binary hook can copy isolinux.bin and
+# ldlinux.c32 into binary/isolinux before ISO mastering. (The old live-build
+# fork's own Check_package would install-then-REMOVE syslinux packages within
+# the binary_syslinux stage; packages listed here are detected as already
+# present and left alone — verified in the fork's functions/packages.sh.)
+# Cost in the installed system: <1MB. Both are in noble universe.
+isolinux
+syslinux-common

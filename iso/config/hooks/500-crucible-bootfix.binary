@@ -1,0 +1,41 @@
+#!/bin/sh
+#
+# Binary-stage hook for Ubuntu's live-build fork (3.0~a57): runs on the HOST
+# with cwd=binary/, AFTER lb_binary_syslinux and BEFORE lb_binary_iso
+# (sequence verified in the fork's lb_binary: syslinux(68) -> includes(73) ->
+# hooks(74) -> checksums(75) -> iso(86)). Two fixups the fork doesn't do for
+# casper-based images:
+#
+# 1) Kernel names: lb_binary_linux-image copies vmlinuz-<ver>/initrd.img-<ver>
+#    into binary/casper/ WITH version suffixes and nothing renames them (the
+#    rename logic only exists in the live.cfg.in path, hardcoded to
+#    binary/live). Our isolinux.cfg needs stable /casper/vmlinuz names.
+#
+# 2) isolinux boot files: our theme-free local bootloader template ships only
+#    isolinux.cfg (see config/bootloaders/isolinux/isolinux.cfg for why), so
+#    isolinux.bin + ldlinux.c32 must be copied from the chroot — the paths are
+#    noble's (/usr/lib/ISOLINUX/, /usr/lib/syslinux/modules/bios/), NOT the
+#    pre-2014 /usr/lib/syslinux/ the fork's stock template symlinks assume.
+#    The packages persist in the chroot via package-lists/bootloader.list.chroot.
+#    binary_iso then masters with '-b isolinux/isolinux.bin -c isolinux/boot.cat'.
+
+set -e
+
+for f in casper/vmlinuz-*; do
+    [ -e "$f" ] || continue
+    mv "$f" casper/vmlinuz
+    break   # single kernel flavour per image
+done
+for f in casper/initrd.img-*; do
+    [ -e "$f" ] || continue
+    mv "$f" casper/initrd.img
+    break
+done
+
+mkdir -p isolinux
+cp ../chroot/usr/lib/ISOLINUX/isolinux.bin isolinux/
+# Since syslinux 5, isolinux.bin loads ldlinux.c32 from the same directory at
+# boot; without it the boot stops at "failed to load ldlinux.c32".
+cp ../chroot/usr/lib/syslinux/modules/bios/ldlinux.c32 isolinux/
+
+echo "crucible-bootfix: kernels renamed, isolinux.bin + ldlinux.c32 staged."

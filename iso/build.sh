@@ -110,6 +110,18 @@ for bin in "${!DISTRO_BINS[@]}"; do
 done
 find "$INCLUDES/opt/distro" -type f \( -name "*.sh" -o -name "distro-*" \) -exec chmod +x {} +
 
+# Neutralize the old fork's mode-ubuntu gfxboot step: lb_binary_syslinux runs
+# `tar xfz /usr/share/gfxboot-theme-ubuntu/bootlogo.tar.gz` in the chroot for
+# EVERY syslinux theme (it's gated on mode, not theme), but that package died
+# ~Ubuntu 12.04. An empty tarball pre-placed via includes.chroot makes the tar
+# a no-op AND satisfies the fork's Check_package existence test so it never
+# tries to install the dead package. (~45 bytes in the installed system.)
+mkdir -p "$INCLUDES/usr/share/gfxboot-theme-ubuntu"
+tar -czf "$INCLUDES/usr/share/gfxboot-theme-ubuntu/bootlogo.tar.gz" -T /dev/null
+
+# Binary hooks are exec'd directly by the fork's lb_binary_hooks — must be +x.
+find "$(dirname "${BASH_SOURCE[0]}")/config/hooks" -maxdepth 1 -type f -name "*.binary" -exec chmod +x {} + 2>/dev/null || true
+
 echo -e "\033[36mConfiguring live-build...\033[0m"
 # Ubuntu's live-build fork (3.0~a57-based — what `apt install live-build` gives
 # on noble / ubuntu-latest) rejects '--debian-installer none' at the BINARY
@@ -119,12 +131,20 @@ echo -e "\033[36mConfiguring live-build...\033[0m"
 # the same script works on either build host.
 DI_OFF="none"
 case "$(lb --version 2>/dev/null)" in 3.0*) DI_OFF="false" ;; esac
+# --syslinux-theme live-build: the fork's DEFAULT theme is 'ubuntu-oneiric'
+# (syslinux-themes-ubuntu-oneiric + gfxboot-theme-ubuntu — packages dead since
+# ~12.04; run 28565364184 failed there). 'live-build' makes it prefer our
+# LOCAL config/bootloaders/isolinux template instead. NOTE: this old fork has
+# no EFI support at all (only grub/grub2/syslinux BIOS scripts exist in it),
+# so the resulting ISO is BIOS/CSM-boot only — fine for QEMU/SeaBIOS smoke
+# tests; real UEFI-only hardware needs the modern-live-build migration (TODO).
 lb config \
     --distribution noble \
     --architectures amd64 \
     --linux-flavours generic-hwe-24.04 \
     --archive-areas "main restricted universe multiverse" \
     --debian-installer "$DI_OFF" \
+    --syslinux-theme live-build \
     --iso-application "Crucible OS ($STRAIN)" \
     --iso-volume "CRUCIBLEOS"
 # --iso-volume deliberately does NOT vary by strain: ISO9660 volume labels
