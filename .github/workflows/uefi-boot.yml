@@ -1,0 +1,92 @@
+name: uefi-boot
+# Verifies a build's ISO boots under REAL UEFI firmware (OVMF) in QEMU. Since
+# build.sh now folds the UEFI hybrid-remaster into the build, the published ISO
+# is already BIOS+UEFI — this just boots it under OVMF and asserts userspace.
+# (Replaces the old uefi-remaster.yml, whose remaster logic now lives in build.sh.)
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: "build-iso run id (empty = latest successful)"
+        required: false
+        default: ""
+
+jobs:
+  uefi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Resolve build run id
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_RUN: ${{ inputs.build_run_id }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_RUN" ]; then id="$INPUT_RUN"
+          else id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-iso.yml --status success --limit 1 --json databaseId -q '.[0].databaseId'); fi
+          [ -n "$id" ] || { echo "no successful build" >&2; exit 1; }
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+      - name: Download ISO
+        uses: actions/download-artifact@v4
+        with:
+          pattern: refract-os-*
+          run-id: ${{ steps.run.outputs.id }}
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: iso-dl
+      - name: Tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils socat ovmf imagemagick xorriso
+          [ -e /dev/kvm ] && sudo chmod 666 /dev/kvm && echo "ACCEL=kvm" >> "$GITHUB_ENV" || echo "ACCEL=tcg" >> "$GITHUB_ENV"
+      - name: Confirm the ISO carries a UEFI El Torito record
+        run: |
+          set -euo pipefail
+          ISO=$(find iso-dl -name '*.iso' | head -n1); [ -n "$ISO" ] || { echo "no iso" >&2; exit 1; }
+          echo "ISO=$ISO" >> "$GITHUB_ENV"
+          echo "=== El Torito boot records (expect BIOS + UEFI) ==="
+          xorriso -indev "$ISO" -report_el_torito plain 2>/dev/null | grep -iE "Pltf|boot img" || true
+          xorriso -indev "$ISO" -report_el_torito plain 2>/dev/null | grep -qi "UEFI" \
+            || { echo "FAIL: ISO has no UEFI El Torito record — the build's remaster didn't run." >&2; exit 1; }
+      - name: Boot under UEFI (OVMF) and assert userspace
+        run: |
+          set -uxo pipefail
+          CODE=""; for c in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do [ -f "$c" ] && CODE="$c" && break; done
+          VARS=""; for v in /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd; do [ -f "$v" ] && VARS="$v" && break; done
+          [ -n "$CODE" ] && [ -n "$VARS" ] || { echo "OVMF firmware not found" >&2; ls -la /usr/share/OVMF/ || true; exit 1; }
+          cp "$VARS" vars.fd; mkdir -p "$PWD/shots"
+          qemu-system-x86_64 -machine q35 -accel "$ACCEL" -m 4096 -smp 4 \
+            -drive if=pflash,format=raw,unit=0,readonly=on,file="$CODE" \
+            -drive if=pflash,format=raw,unit=1,file=vars.fd \
+            -cdrom "$ISO" -boot d -display none -vga std \
+            -serial "file:$PWD/uefi-serial.log" \
+            -monitor "unix:$PWD/mon.sock,server,nowait" -pidfile "$PWD/q.pid" -daemonize
+          set +e
+          shot() { printf 'screendump %s\n' "$PWD/shots/$1.ppm" | socat - "unix-connect:$PWD/mon.sock" >/dev/null 2>&1 || true; }
+          ok=""
+          for i in $(seq 1 50); do
+            sleep 6
+            if grep -qiE "reached target|systemd\[1\]|casper|Welcome to Refract|GNOME|gdm|login:|Reached target" uefi-serial.log 2>/dev/null; then ok=1; fi
+            case "$i" in 15|25|35) shot "uefi-$i" ;; esac
+            [ -n "$ok" ] && [ "$i" -ge 30 ] && break
+          done
+          shot uefi-final
+          echo "=== UEFI serial tail ==="; tail -40 uefi-serial.log || true
+          for f in shots/*.ppm; do convert "$f" "${f%.ppm}.png" 2>/dev/null && rm -f "$f" || true; done
+          [ -n "$ok" ] || { echo "FAIL: no userspace signal on serial under UEFI/OVMF." >&2; exit 1; }
+          echo "PASS: Refract booted under real UEFI firmware (OVMF)."
+      - name: Upload UEFI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uefi-boot-evidence
+          path: |
+            shots/
+            uefi-serial.log
+          if-no-files-found: warn
+          retention-days: 7

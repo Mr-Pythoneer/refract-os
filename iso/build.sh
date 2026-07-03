@@ -270,6 +270,64 @@ lb config \
 echo -e "\033[36mBuilding ISO (this takes a long time and a lot of disk — run on the build host, not a laptop)...\033[0m"
 lb build
 
+# ---------------------------------------------------------------------------
+# UEFI: Ubuntu's live-build fork emits a BIOS-only ISO (its lb_binary has no EFI
+# path at all). Rather than migrate to modern live-build, post-process the built
+# ISO into a HYBRID BIOS+UEFI image: extract the tree, add an EFI El Torito boot
+# image (grub-mkstandalone with an embedded menu that `search --file`s for the
+# casper volume), and repack with xorriso keeping the isolinux BIOS boot + a GPT
+# ESP so it's still USB-writable. OVMF-verified (uefi-remaster.yml lineage).
+# Failure-tolerant: if the tools/paths are missing it logs and ships BIOS-only.
+# ---------------------------------------------------------------------------
+remaster_uefi() {
+    local iso="$1" work isohdpfx mb
+    command -v xorriso >/dev/null 2>&1 && command -v grub-mkstandalone >/dev/null 2>&1 \
+        && command -v mkfs.vfat >/dev/null 2>&1 && command -v mcopy >/dev/null 2>&1 \
+        || { echo "UEFI: tools missing (need xorriso, grub-efi-amd64-bin, dosfstools, mtools) — shipping BIOS-only." >&2; return 1; }
+    isohdpfx=""
+    for p in /usr/lib/ISOLINUX/isohdpfx.bin /usr/lib/syslinux/isohdpfx.bin; do [ -f "$p" ] && isohdpfx="$p" && break; done
+    [ -n "$isohdpfx" ] || { echo "UEFI: isohdpfx.bin not found — shipping BIOS-only." >&2; return 1; }
+    work="$(mktemp -d)"
+    if ! xorriso -osirrox on -indev "$iso" -extract / "$work/tree" >/dev/null 2>&1; then
+        echo "UEFI: could not extract the ISO — shipping BIOS-only." >&2; rm -rf "$work"; return 1; fi
+    chmod -R u+w "$work/tree" 2>/dev/null || true
+    [ -f "$work/tree/casper/vmlinuz" ] || { echo "UEFI: no casper/vmlinuz in ISO — shipping BIOS-only." >&2; rm -rf "$work"; return 1; }
+    cat > "$work/grub-embed.cfg" <<'GRUB'
+set timeout=5
+set default=0
+insmod all_video
+search --set=root --file /casper/vmlinuz
+menuentry "Refract OS (live)" {
+    linux /casper/vmlinuz boot=casper quiet splash console=tty0 console=ttyS0,115200 ---
+    initrd /casper/initrd.img
+}
+menuentry "Refract OS (safe graphics)" {
+    linux /casper/vmlinuz boot=casper nomodeset console=tty0 console=ttyS0,115200 ---
+    initrd /casper/initrd.img
+}
+GRUB
+    if ! grub-mkstandalone -O x86_64-efi -o "$work/bootx64.efi" \
+        --modules="part_gpt part_msdos fat iso9660 normal linux search configfile echo all_video gfxterm test" \
+        "boot/grub/grub.cfg=$work/grub-embed.cfg" >/dev/null 2>&1; then
+        echo "UEFI: grub-mkstandalone failed — shipping BIOS-only." >&2; rm -rf "$work"; return 1; fi
+    mb=$(( $(stat -c%s "$work/bootx64.efi") / 1048576 + 4 ))
+    dd if=/dev/zero of="$work/efiboot.img" bs=1M count="$mb" >/dev/null 2>&1
+    mkfs.vfat "$work/efiboot.img" >/dev/null 2>&1
+    mmd -i "$work/efiboot.img" ::/EFI ::/EFI/BOOT >/dev/null 2>&1
+    mcopy -i "$work/efiboot.img" "$work/bootx64.efi" ::/EFI/BOOT/BOOTX64.EFI >/dev/null 2>&1
+    mkdir -p "$work/tree/EFI/boot"; cp "$work/efiboot.img" "$work/tree/EFI/boot/efiboot.img"
+    rm -f "$work/tree/isolinux/boot.cat"
+    if ! xorriso -as mkisofs -iso-level 3 -V REFRACTOS -r -J -joliet-long \
+        -isohybrid-mbr "$isohdpfx" \
+        -c isolinux/boot.cat \
+        -b isolinux/isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table \
+        -eltorito-alt-boot -e EFI/boot/efiboot.img -no-emul-boot -isohybrid-gpt-basdat \
+        -o "$work/hybrid.iso" "$work/tree" >/dev/null 2>&1; then
+        echo "UEFI: xorriso repack failed — shipping BIOS-only." >&2; rm -rf "$work"; return 1; fi
+    mv "$work/hybrid.iso" "$iso"; rm -rf "$work"
+    echo -e "\033[32mUEFI: $iso is now a hybrid BIOS+UEFI image.\033[0m"
+}
+
 # Output name differs by live-build generation: Ubuntu's 3.0~a57 fork writes
 # binary.hybrid.iso / binary.iso (source-verified in its lb_binary_iso);
 # Debian's modern live-build writes live-image-amd64.hybrid.iso. The first
@@ -281,6 +339,7 @@ for cand in binary.hybrid.iso live-image-amd64.hybrid.iso binary.iso; do
 done
 if [ -n "$OUT" ]; then
     mv "$OUT" "$RENAMED"
+    remaster_uefi "$RENAMED" || echo -e "\033[33mUEFI remaster skipped/failed — the ISO is BIOS/CSM-boot only.\033[0m" >&2
     echo -e "\033[32mDone — $RENAMED ($(du -h "$RENAMED" | cut -f1))\033[0m"
 else
     echo -e "\033[33mlb build finished but no known output ISO name was found — check the build log above.\033[0m" >&2

@@ -56,6 +56,8 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y live-build
+          # Tools for build.sh's UEFI hybrid-remaster step (fold-in of uefi-remaster).
+          sudo apt-get install -y xorriso grub-efi-amd64-bin grub-common mtools dosfstools isolinux
 
       - name: Build ISO
         working-directory: iso
