@@ -1,0 +1,37 @@
+#!/bin/sh
+# Refract OS polish — the "just works, buttery" layer that isn't dconf:
+#  - Flathub enabled so the Software app is a real app store (macOS-App-Store feel)
+#  - fontconfig for crisp rendering + Inter as the default sans-serif
+# Failure-tolerant: cosmetic/convenience, never fail the ISO over it.
+
+# --- Flathub (the app store) ---
+if command -v flatpak >/dev/null 2>&1; then
+    if flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo 2>/dev/null; then
+        echo "polish: Flathub enabled — the Software app is now an app store."
+    else
+        echo "polish: couldn't add Flathub at build time (network?) — user can add it later." >&2
+    fi
+fi
+
+# --- Crisp fonts + Inter as the UI default (covers non-GNOME/GTK apps too) ---
+mkdir -p /etc/fonts/conf.d
+cat > /etc/fonts/conf.d/99-refract-fonts.conf <<'EOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <match target="pattern">
+    <test name="family"><string>sans-serif</string></test>
+    <edit name="family" mode="prepend" binding="strong"><string>Inter</string></edit>
+  </match>
+  <match target="font">
+    <edit name="antialias" mode="assign"><bool>true</bool></edit>
+    <edit name="hinting" mode="assign"><bool>true</bool></edit>
+    <edit name="hintstyle" mode="assign"><const>hintslight</const></edit>
+    <edit name="rgba" mode="assign"><const>rgb</const></edit>
+    <edit name="lcdfilter" mode="assign"><const>lcddefault</const></edit>
+  </match>
+</fontconfig>
+EOF
+command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1 || true
+echo "polish: fontconfig configured (Inter + slight-hinting subpixel)."
+exit 0

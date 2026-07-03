@@ -1,0 +1,54 @@
+# Refract OS "make it buttery" defaults — smoothness, input feel, fonts, and the
+# macOS-familiar touches. System-wide dconf defaults (users can override any).
+
+[org/gnome/desktop/peripherals/touchpad]
+# The macOS trackpad feel: natural scroll, tap-to-click, two-finger scroll/right-
+# click, and ignore the pad while typing so the cursor doesn't jump.
+natural-scroll=true
+tap-to-click=true
+two-finger-scrolling-enabled=true
+disable-while-typing=true
+click-method='fingers'
+speed=0.3
+
+[org/gnome/desktop/peripherals/mouse]
+natural-scroll=false
+accel-profile='default'
+
+[org/gnome/desktop/interface]
+enable-animations=true
+font-antialiasing='rgba'
+font-hinting='slight'
+font-name='Inter 11'
+document-font-name='Inter 11'
+monospace-font-name='Fira Code 11'
+show-battery-percentage=true
+clock-show-weekday=true
+enable-hot-corners=true
+
+[org/gnome/mutter]
+# Fractional/HiDPI scaling (Wayland) for sharp text on high-DPI laptops like the
+# X1 Carbon, plus dynamic workspaces + edge-tiling.
+experimental-features=['scale-monitor-framebuffer']
+dynamic-workspaces=true
+edge-tiling=true
+
+[org/gnome/desktop/wm/preferences]
+# macOS-style window controls on the LEFT (close, minimize, maximize).
+button-layout='close,minimize,maximize:'
+action-middle-click-titlebar='minimize'
+resize-with-right-button=true
+
+[org/gnome/desktop/wm/keybindings]
+# GNOME keeps its native Super shortcuts (overview on tap, Super+arrows tile);
+# these just add a couple of extra conveniences. App-level ⌘/Ctrl duality is
+# handled at the input layer by keyd (see iso/config/hooks/0410-keyd.chroot).
+minimize=['<Super>h']
+show-desktop=['<Super>d']
+
+[org/gnome/desktop/sound]
+event-sounds=false
+
+[org/gnome/mutter/keybindings]
+toggle-tiled-left=['<Super>Left']
+toggle-tiled-right=['<Super>Right']

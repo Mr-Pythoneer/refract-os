@@ -1,0 +1,8 @@
+# Refract OS polish layer — usability + "just works" packages.
+gnome-sushi                    # Quick Look: spacebar file preview in Files
+flatpak                        # app runtime for the Flathub app store
+gnome-software-plugin-flatpak  # makes the Software app show Flathub apps
+fwupd                          # firmware updates (LVFS) — laptops especially
+fonts-inter                    # clean SF-like UI font (default UI font)
+fonts-firacode                 # nice monospace with ligatures
+fonts-noto-color-emoji         # colour emoji everywhere

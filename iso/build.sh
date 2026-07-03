@@ -63,7 +63,8 @@ rm -rf "$INCLUDES/usr/share/initramfs-tools/scripts/casper-bottom"
 # or spend build time compiling WhiteSur for an image with no desktop.
 HOOKS_DIR="$(dirname "${BASH_SOURCE[0]}")/config/hooks"
 if [[ " ${HEADLESS_STRAINS[*]} " == *" $STRAIN "* ]]; then
-    rm -f "$PACKAGE_LISTS/macos-look.list.chroot" "$HOOKS_DIR/0300-macos-look.chroot"
+    rm -f "$PACKAGE_LISTS/macos-look.list.chroot" "$HOOKS_DIR/0300-macos-look.chroot" \
+          "$PACKAGE_LISTS/polish.list.chroot" "$HOOKS_DIR/0400-polish.chroot" "$HOOKS_DIR/0410-keyd.chroot"
 fi
 if [[ ! " ${HEADLESS_STRAINS[*]} " == *" $STRAIN "* ]]; then
     echo -e "\033[36mWiring in Calamares (installer config, untested -- see iso/calamares/README.md)...\033[0m"
@@ -206,6 +207,11 @@ cp "$REPO_ROOT/iso/branding/glib/99_refract.gschema.override" "$INCLUDES/usr/sha
 # dconf db for favorites (belt-and-suspenders alongside the schema override).
 mkdir -p "$INCLUDES/etc/dconf/db/local.d" "$INCLUDES/etc/dconf/profile"
 cp "$REPO_ROOT/iso/branding/dconf/local.d/00-refract" "$INCLUDES/etc/dconf/db/local.d/00-refract"
+# The polish layer (smoothness/input/fonts/window-buttons) — DE only; stripped
+# from headless strains below alongside its package list + hooks.
+if [[ ! " ${HEADLESS_STRAINS[*]} " == *" $STRAIN "* ]]; then
+    cp "$REPO_ROOT/iso/branding/dconf/local.d/10-refract-polish" "$INCLUDES/etc/dconf/db/local.d/10-refract-polish"
+fi
 cp "$REPO_ROOT/iso/branding/dconf/profile/user"        "$INCLUDES/etc/dconf/profile/user"
 # GDM greeter branding (refract logo + background on the login screen). The
 # gdm dconf profile ships with gdm3; the hook compiles this db.
