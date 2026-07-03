@@ -225,7 +225,7 @@ jobs:
           prev=0
           for i in $(seq 1 50); do
             sleep 30
-            sz=$(qemu-img info --output=json target.qcow2 | python3 -c "import json,sys;print(json.load(sys.stdin)['actual-size'])")
+            sz=$(qemu-img info -U --output=json target.qcow2 | python3 -c "import json,sys;print(json.load(sys.stdin)['actual-size'])")
             echo "target actual-size: $sz"
             [ "$i" -eq 10 ] && shot 05-installing
             if [ "$sz" -gt 2000000000 ] && [ "$sz" -eq "$prev" ]; then echo "size stabilized >2GB — install likely done"; break; fi
@@ -236,7 +236,7 @@ jobs:
           sudo apt-get install -y imagemagick >/dev/null 2>&1 || true
           for f in shots/*.ppm; do convert "$f" "${f%.ppm}.png" 2>/dev/null && rm -f "$f" || true; done
           # Sanity: the target must have received real data.
-          final=$(qemu-img info --output=json target.qcow2 | python3 -c "import json,sys;print(json.load(sys.stdin)['actual-size'])")
+          final=$(qemu-img info -U --output=json target.qcow2 | python3 -c "import json,sys;print(json.load(sys.stdin)['actual-size'])")
           echo "final target actual-size: $final"
           [ "$final" -gt 2000000000 ] || { echo "FAIL: target disk got <2GB — install did not copy the system." >&2; exit 1; }
 
