@@ -202,23 +202,28 @@ jobs:
           # device, NOT the installer, and no desktop icon renders.)
           vd key super; sleep 3; shot 01a-overview
           vd type "Install Refract"; sleep 3; shot 01b-search
-          vd key enter; sleep 20
+          vd key enter; sleep 25
           shot 01c-after-launch
-          # A polkit/pkexec prompt may appear (Calamares needs root). If so, the
-          # live user is passwordless-sudo on Ubuntu casper, but the .desktop runs
-          # `calamares` directly; screenshot will show whether it got root.
-          # Calamares pages: blank disk -> Next x3 -> (partition auto) Next ->
-          # users (type) -> Next -> Install. Enter advances the default button.
-          for p in welcome locale keyboard; do vd key enter; sleep 7; done
-          shot 02-partition
-          vd key enter; sleep 7          # partition (erase disk default)
-          shot 03-users
-          # users page: type name, Tab to username (auto), Tab to password x2
+          # Drive Calamares by CLICKING the bottom-right Next button — Enter does
+          # NOT advance its pages, and stray typed text lands in the language combo
+          # (a prior run got stuck on Welcome and flipped to Turkish). The
+          # Next/Install button sits at a stable bottom-right spot (~1007,640 @ 1280x800).
+          next() { vd move 1007 640; sleep 1; vd click 1; sleep "${1:-6}"; }
+          next 5;  shot 02a-locale       # Welcome  -> Locale
+          next 5;  shot 02b-keyboard     # Locale   -> Keyboard
+          next 6;  shot 02-partition     # Keyboard -> Partition
+          next 6;  shot 03-users         # Partition (erase-disk default) -> Users
+          # Users page: click the Name field, type; username auto-derives; Tab to
+          # the two password fields. Field column is centred; Name row near the top.
+          vd move 700 250; sleep 1; vd click 1
           vd type "tester"; vd key tab; vd key tab
-          vd type "refract"; vd key tab; vd type "refract"; vd key tab
-          sleep 2; vd key enter; sleep 6 # -> summary
-          shot 04-summary
-          vd key enter                   # Install
+          vd type "refractos1"; vd key tab; vd type "refractos1"; sleep 1
+          next 6;  shot 04-summary       # Users -> Summary
+          # Install (same bottom-right spot, now labelled Install/Kur).
+          vd move 1007 640; sleep 1; vd click 1; sleep 3
+          shot 04b-confirm
+          # An "Install now?" confirm dialog may pop — its OK is also bottom-right.
+          vd key tab; sleep 1; vd key enter
           echo "Installing (unpackfs copy + grub)... polling target disk growth"
           # An erase-disk install writes several GB; poll qcow2 actual size as a
           # progress proxy, up to 25 minutes.
