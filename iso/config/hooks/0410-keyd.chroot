@@ -1,0 +1,63 @@
+#!/bin/sh
+# ⌘/Ctrl duality (user asked for "both keys work"). keyd is NOT in noble's repos,
+# so build it from a pinned tag. It remaps, at the INPUT layer (Wayland-safe):
+#   * Super+[c v x a z s f w n t q]  ->  the Ctrl equivalent  (macOS muscle memory)
+#   * Super held with any OTHER key  ->  stays Super+key       (GNOME tiling etc.)
+#   * Super tapped alone             ->  stays Super           (overview/spotlight)
+# Ctrl+C/V/... keep working (Ctrl is untouched). Build deps are purged after so
+# the image stays lean. Fully failure-tolerant: if anything fails, Ctrl shortcuts
+# still work and the ISO still builds.
+KEYD_TAG="v2.5.0"
+
+_added_tools=false
+if ! command -v gcc >/dev/null 2>&1 || ! command -v make >/dev/null 2>&1; then
+    if apt-get install -y --no-install-recommends gcc make >/dev/null 2>&1; then
+        _added_tools=true
+    else
+        echo "keyd: no build tools available — skipping ⌘ remap (Ctrl still works)." >&2; exit 0
+    fi
+fi
+command -v git >/dev/null 2>&1 || { echo "keyd: git missing — skipping." >&2; exit 0; }
+
+WORK="$(mktemp -d)"
+# shellcheck disable=SC2064
+trap "rm -rf '$WORK'" EXIT INT TERM
+
+if git clone --depth 1 --branch "$KEYD_TAG" https://github.com/rvaiya/keyd.git "$WORK/keyd" >/dev/null 2>&1 \
+   && make -C "$WORK/keyd" >/dev/null 2>&1 \
+   && make -C "$WORK/keyd" install >/dev/null 2>&1; then
+    mkdir -p /etc/keyd
+    cat > /etc/keyd/default.conf <<'EOF'
+[ids]
+*
+
+[main]
+leftmeta = overload(meta, leftmeta)
+rightmeta = overload(meta, leftmeta)
+
+[meta:M]
+c = C-c
+v = C-v
+x = C-x
+a = C-a
+z = C-z
+s = C-s
+f = C-f
+w = C-w
+n = C-n
+t = C-t
+q = C-q
+EOF
+    systemctl enable keyd >/dev/null 2>&1 || true
+    echo "keyd: installed ${KEYD_TAG} — Super+C/V/X/... now do Ctrl (macOS muscle memory); Ctrl still works."
+else
+    echo "keyd: build/install failed — skipping ⌘ remap (Ctrl shortcuts still work)." >&2
+fi
+
+# Drop the compiler we pulled in just to build keyd. Deliberately NO autoremove
+# (it could pull a desktop dependency); leaving gcc's own deps is minor bloat but
+# can't break the desktop.
+if [ "$_added_tools" = true ]; then
+    apt-get purge -y gcc make >/dev/null 2>&1 || true
+fi
+exit 0
