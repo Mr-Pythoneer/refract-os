@@ -78,7 +78,7 @@ llama.cpp port is preserved in `modes/ai/legacy-crucible12/`. See §5 / `modes/a
 - [x] Docker install script (Docker's own apt repo)
 - [x] Netdata install script (official kickstart, telemetry disabled)
 - [x] verify-server.sh sanity check
-- [ ] Headless boot verification (no display attached, mode still fully usable) — **(needs hardware/VM)**
+- [x] **Headless boot VERIFIED (2026-07-03)** — the `server` strain ISO booted under OVMF with `-display none` and reached systemd/userspace over serial (`uefi-boot.yml`). A headless server strain hitting `login:` with no GNOME = headless-usable.
 - [ ] **(needs hardware/VM)** verify `distro-modectl switch server` doesn't break an active SSH session when disabling the display manager
 
 ## 7. Creative mode — `modes/creative/`
@@ -112,7 +112,7 @@ llama.cpp port is preserved in `modes/ai/legacy-crucible12/`. See §5 / `modes/a
 - [x] Caught and fixed a real gap while adding strain selection: `base.list.chroot` never included a desktop environment package at all — the original skeleton would have produced a GUI-less image regardless of strain. DE choice moved to per-strain files.
 - [x] 6 hardware strains scaffolded (`iso/strains/`, `iso/build.sh [strain]`): workstation, laptop, lowspec, server, handheld, cloud — see DESIGN.md §5b for the Tier 1/2/3 breakdown (ARM/Apple Silicon/RISC-V and embedded explicitly deferred, not silently dropped)
 - [x] Strain-selection file-copy/cleanup logic actually execution-tested (stubbed `lb`, ran `build.sh lowspec` then `build.sh laptop`, confirmed no cross-contamination between strains) — the one part of `iso/` that's been run for real, not just read and trusted
-- [ ] **(needs Linux build host — live-build doesn't run on macOS at all)** actually run `./build.sh` for the first time, for each strain
+- [x] **ALL 5 live-build strains BUILD (2026-07-03)** — workstation, laptop, lowspec, server, handheld all built green in CI (`build-iso.yml`). This first per-strain run caught two real bugs: laptop's `tlp`↔`power-profiles-daemon` conflict, and the GNOME macOS-look/polish leaking onto LXQt `lowspec` — both fixed. (`cloud` uses the separate `build-cloud-image.sh` pipeline, not live-build.)
 - [x] **First buildable ISO — DONE + boots in a VM (2026-07-02)** — CI builds it (ubuntu-latest = the Linux build host) and boot-smoke boots it to a full GNOME desktop in QEMU/KVM; now also BIOS+UEFI (uefi-boot.yml).
 - [x] Confirmed `lubuntu-desktop`/`ubuntu-desktop-minimal` are both current real Noble (24.04) metapackages (Launchpad-verified, 2026-06-25). Also confirmed `lubuntu-desktop` is LXQt, not legacy LXDE (transitioned in 2018) — the `iso/strains/lowspec.list.chroot` comment describing it as LXQt was already correct.
 - [x] `handheld` strain's actual differentiation (`iso/strains/handheld/setup-handheld-ui.sh`: on-screen keyboard, UI text scaling, Steam Big Picture autostart via stable GNOME gsettings schemas) — execution-tested all branches (root/session guards, Steam present/absent) with stubbed `gsettings`/`steam`
