@@ -75,10 +75,27 @@ if [[ ! " ${HEADLESS_STRAINS[*]} " == *" $STRAIN "* ]]; then
 [Desktop Entry]
 Type=Application
 Name=Install Refract OS
-Exec=calamares
+Exec=pkexec calamares
 Icon=system-software-install
 Terminal=false
 Categories=System;
+EOF
+    # Without this, launching the installer pops an "Authenticate to manage disks"
+    # polkit prompt (whose default button is Cancel) and the install never starts.
+    # Real live ISOs grant the local live session passwordless access to the disk /
+    # installer / reboot actions. Scoped to a live session (no persistence, so it's
+    # gone on an installed system) by only matching the active local subject.
+    mkdir -p "$INCLUDES/etc/polkit-1/rules.d"
+    cat > "$INCLUDES/etc/polkit-1/rules.d/49-refract-installer.rules" <<'EOF'
+polkit.addRule(function(action, subject) {
+    if (subject.local && subject.active &&
+        (action.id.indexOf("org.freedesktop.udisks2.") === 0 ||
+         action.id.indexOf("com.github.calamares.") === 0 ||
+         action.id === "org.freedesktop.policykit.exec" ||
+         action.id.indexOf("org.freedesktop.login1.") === 0)) {
+        return polkit.Result.YES;
+    }
+});
 EOF
     # Live-session autostart: a casper-bottom hook (see
     # iso/casper-hooks/casper-bottom/README.md) drops the desktop entry above
