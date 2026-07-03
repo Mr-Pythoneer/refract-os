@@ -204,25 +204,26 @@ jobs:
           vd type "Install Refract"; sleep 3; shot 01b-search
           vd key enter; sleep 25
           shot 01c-after-launch
-          # Drive Calamares by CLICKING the bottom-right Next button — Enter does
-          # NOT advance its pages, and stray typed text lands in the language combo
-          # (a prior run got stuck on Welcome and flipped to Turkish). The
-          # Next/Install button sits at a stable bottom-right spot (~1007,640 @ 1280x800).
-          # CRITICAL: vncdo is stateless per invocation — a separate `move` then
-          # `click` reconnects with the cursor reset to (0,0), so the click misses.
-          # move + click MUST be ONE vncdo call.
-          next() { vd move 1007 640 click 1; sleep "${1:-6}"; }
+          # The installer window opens at a NON-deterministic position/size, so
+          # fixed button coords miss (a prior run had Next at ~879,570 not 1007,640).
+          # Maximize it (GNOME: Super+Up) so the buttons sit at fixed screen-relative
+          # spots. CRITICAL: vncdo is stateless per invocation — a separate `move`
+          # then `click` reconnects with the cursor reset to (0,0); move+click MUST
+          # be ONE vncdo call. Maximized on 1280x800: Next ~ (1155,772).
+          vd key super-Up; sleep 3
+          shot 01d-maximized
+          next() { vd move 1155 772 click 1; sleep "${1:-6}"; }
           next 5;  shot 02a-locale       # Welcome  -> Locale
           next 5;  shot 02b-keyboard     # Locale   -> Keyboard
           next 6;  shot 02-partition     # Keyboard -> Partition
           next 6;  shot 03-users         # Partition (erase-disk default) -> Users
-          # Users page: click the Name field (one call), type; username auto-derives;
-          # Tab to the two password fields.
-          vd move 700 250 click 1
+          # Users page: click the Name field (one call, maximized -> upper-centre),
+          # type; username auto-derives; Tab to the two password fields.
+          vd move 640 300 click 1
           vd type "tester"; vd key tab; vd key tab
           vd type "refractos1"; vd key tab; vd type "refractos1"; sleep 1
           next 6;  shot 04-summary       # Users -> Summary
-          vd move 1007 640 click 1; sleep 3   # Install (bottom-right, now "Install")
+          vd move 1155 772 click 1; sleep 3   # Install (bottom-right, now "Install")
           shot 04b-confirm
           # An "Install now?" confirm dialog may pop — its OK is also bottom-right.
           vd key tab; sleep 1; vd key enter
