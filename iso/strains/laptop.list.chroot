@@ -1,8 +1,9 @@
-## Laptop strain: same desktop bundle as workstation, plus battery/power
-## management. tlp's power tuning and modes/modectl's CPU-governor switching
-## are complementary, not redundant -- tlp handles fine-grained
-## battery-charge/USB-autosuspend/etc. that distro-modectl's per-mode
-## governor switch doesn't touch.
+## Laptop strain: same desktop bundle as workstation, plus laptop firmware bits.
+## NOTE: no tlp. On 24.04 tlp CONFLICTS with power-profiles-daemon (pulled in by
+## ubuntu-desktop-minimal) -> "held broken packages", and it would fight the
+## mode-switcher, which drives power via powerprofilesctl (power-profiles-daemon).
+## So laptop power management = power-profiles-daemon + distro-modectl's governor
+## control: the GNOME-integrated, conflict-free path.
 ubuntu-desktop-minimal
 flatpak
 gnome-shell-extensions
@@ -10,5 +11,5 @@ gnome-tweaks
 gamemode
 mangohud
 winetricks
-tlp
-tlp-rdw
+fwupd
+laptop-detect

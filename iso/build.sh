@@ -62,7 +62,11 @@ rm -rf "$INCLUDES/usr/share/initramfs-tools/scripts/casper-bottom"
 # images don't drag in GNOME theme tooling (sassc, gnome-shell-extensions, ...)
 # or spend build time compiling WhiteSur for an image with no desktop.
 HOOKS_DIR="$(dirname "${BASH_SOURCE[0]}")/config/hooks"
-if [[ " ${HEADLESS_STRAINS[*]} " == *" $STRAIN "* ]]; then
+# The macOS look + polish layers are GNOME-specific (WhiteSur GTK, blur-my-shell,
+# gnome-sushi, org.gnome.* dconf). Strip them from every NON-GNOME strain: the
+# headless ones AND lowspec (which is LXQt/lubuntu-desktop, not GNOME).
+NON_GNOME_STRAINS=(server cloud lowspec)
+if [[ " ${NON_GNOME_STRAINS[*]} " == *" $STRAIN "* ]]; then
     rm -f "$PACKAGE_LISTS/macos-look.list.chroot" "$HOOKS_DIR/0300-macos-look.chroot" \
           "$PACKAGE_LISTS/polish.list.chroot" "$HOOKS_DIR/0400-polish.chroot" "$HOOKS_DIR/0410-keyd.chroot"
 fi
@@ -207,9 +211,9 @@ cp "$REPO_ROOT/iso/branding/glib/99_refract.gschema.override" "$INCLUDES/usr/sha
 # dconf db for favorites (belt-and-suspenders alongside the schema override).
 mkdir -p "$INCLUDES/etc/dconf/db/local.d" "$INCLUDES/etc/dconf/profile"
 cp "$REPO_ROOT/iso/branding/dconf/local.d/00-refract" "$INCLUDES/etc/dconf/db/local.d/00-refract"
-# The polish layer (smoothness/input/fonts/window-buttons) — DE only; stripped
-# from headless strains below alongside its package list + hooks.
-if [[ ! " ${HEADLESS_STRAINS[*]} " == *" $STRAIN "* ]]; then
+# The polish layer (smoothness/input/fonts/window-buttons) is GNOME dconf — only
+# for GNOME strains (skip headless + lowspec/LXQt), matching the package/hook strip.
+if [[ ! " ${NON_GNOME_STRAINS[*]} " == *" $STRAIN "* ]]; then
     cp "$REPO_ROOT/iso/branding/dconf/local.d/10-refract-polish" "$INCLUDES/etc/dconf/db/local.d/10-refract-polish"
 fi
 cp "$REPO_ROOT/iso/branding/dconf/profile/user"        "$INCLUDES/etc/dconf/profile/user"
