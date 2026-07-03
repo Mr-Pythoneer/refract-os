@@ -34,4 +34,19 @@ cat > /etc/fonts/conf.d/99-refract-fonts.conf <<'EOF'
 EOF
 command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1 || true
 echo "polish: fontconfig configured (Inter + slight-hinting subpixel)."
+
+# --- Skip the Ubuntu-branded gnome-initial-setup "Welcome!" wizard ---
+# The live session should land on the desktop, not a setup wizard; and an
+# installed system already did language/keyboard/account in Calamares. The marker
+# in /etc/skel makes every new user (the casper live user + Calamares-created
+# users) skip it. Also removes an Ubuntu-logo screen.
+mkdir -p /etc/skel/.config
+: > /etc/skel/.config/gnome-initial-setup-done
+# Belt-and-suspenders: also drop it for an already-created live user, if present.
+if [ -d /home/ubuntu ]; then
+    mkdir -p /home/ubuntu/.config
+    : > /home/ubuntu/.config/gnome-initial-setup-done
+    chown -R ubuntu:ubuntu /home/ubuntu/.config 2>/dev/null || true
+fi
+echo "polish: gnome-initial-setup wizard suppressed (live boots straight to desktop)."
 exit 0
