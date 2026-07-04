@@ -36,44 +36,64 @@ command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1 || true
 echo "polish: fontconfig configured (Inter + slight-hinting subpixel)."
 
 # --- Kill the Ubuntu-branded gnome-initial-setup "Welcome!" wizard ---
-# The /etc/skel stamp ALONE did not stop it on the live session: casper creates
-# the live user's home in a way that races the skel copy, so the per-user marker
-# isn't there when the session starts. The reliable, timing-independent kill is to
-# disable the XDG autostart entry system-wide — every GNOME session honors
-# /etc/xdg/autostart regardless of which user/home it is. We keep the stamp too
-# (belt-and-suspenders for Calamares-created installed users).
-AUTOSTART_DIR=/etc/xdg/autostart
-mkdir -p "$AUTOSTART_DIR"
-# 1) Neutralize every shipped gnome-initial-setup autostart entry (first-login + copy-worker).
-for f in "$AUTOSTART_DIR"/gnome-initial-setup*.desktop; do
-    [ -e "$f" ] || continue
-    if grep -q '^Hidden=' "$f"; then
-        sed -i 's/^Hidden=.*/Hidden=true/' "$f"
-    else
-        printf 'Hidden=true\n' >> "$f"
-    fi
-done
-# 2) Canonical hidden override, in case the package ships it elsewhere or lands
-#    after this hook — a Hidden entry at this path wins over any lower-priority one.
-cat > "$AUTOSTART_DIR/gnome-initial-setup-first-login.desktop" <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=Initial Setup (disabled by Refract)
-Exec=/bin/true
-Hidden=true
-X-GNOME-Autostart-enabled=false
-NoDisplay=true
+# TWO earlier attempts failed: (a) an /etc/skel stamp (raced by casper's home
+# creation), and (b) hiding the /etc/xdg/autostart .desktop — which did NOTHING
+# because on GNOME 46 the first-login wizard is launched by a systemd USER unit
+# (gnome-initial-setup-first-login.service), not the XDG autostart entry. Build
+# logs confirmed (b) ran yet the wizard still appeared.
+#
+# The definitive, timing-independent kill is to PURGE the package: it is only a
+# *Recommends* of ubuntu-desktop / ubuntu-desktop-minimal (verified) and is not
+# referenced by gnome-shell or gdm3, so removing it cannot cascade-remove the
+# desktop. With the binary + all its units gone, no path (gdm OEM greeter,
+# systemd-user first-login, or XDG autostart) can launch it. Autologin is
+# unaffected (casper still creates + autologins 'ubuntu'); the session just lands
+# on the desktop. Steps 2-4 are belt-and-suspenders in case a later apt run or a
+# fork quirk reintroduces it.
+
+# 1) Purge it (the real fix). No autoremove — mirrors the keyd hook's caution:
+#    autoremove could pull a desktop Recommends; the minor orphan bloat is safe.
+if dpkg-query -W -f='${Status}' gnome-initial-setup 2>/dev/null | grep -q "install ok installed"; then
+    DEBIAN_FRONTEND=noninteractive apt-get purge -y gnome-initial-setup >/dev/null 2>&1 \
+        && echo "polish: purged gnome-initial-setup (no wizard can launch)." \
+        || echo "polish: could not purge gnome-initial-setup — relying on masks/stamp." >&2
+fi
+# Pin so a later 'apt install ubuntu-desktop*' can't pull it back via Recommends.
+cat > /etc/apt/preferences.d/no-gnome-initial-setup <<'EOF'
+Package: gnome-initial-setup
+Pin: release *
+Pin-Priority: -1
 EOF
-# 3) Per-user stamp (content 'yes') for any home that already exists + all future
-#    users via /etc/skel. The stamp must contain 'yes', not be empty.
-mkdir -p /etc/skel/.config
-printf 'yes\n' > /etc/skel/.config/gnome-initial-setup-done
-for h in /home/ubuntu /home/user; do
+
+# 2) Belt: stop gdm ever launching the OEM/new-user greeter session (honored key).
+install -d /etc/gdm3
+if [ -f /etc/gdm3/daemon.conf ]; then
+    grep -q '^\[daemon\]' /etc/gdm3/daemon.conf || printf '[daemon]\n' >> /etc/gdm3/daemon.conf
+    if grep -q '^InitialSetupEnable=' /etc/gdm3/daemon.conf; then
+        sed -i 's/^InitialSetupEnable=.*/InitialSetupEnable=false/' /etc/gdm3/daemon.conf
+    else
+        sed -i '/^\[daemon\]/a InitialSetupEnable=false' /etc/gdm3/daemon.conf
+    fi
+else
+    printf '[daemon]\nInitialSetupEnable=false\n' > /etc/gdm3/daemon.conf
+fi
+
+# 3) Suspenders: mask the systemd USER units for ALL users, exactly like casper's
+#    52gnome_initial_setup does at boot — but system-wide + permanent.
+install -d /etc/systemd/user
+for u in gnome-initial-setup-first-login gnome-initial-setup-upgrade-login gnome-initial-setup-copy-worker; do
+    ln -sf /dev/null "/etc/systemd/user/${u}.service"
+done
+
+# 4) Suspenders: 'done' stamp for every existing home + all future users via skel.
+install -d /etc/skel/.config
+: > /etc/skel/.config/gnome-initial-setup-done
+for h in /home/*; do
     [ -d "$h" ] || continue
     u="$(basename "$h")"
-    mkdir -p "$h/.config"
-    printf 'yes\n' > "$h/.config/gnome-initial-setup-done"
+    install -d "$h/.config"
+    : > "$h/.config/gnome-initial-setup-done"
     chown -R "$u":"$u" "$h/.config" 2>/dev/null || true
 done
-echo "polish: gnome-initial-setup disabled system-wide (autostart hidden + stamp)."
+echo "polish: gnome-initial-setup neutralized (purge + gdm gate + user-unit masks + stamp)."
 exit 0
