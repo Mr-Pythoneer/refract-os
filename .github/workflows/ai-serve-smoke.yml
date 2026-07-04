@@ -1,0 +1,129 @@
+name: ai-serve-smoke
+
+# Partially closes the AI-mode "needs hardware" TODO by proving the FUNCTIONAL
+# half on CPU: the OpenAI-compatible :8080 serve contract + thin-client answer,
+# and that real LM Studio (llmster) installs/loads/serves headless. The GPU half
+# (correct --gpu offload, tokens/sec, VRAM fit) stays hardware-gated — a runner
+# has no GPU, so we can only prove --gpu off / CPU inference here.
+#
+#  Job A (llama-serve-contract): fast, deterministic, always-green. Serves a tiny
+#    GGUF on :8080 with llama.cpp and drives the repo's own distro-ai-ask thin
+#    client → proves the /v1/chat/completions contract every AI-mode client uses.
+#  Job B (lmstudio-headless-smoke): best-effort (the llmster CPU image is
+#    preview-status). Runs the OFFICIAL headless LM Studio daemon on CPU and does
+#    lms get → load → server start → query — the real `lms` CLI surface the repo's
+#    setup/01-install-lmstudio.sh drives.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  llama-serve-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download a tiny instruct GGUF (~105 MB, CPU-friendly)
+        run: |
+          set -euo pipefail
+          url="https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct-Q4_K_M.gguf?download=true"
+          curl -fSL --retry 3 -o model.gguf "$url"
+          sz=$(stat -c%s model.gguf)
+          echo "model.gguf = $sz bytes"
+          [ "$sz" -gt 50000000 ] || { echo "FAIL: model download too small ($sz) — bad URL/redirect"; exit 1; }
+
+      - name: Fetch a prebuilt CPU llama-server
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          url=$(gh api repos/ggml-org/llama.cpp/releases/latest \
+                  --jq '.assets[].browser_download_url | select(test("ubuntu-x64\\.zip$"))' | head -1)
+          echo "llama.cpp asset: $url"
+          [ -n "$url" ] || { echo "FAIL: could not find an ubuntu-x64 llama.cpp asset"; exit 1; }
+          curl -fSL --retry 3 -o llama.zip "$url"
+          unzip -q llama.zip -d llama
+          bin=$(find llama -type f -name llama-server | head -1)
+          [ -n "$bin" ] || { echo "FAIL: llama-server not found in archive"; exit 1; }
+          echo "LLAMA_SERVER=$bin"         >> "$GITHUB_ENV"
+          echo "LLAMA_LIBDIR=$(dirname "$bin")" >> "$GITHUB_ENV"
+
+      - name: Serve the model on :8080 and wait until ready
+        run: |
+          set -euo pipefail
+          LD_LIBRARY_PATH="$LLAMA_LIBDIR" "$LLAMA_SERVER" \
+            -m model.gguf --host 127.0.0.1 --port 8080 --ctx-size 512 \
+            > llama-server.log 2>&1 &
+          echo $! > server.pid
+          for i in $(seq 1 90); do
+            if curl -sf http://127.0.0.1:8080/v1/models >/dev/null 2>&1; then
+              echo "server up after ${i}s"; break
+            fi
+            sleep 1
+            [ "$i" = 90 ] && { echo "FAIL: llama-server never became ready"; tail -40 llama-server.log; exit 1; }
+          done
+
+      - name: Prove the repo's distro-ai-ask thin client gets a real answer
+        run: |
+          set -euo pipefail
+          # distro-ai-ask POSTs to http://127.0.0.1:8080/v1/chat/completions (no
+          # model field) and parses choices[0].message.content — the exact contract
+          # the overlay + Nautilus action + AI mode all use.
+          out="$(modes/ai/bin/distro-ai-ask 'Reply with exactly: OK' || true)"
+          echo "distro-ai-ask returned: [$out]"
+          [ -n "$out" ] || { echo "FAIL: distro-ai-ask returned empty"; tail -20 llama-server.log; exit 1; }
+          # Belt-and-suspenders: a raw OpenAI call returns a well-formed completion.
+          curl -sf http://127.0.0.1:8080/v1/chat/completions \
+            -H 'Content-Type: application/json' \
+            -d '{"messages":[{"role":"user","content":"Say OK"}],"stream":false}' \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print("completion:", d["choices"][0]["message"]["content"])'
+          echo "PASS: the :8080 OpenAI serve contract + distro-ai-ask thin client work on CPU."
+
+      - name: Stop the server
+        if: always()
+        run: '[ -f server.pid ] && kill "$(cat server.pid)" 2>/dev/null || true'
+
+  lmstudio-headless-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The official llmster CPU image is preview-status; don't red-X the run on
+    # their infra flakiness. Job A is the always-green guardrail.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require AVX2 (LM Studio's inference backend needs it on x86)
+        run: |
+          grep -q avx2 /proc/cpuinfo \
+            && echo "AVX2 present — LM Studio backend supported" \
+            || { echo "no AVX2 on this runner — LM Studio cannot run, skipping"; exit 1; }
+
+      - name: Run the official LM Studio headless daemon (CPU-only image)
+        run: |
+          set -euo pipefail
+          docker run -d --name lms -p 1234:1234 lmstudio/llmster-preview:cpu
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:1234/v1/models >/dev/null 2>&1; then echo "daemon up after ${i}s"; break; fi
+            sleep 2
+            [ "$i" = 60 ] && { echo "daemon never came up"; docker logs lms || true; exit 1; }
+          done
+
+      - name: lms get -> load -> server start -> query, all on CPU
+        run: |
+          set -euo pipefail
+          docker exec lms lms get   google/gemma-3-1b
+          docker exec lms lms load  google/gemma-3-1b --gpu off
+          docker exec lms lms server start
+          docker exec lms lms server status
+          docker exec lms lms ps
+          curl -sf http://127.0.0.1:1234/v1/chat/completions \
+            -H 'Content-Type: application/json' \
+            -d '{"model":"google/gemma-3-1b","messages":[{"role":"user","content":"Reply with OK"}],"stream":false}' \
+            | tee lms_out.json
+          python3 -c 'import json; d=json.load(open("lms_out.json")); print("LM Studio completion:", d["choices"][0]["message"]["content"])'
+          echo "PASS: real LM Studio (llmster) installs, loads a model, and serves on CPU headless."
+
+      - name: Daemon logs (on failure)
+        if: failure()
+        run: docker logs lms || true

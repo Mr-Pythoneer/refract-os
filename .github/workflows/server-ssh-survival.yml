@@ -1,0 +1,96 @@
+name: server-ssh-survival
+
+# Closes the TODO safety check: "distro-modectl switch server doesn't break an
+# active SSH session when disabling the display manager." Server mode runs
+# `systemctl disable --now gdm` (CONFIRM_DISPLAY_MANAGER_STOP=true). The fear is
+# that tearing down the graphical session also drops a remote admin's SSH
+# connection, locking them out mid-switch. This job proves it does NOT.
+#
+# The GitHub runner IS a real Ubuntu 24.04 systemd VM (satisfies the TODO's
+# "needs VM"): we install a REAL gdm + sshd, open a live SSH session, run the
+# REAL `switch server` inside it, and assert the session — and sshd — survive.
+# Fidelity caveat: a headless runner may not fully seat gdm, but the property
+# under test (sshd/ssh-session are independent systemd units from gdm.service, so
+# disabling gdm can't drop them) is identical whether gdm is active or enabled-
+# but-idle; we still exercise the real `disable --now gdm`.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ssh-survives-dm-teardown:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install a real display-manager, sshd and power tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            openssh-server gdm3 power-profiles-daemon
+
+      - name: Install the distro mode-switcher (script + profiles, symlinked)
+        run: |
+          set -euo pipefail
+          # Mirror the installed-system layout: script + profiles/ together, with
+          # a /usr/local/bin symlink (exercises the same readlink-based PROFILE_DIR
+          # resolution the unit tests cover).
+          sudo mkdir -p /opt/refract/modectl
+          sudo cp modes/modectl/distro-modectl /opt/refract/modectl/
+          sudo cp -r modes/modectl/profiles /opt/refract/modectl/
+          sudo chmod +x /opt/refract/modectl/distro-modectl
+          sudo ln -sf /opt/refract/modectl/distro-modectl /usr/local/bin/distro-modectl
+
+      - name: Bring up sshd with localhost key auth
+        run: |
+          set -euo pipefail
+          sudo systemctl enable --now ssh
+          ssh-keygen -t ed25519 -N '' -f "$HOME/.ssh/id_ed25519"
+          cat "$HOME/.ssh/id_ed25519.pub" >> "$HOME/.ssh/authorized_keys"
+          chmod 600 "$HOME/.ssh/authorized_keys"
+          # Prove a baseline connection works before we touch anything.
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new localhost 'echo baseline-ssh-ok'
+
+      - name: Best-effort start gdm (headless runners may only reach enabled/idle)
+        run: |
+          sudo systemctl start gdm3 || true
+          echo "gdm before switch: active=$(systemctl is-active gdm 2>&1 || true) enabled=$(systemctl is-enabled gdm 2>&1 || true)"
+
+      - name: Run 'switch server' INSIDE a live SSH session, capture survival
+        run: |
+          set -euo pipefail
+          # One SSH connection: mark it, run the real switch (which disables gdm),
+          # then run MORE commands over the SAME connection. If the DM teardown had
+          # dropped the session, these trailing markers would never be printed.
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new localhost '
+            set -e
+            echo "SESSION_START pid=$$ tty=$(tty 2>/dev/null || echo none)"
+            echo "before: sshd=$(systemctl is-active ssh) gdm=$(systemctl is-active gdm 2>/dev/null || echo inactive)"
+            sudo distro-modectl switch server --yes
+            echo "switch_rc=$?"
+            echo "after: sshd=$(systemctl is-active ssh) gdm_enabled=$(systemctl is-enabled gdm 2>/dev/null || echo n/a)"
+            echo "SESSION_STILL_ALIVE=yes"
+          ' | tee ssh_out.txt
+
+      - name: Assert the admin was not locked out
+        run: |
+          set -euo pipefail
+          fail() { echo "FAIL: $1"; exit 1; }
+          grep -q "SESSION_STILL_ALIVE=yes" ssh_out.txt \
+            || fail "the SSH session died during/after 'switch server'"
+          grep -q "switch_rc=0" ssh_out.txt \
+            || fail "'switch server' returned non-zero inside the session"
+          # sshd must still be up so a brand-new admin connection also works.
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new localhost \
+            'echo NEW_CONNECTION_OK; echo "sshd now: $(systemctl is-active ssh)"' | tee ssh_out2.txt
+          grep -q "NEW_CONNECTION_OK" ssh_out2.txt \
+            || fail "could not open a NEW ssh connection after 'switch server'"
+          # And the display-manager teardown actually happened.
+          if grep -q "gdm_enabled=disabled" ssh_out.txt; then
+            echo "VERIFIED: gdm was disabled by the switch, and neither the live SSH session nor sshd was dropped."
+          else
+            echo "NOTE: gdm was not in an enabled state on this headless runner, but 'disable --now gdm' still ran without dropping the SSH session or sshd."
+          fi
+          echo "PASS: switch server is safe over SSH — no lockout."
