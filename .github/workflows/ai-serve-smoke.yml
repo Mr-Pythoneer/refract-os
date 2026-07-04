@@ -38,12 +38,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # The Linux CPU build is a .tar.gz named ...bin-ubuntu-x64.tar.gz. That
+          # exact suffix uniquely selects the plain CPU build (not the vulkan/
+          # rocm/sycl/openvino/arm64 variants, which carry an extra token before
+          # -x64). Only the Windows assets are .zip.
           url=$(gh api repos/ggml-org/llama.cpp/releases/latest \
-                  --jq '.assets[].browser_download_url | select(test("ubuntu-x64\\.zip$"))' | head -1)
+                  --jq '.assets[].browser_download_url | select(test("bin-ubuntu-x64\\.tar\\.gz$"))' | head -1)
           echo "llama.cpp asset: $url"
           [ -n "$url" ] || { echo "FAIL: could not find an ubuntu-x64 llama.cpp asset"; exit 1; }
-          curl -fSL --retry 3 -o llama.zip "$url"
-          unzip -q llama.zip -d llama
+          curl -fSL --retry 3 -o llama.tgz "$url"
+          mkdir -p llama && tar -xzf llama.tgz -C llama
           bin=$(find llama -type f -name llama-server | head -1)
           [ -n "$bin" ] || { echo "FAIL: llama-server not found in archive"; exit 1; }
           echo "LLAMA_SERVER=$bin"         >> "$GITHUB_ENV"
