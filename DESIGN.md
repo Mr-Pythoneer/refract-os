@@ -182,7 +182,7 @@ wildly different scales:
 (live-build + Calamares), genuinely just a different package-list
 overlay.** This is what "strain" means here, see `iso/strains/`:
 - `workstation` (default) — full GNOME desktop, no special tuning
-- `laptop` — same desktop + `tlp`/`tlp-rdw` battery management
+- `laptop` — same desktop + `power-profiles-daemon` (NOT tlp — it conflicts with p-p-d on 24.04 and fights the mode-switcher) + `thermald`, `fprintd`, Intel VAAPI, and firmware bits
 - `lowspec` — LXQt (`lubuntu-desktop`) instead of GNOME, skips
   gamemode/mangohud/winetricks by default (installed on-demand via
   `modes/gaming/setup/` if actually needed on that hardware)

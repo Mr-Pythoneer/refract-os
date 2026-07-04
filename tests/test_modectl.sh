@@ -60,4 +60,24 @@ assert_eq "detect-tier NOT re-run once tier recorded" "1" "$(wc -l < "$cfg/detec
 assert_contains "switch ai still loads the model on later entries" "$out" "AIMODEL use coding"
 rm -rf "$aid"
 
+# --- apply_cpu_governor adapts to the CPU's available governors ---
+# Regression guard for the Intel intel_pstate fix: that driver offers ONLY
+# performance/powersave, so a profile requesting schedutil must MAP to powersave,
+# not fail with a scary WARNING (the default Normal/AI modes request schedutil,
+# and the first flash target is an Intel ThinkPad). We source the script with the
+# dispatch guarded off and call the function directly, stubbing cpupower and
+# pointing GOV_AVAIL_FILE at a fixture.
+gsd="$(new_stubdir)"
+stub "$gsd" cpupower 'echo "cpupower $*" >&2; exit 0'   # >&2: apply_cpu_governor calls cpupower >/dev/null
+ips="$gsd/ips_governors"; printf 'performance powersave\n' > "$ips"
+gov_out() { ( export PATH="$gsd:$PATH" GOV_AVAIL_FILE="$1" DISTRO_MODECTL_SOURCE=1; . "$MODECTL"; apply_cpu_governor "$2" 2>&1 ); }
+assert_contains "intel_pstate: schedutil -> powersave"     "$(gov_out "$ips" schedutil)"   "frequency-set -g powersave"
+assert_contains "intel_pstate: ondemand -> powersave"      "$(gov_out "$ips" ondemand)"    "frequency-set -g powersave"
+assert_contains "intel_pstate: performance stays"          "$(gov_out "$ips" performance)" "frequency-set -g performance"
+assert_contains "intel_pstate: powersave stays"            "$(gov_out "$ips" powersave)"   "frequency-set -g powersave"
+acpi="$gsd/acpi_governors"; printf 'conservative ondemand userspace powersave performance schedutil\n' > "$acpi"
+assert_contains "acpi-cpufreq: schedutil used as-is"       "$(gov_out "$acpi" schedutil)"  "frequency-set -g schedutil"
+assert_contains "no governors file: passes through"        "$(gov_out "$gsd/nope" schedutil)" "frequency-set -g schedutil"
+rm -rf "$gsd"
+
 finish

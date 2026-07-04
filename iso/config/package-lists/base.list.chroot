@@ -22,3 +22,8 @@ power-profiles-daemon
 mokutil
 ffmpeg
 openssh-server
+## Explicit device firmware (WiFi/GPU/Bluetooth blobs). Almost always pulled in
+## transitively by the HWE kernel + ubuntu-desktop-minimal, but pinned here so a
+## first flash never boots with a dead Intel iwlwifi radio just because a
+## transitive Recommends got dropped. Belt-and-suspenders, no downside.
+linux-firmware

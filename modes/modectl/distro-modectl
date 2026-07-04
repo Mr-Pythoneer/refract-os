@@ -39,6 +39,9 @@ PROFILE_DIR="$(cd "$(dirname "$SELF")" && pwd)/profiles"
 STATE_FILE="/run/distro-modectl/current-mode"
 VALID_MODES=(gaming ai server creative normal)
 ASSUME_YES=false
+# Overridable so the test suite can point apply_cpu_governor at a fixture instead
+# of the real sysfs node (see tests/test_modectl.sh).
+GOV_AVAIL_FILE="${GOV_AVAIL_FILE:-/sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors}"
 
 usage() {
     # Join with IFS='|' in a subshell so the alternatives render as
@@ -101,11 +104,36 @@ run_as_user() {
 
 apply_cpu_governor() {
     local gov="$1"
-    if command -v cpupower >/dev/null 2>&1; then
-        cpupower frequency-set -g "$gov" >/dev/null || echo "WARNING: failed to set CPU governor to $gov" >&2
-    else
+    if ! command -v cpupower >/dev/null 2>&1; then
         echo "WARNING: cpupower not installed — skipping CPU governor change (apt install linux-tools-common linux-tools-\$(uname -r))" >&2
+        return 0
     fi
+    # Adapt the requested governor to what this CPU's cpufreq driver actually
+    # offers. Intel's intel_pstate (active mode) — what a modern ThinkPad/laptop
+    # runs — exposes ONLY 'powersave' and 'performance', NOT schedutil/ondemand/
+    # conservative (those are acpi-cpufreq). Requesting an unavailable governor
+    # makes cpupower fail and print a scary WARNING on the *default* Normal/AI
+    # modes. So map intent -> an available governor instead of failing:
+    #   * performance stays performance
+    #   * everything balanced/efficiency (schedutil/ondemand/conservative/powersave)
+    #     -> 'powersave' on intel_pstate (its balanced governor; the real per-mode
+    #     balancing is done by power-profiles-daemon's EPP, set separately).
+    local avail=""
+    [ -r "$GOV_AVAIL_FILE" ] && avail="$(cat "$GOV_AVAIL_FILE" 2>/dev/null)"
+    if [ -n "$avail" ] && ! printf ' %s ' "$avail" | grep -q " $gov "; then
+        local mapped=""
+        case "$gov" in
+            performance) printf ' %s ' "$avail" | grep -q " performance " && mapped="performance" ;;
+            *)           printf ' %s ' "$avail" | grep -q " powersave "   && mapped="powersave"   ;;
+        esac
+        # Last resort: first governor the driver lists.
+        [ -n "$mapped" ] || mapped="$(printf '%s\n' "$avail" | awk '{print $1; exit}')"
+        if [ -n "$mapped" ] && [ "$mapped" != "$gov" ]; then
+            echo "Note: CPU governor '$gov' isn't offered by this CPU (intel_pstate?); using '$mapped'." >&2
+            gov="$mapped"
+        fi
+    fi
+    cpupower frequency-set -g "$gov" >/dev/null || echo "WARNING: failed to set CPU governor to $gov" >&2
 }
 
 apply_power_profile() {
@@ -327,6 +355,10 @@ do_status() {
     return 0
 }
 
+# Dispatch — skipped when the script is SOURCED for unit tests. The suite sets
+# DISTRO_MODECTL_SOURCE=1 to load the functions (e.g. apply_cpu_governor) and
+# exercise them directly without triggering a real mode switch.
+if [ "${DISTRO_MODECTL_SOURCE:-}" != "1" ]; then
 case "${1:-}" in
     switch)
         [ $# -ge 2 ] || usage
@@ -340,3 +372,4 @@ case "${1:-}" in
     status) do_status ;;
     *) usage ;;
 esac
+fi

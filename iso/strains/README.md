@@ -9,7 +9,7 @@ starting point for that class of machine.
 | Strain | DE | Notes |
 |---|---|---|
 | `workstation` (default) | GNOME (`ubuntu-desktop-minimal`) | Full feature set, no special tuning |
-| `laptop` | GNOME | + `tlp`/`tlp-rdw` for battery/power management |
+| `laptop` | GNOME | + `power-profiles-daemon` power management (NOT tlp — conflicts with p-p-d on 24.04), `thermald`, `fprintd` (fingerprint), Intel VAAPI + firmware |
 | `lowspec` | LXQt (`lubuntu-desktop`) | Lightest official Ubuntu DE; skips gamemode/mangohud/winetricks by default (added on-demand via `modes/gaming/setup/` if actually needed) |
 | `server` | none | Headless; relies on `modes/server/setup/*.sh` post-boot, same lean-image philosophy as the rest of `iso/` |
 | `handheld` | GNOME | Same package set as `workstation`; real differentiation is `handheld/setup-handheld-ui.sh` — on-screen keyboard, UI text scaling, Steam Big Picture autostart |

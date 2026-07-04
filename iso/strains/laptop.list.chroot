@@ -13,3 +13,13 @@ mangohud
 winetricks
 fwupd
 laptop-detect
+## Intel-laptop essentials (first real flash target is an Intel ThinkPad X1
+## Carbon). intel-media-va-driver-non-free = VAAPI HW video decode on Iris Xe/UHD
+## (without it, 4K/H.265 playback falls back to CPU -> hot, loud, battery drain).
+## thermald = Intel thermal daemon (prevents aggressive throttling on thin
+## chassis; self-disables on non-Intel/AMD). fprintd + libpam-fprintd = the
+## fingerprint-reader stack so GNOME Settings can actually enroll the X1's sensor.
+intel-media-va-driver-non-free
+thermald
+fprintd
+libpam-fprintd
