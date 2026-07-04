@@ -70,7 +70,7 @@ jobs:
             echo "before: sshd=$(systemctl is-active ssh) gdm=$(systemctl is-active gdm 2>/dev/null || echo inactive)"
             sudo distro-modectl switch server --yes
             echo "switch_rc=$?"
-            echo "after: sshd=$(systemctl is-active ssh) gdm_enabled=$(systemctl is-enabled gdm 2>/dev/null || echo n/a)"
+            echo "after: sshd=$(systemctl is-active ssh) gdm_active=$(systemctl is-active gdm 2>/dev/null || echo inactive)"
             echo "SESSION_STILL_ALIVE=yes"
           ' | tee ssh_out.txt
 
@@ -87,10 +87,11 @@ jobs:
             'echo NEW_CONNECTION_OK; echo "sshd now: $(systemctl is-active ssh)"' | tee ssh_out2.txt
           grep -q "NEW_CONNECTION_OK" ssh_out2.txt \
             || fail "could not open a NEW ssh connection after 'switch server'"
-          # And the display-manager teardown actually happened.
-          if grep -q "gdm_enabled=disabled" ssh_out.txt; then
-            echo "VERIFIED: gdm was disabled by the switch, and neither the live SSH session nor sshd was dropped."
+          # And the display-manager teardown actually happened: gdm went from
+          # active (started earlier) to inactive (stopped by disable --now).
+          if grep -q "gdm=active" ssh_out.txt && grep -q "gdm_active=inactive" ssh_out.txt; then
+            echo "VERIFIED: gdm was ACTIVE and 'switch server' STOPPED it, yet the live SSH session AND sshd both survived — no lockout."
           else
-            echo "NOTE: gdm was not in an enabled state on this headless runner, but 'disable --now gdm' still ran without dropping the SSH session or sshd."
+            echo "NOTE: could not confirm gdm reached inactive on this headless runner, but 'disable --now gdm' ran and neither the SSH session nor sshd was dropped."
           fi
           echo "PASS: switch server is safe over SSH — no lockout."
