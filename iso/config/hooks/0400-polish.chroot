@@ -35,18 +35,45 @@ EOF
 command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1 || true
 echo "polish: fontconfig configured (Inter + slight-hinting subpixel)."
 
-# --- Skip the Ubuntu-branded gnome-initial-setup "Welcome!" wizard ---
-# The live session should land on the desktop, not a setup wizard; and an
-# installed system already did language/keyboard/account in Calamares. The marker
-# in /etc/skel makes every new user (the casper live user + Calamares-created
-# users) skip it. Also removes an Ubuntu-logo screen.
+# --- Kill the Ubuntu-branded gnome-initial-setup "Welcome!" wizard ---
+# The /etc/skel stamp ALONE did not stop it on the live session: casper creates
+# the live user's home in a way that races the skel copy, so the per-user marker
+# isn't there when the session starts. The reliable, timing-independent kill is to
+# disable the XDG autostart entry system-wide — every GNOME session honors
+# /etc/xdg/autostart regardless of which user/home it is. We keep the stamp too
+# (belt-and-suspenders for Calamares-created installed users).
+AUTOSTART_DIR=/etc/xdg/autostart
+mkdir -p "$AUTOSTART_DIR"
+# 1) Neutralize every shipped gnome-initial-setup autostart entry (first-login + copy-worker).
+for f in "$AUTOSTART_DIR"/gnome-initial-setup*.desktop; do
+    [ -e "$f" ] || continue
+    if grep -q '^Hidden=' "$f"; then
+        sed -i 's/^Hidden=.*/Hidden=true/' "$f"
+    else
+        printf 'Hidden=true\n' >> "$f"
+    fi
+done
+# 2) Canonical hidden override, in case the package ships it elsewhere or lands
+#    after this hook — a Hidden entry at this path wins over any lower-priority one.
+cat > "$AUTOSTART_DIR/gnome-initial-setup-first-login.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Initial Setup (disabled by Refract)
+Exec=/bin/true
+Hidden=true
+X-GNOME-Autostart-enabled=false
+NoDisplay=true
+EOF
+# 3) Per-user stamp (content 'yes') for any home that already exists + all future
+#    users via /etc/skel. The stamp must contain 'yes', not be empty.
 mkdir -p /etc/skel/.config
-: > /etc/skel/.config/gnome-initial-setup-done
-# Belt-and-suspenders: also drop it for an already-created live user, if present.
-if [ -d /home/ubuntu ]; then
-    mkdir -p /home/ubuntu/.config
-    : > /home/ubuntu/.config/gnome-initial-setup-done
-    chown -R ubuntu:ubuntu /home/ubuntu/.config 2>/dev/null || true
-fi
-echo "polish: gnome-initial-setup wizard suppressed (live boots straight to desktop)."
+printf 'yes\n' > /etc/skel/.config/gnome-initial-setup-done
+for h in /home/ubuntu /home/user; do
+    [ -d "$h" ] || continue
+    u="$(basename "$h")"
+    mkdir -p "$h/.config"
+    printf 'yes\n' > "$h/.config/gnome-initial-setup-done"
+    chown -R "$u":"$u" "$h/.config" 2>/dev/null || true
+done
+echo "polish: gnome-initial-setup disabled system-wide (autostart hidden + stamp)."
 exit 0
