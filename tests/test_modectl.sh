@@ -70,6 +70,7 @@ rm -rf "$aid"
 gsd="$(new_stubdir)"
 stub "$gsd" cpupower 'echo "cpupower $*" >&2; exit 0'   # >&2: apply_cpu_governor calls cpupower >/dev/null
 ips="$gsd/ips_governors"; printf 'performance powersave\n' > "$ips"
+# shellcheck disable=SC1090  # $MODECTL is the script under test, resolved at runtime
 gov_out() { ( export PATH="$gsd:$PATH" GOV_AVAIL_FILE="$1" DISTRO_MODECTL_SOURCE=1; . "$MODECTL"; apply_cpu_governor "$2" 2>&1 ); }
 assert_contains "intel_pstate: schedutil -> powersave"     "$(gov_out "$ips" schedutil)"   "frequency-set -g powersave"
 assert_contains "intel_pstate: ondemand -> powersave"      "$(gov_out "$ips" ondemand)"    "frequency-set -g powersave"
