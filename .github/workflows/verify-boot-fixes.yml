@@ -1,0 +1,85 @@
+name: verify-boot-fixes
+
+# Definitive proof that the real-hardware boot fixes are PHYSICALLY present in a
+# built ISO's root filesystem — mounts the ISO, mounts casper/filesystem.squashfs
+# (the exact tree that becomes the installed/live OS), and asserts each fix as a
+# file/content check. This is stronger than trusting build-log echoes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: "build-iso run id to fetch the laptop ISO from"
+        required: true
+
+jobs:
+  inspect-squashfs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download the built laptop ISO
+        run: |
+          set -euo pipefail
+          gh run download "${{ inputs.build_run_id }}" --repo ${{ github.repository }} -n refract-os-laptop -D .
+          ls -lh refract-os-laptop.iso
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Mount ISO + squashfs
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y squashfs-tools >/dev/null
+          sudo mkdir -p /mnt/iso /mnt/sq
+          sudo mount -o loop,ro refract-os-laptop.iso /mnt/iso
+          echo "ISO contents (casper):"; ls -la /mnt/iso/casper/ | grep -E "squashfs|vmlinuz|initrd|manifest" || true
+          sudo mount -t squashfs -o loop,ro /mnt/iso/casper/filesystem.squashfs /mnt/sq
+          echo "squashfs mounted."
+
+      - name: Assert every boot fix is physically in the image
+        run: |
+          set -uo pipefail
+          SQ=/mnt/sq
+          fail=0
+          chk() { # name, test-cmd
+            if eval "$2" >/dev/null 2>&1; then echo "  PASS  $1"; else echo "  FAIL  $1"; fail=1; fi
+          }
+          echo "=== GDM forced to Xorg ==="
+          chk "WaylandEnable=false in /etc/gdm3/daemon.conf" \
+              "grep -q '^WaylandEnable=false' $SQ/etc/gdm3/daemon.conf"
+          echo "=== Xorg session exists (so gdm has something to launch) ==="
+          chk "ubuntu-xorg.desktop present" \
+              "test -e $SQ/usr/share/xsessions/ubuntu-xorg.desktop"
+          echo "=== Intel forced to modesetting, legacy DDX gone ==="
+          chk "xorg.conf.d/20-intel-modesetting.conf forces modesetting" \
+              "grep -qi 'modesetting' $SQ/etc/X11/xorg.conf.d/20-intel-modesetting.conf"
+          chk "legacy intel DDX (intel_drv.so) is PURGED" \
+              "! test -e $SQ/usr/lib/xorg/modules/drivers/intel_drv.so"
+          chk "modesetting driver IS available" \
+              "test -e $SQ/usr/lib/xorg/modules/drivers/modesetting_drv.so"
+          echo "=== no Ubuntu setup wizard ==="
+          chk "gnome-initial-setup binary is PURGED" \
+              "! test -e $SQ/usr/libexec/gnome-initial-setup"
+          echo "=== firmware for the iGPU is present ==="
+          chk "i915 DMC/GuC firmware dir present" \
+              "test -d $SQ/lib/firmware/i915"
+          echo
+          echo "=== installed-package cross-check (filesystem.manifest) ==="
+          MAN=/mnt/iso/casper/filesystem.manifest
+          chk "manifest: xserver-xorg-video-intel ABSENT" \
+              "! grep -q '^xserver-xorg-video-intel' $MAN"
+          chk "manifest: gnome-initial-setup ABSENT" \
+              "! grep -q '^gnome-initial-setup' $MAN"
+          chk "manifest: ubuntu-session PRESENT (provides the xsession)" \
+              "grep -q '^ubuntu-session' $MAN"
+          chk "manifest: gnome-shell PRESENT" \
+              "grep -q '^gnome-shell' $MAN"
+          echo
+          if [ "$fail" = 0 ]; then
+            echo "ALL BOOT FIXES VERIFIED PRESENT IN THE SHIPPED IMAGE."
+          else
+            echo "ONE OR MORE FIXES MISSING FROM THE IMAGE — DO NOT FLASH."; exit 1
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: sudo umount /mnt/sq /mnt/iso 2>/dev/null || true
