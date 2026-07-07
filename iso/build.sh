@@ -244,8 +244,12 @@ _glogo="$(mktemp -d)"
 tar -czf "$INCLUDES/usr/share/gfxboot-theme-ubuntu/bootlogo.tar.gz" -C "$_glogo" bootlogo
 rm -rf "$_glogo"
 
-# Binary hooks are exec'd directly by the fork's lb_binary_hooks — must be +x.
-find "$(dirname "${BASH_SOURCE[0]}")/config/hooks" -maxdepth 1 -type f -name "*.binary" -exec chmod +x {} + 2>/dev/null || true
+# Hooks must be +x: binary hooks are exec'd by the fork's lb_binary_hooks, and
+# chroot hooks likewise. Cover BOTH — relying on live-build's implicit chmod
+# self-heal is fragile (a 0644 .chroot hook silently not running = its whole
+# config, e.g. the WaylandEnable/Xorg fix, never applied). Belt this explicitly.
+find "$(dirname "${BASH_SOURCE[0]}")/config/hooks" -maxdepth 1 -type f \
+    \( -name "*.binary" -o -name "*.chroot" \) -exec chmod +x {} + 2>/dev/null || true
 
 echo -e "\033[36mConfiguring live-build...\033[0m"
 # Ubuntu's live-build fork (3.0~a57-based — what `apt install live-build` gives
@@ -311,8 +315,12 @@ menuentry "Refract OS (live)" {
     linux /casper/vmlinuz boot=casper quiet splash console=tty0 console=ttyS0,115200 ---
     initrd /casper/initrd.img
 }
-menuentry "Refract OS (safe graphics)" {
-    linux /casper/vmlinuz boot=casper nomodeset console=tty0 console=ttyS0,115200 ---
+menuentry "Refract OS (verbose boot -- show progress)" {
+    linux /casper/vmlinuz boot=casper nosplash systemd.show_status=true console=tty0 console=ttyS0,115200 ---
+    initrd /casper/initrd.img
+}
+menuentry "Refract OS (recovery -- Intel display quirks: no PSR/FBC)" {
+    linux /casper/vmlinuz boot=casper nosplash i915.enable_psr=0 i915.enable_fbc=0 console=tty0 console=ttyS0,115200 ---
     initrd /casper/initrd.img
 }
 GRUB

@@ -89,6 +89,27 @@ if grep -q '^WaylandEnable=' /etc/gdm3/daemon.conf; then
 else
     sed -i '/^\[daemon\]/a WaylandEnable=false' /etc/gdm3/daemon.conf
 fi
+# Because we now force Xorg (above), the Xorg DDX driver matters. The legacy
+# 'intel' DDX (xserver-xorg-video-intel) gets pulled in transitively and, if
+# present, Xorg auto-selects it over the kernel 'modesetting' driver for Intel
+# PCI IDs. On modern Gen9+/Iris-Xe/UHD panels (every X1 Carbon) that DDX is
+# deprecated and routinely black-screens/hangs at server bring-up — i.e. it can
+# reproduce the SAME splash→login hang under Xorg that Wayland gave us. Purge it
+# so Xorg uses modesetting, AND ship an xorg.conf.d override so a future
+# Recommends can't quietly reinstall it and change the driver back.
+if dpkg-query -W -f='${Status}' xserver-xorg-video-intel 2>/dev/null | grep -q "install ok installed"; then
+    DEBIAN_FRONTEND=noninteractive apt-get purge -y xserver-xorg-video-intel >/dev/null 2>&1 || true
+    echo "polish: purged legacy intel DDX — Xorg will use modesetting on Intel."
+fi
+install -d /etc/X11/xorg.conf.d
+cat > /etc/X11/xorg.conf.d/20-intel-modesetting.conf <<'EOF'
+# Force the modern kernel modesetting driver on Intel instead of the abandoned
+# xf86-video-intel DDX (which hangs/black-screens on modern iGPUs).
+Section "Device"
+    Identifier "Intel Graphics"
+    Driver "modesetting"
+EndSection
+EOF
 
 # 3) Suspenders: mask the systemd USER units for ALL users, exactly like casper's
 #    52gnome_initial_setup does at boot — but system-wide + permanent.
@@ -108,4 +129,18 @@ for h in /home/*; do
     chown -R "$u":"$u" "$h/.config" 2>/dev/null || true
 done
 echo "polish: gnome-initial-setup neutralized (purge + gdm gate + user-unit masks + stamp)."
+
+# SHIP-BLOCKING GUARD: if we disabled Wayland but there is no Xorg session file,
+# gdm would abort at boot ("no session desktop files installed") and the ISO
+# would be a guaranteed brick. FAIL THE BUILD LOUDLY rather than ship that. On
+# noble the Xorg session (/usr/share/xsessions/ubuntu-xorg.desktop) is provided
+# by ubuntu-session, a hard dep of ubuntu-desktop-minimal — so this passes on
+# every GNOME strain; the guard just makes a future regression impossible.
+if grep -q '^WaylandEnable=false' /etc/gdm3/daemon.conf 2>/dev/null; then
+    if [ -z "$(ls /usr/share/xsessions/*.desktop 2>/dev/null)" ]; then
+        echo "FATAL: WaylandEnable=false but NO /usr/share/xsessions/*.desktop — gdm would abort at boot. Ensure ubuntu-session (or a package providing an Xorg session) is installed." >&2
+        exit 1
+    fi
+    echo "polish: verified an Xorg session exists ($(ls /usr/share/xsessions/*.desktop | tr '\n' ' '))."
+fi
 exit 0
