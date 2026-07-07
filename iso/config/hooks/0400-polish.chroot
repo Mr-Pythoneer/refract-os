@@ -77,6 +77,18 @@ if [ -f /etc/gdm3/daemon.conf ]; then
 else
     printf '[daemon]\nInitialSetupEnable=false\n' > /etc/gdm3/daemon.conf
 fi
+# Force the Xorg session instead of Wayland. GNOME 46's GDM defaults to
+# Wayland-first, but Wayland's initial modeset can hang indefinitely on some
+# real Intel iGPU/panel combos in a way Xorg doesn't — this is one of the most
+# common real-hardware GDM-hang causes and is invisible in QEMU/virtio-gpu
+# testing, which is exactly why boot-smoke never caught it. Xorg is the far
+# more battle-tested fallback; this is a one-line, well-documented GDM setting
+# (not a hack), and the desktop experience is identical either way.
+if grep -q '^WaylandEnable=' /etc/gdm3/daemon.conf; then
+    sed -i 's/^WaylandEnable=.*/WaylandEnable=false/' /etc/gdm3/daemon.conf
+else
+    sed -i '/^\[daemon\]/a WaylandEnable=false' /etc/gdm3/daemon.conf
+fi
 
 # 3) Suspenders: mask the systemd USER units for ALL users, exactly like casper's
 #    52gnome_initial_setup does at boot — but system-wide + permanent.
