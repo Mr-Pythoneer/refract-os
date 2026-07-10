@@ -323,6 +323,10 @@ menuentry "Refract OS (recovery -- Intel display quirks: no PSR/FBC)" {
     linux /casper/vmlinuz boot=casper nosplash i915.enable_psr=0 i915.enable_fbc=0 console=tty0 console=ttyS0,115200 ---
     initrd /casper/initrd.img
 }
+menuentry "Refract OS (SOFTWARE GRAPHICS -- bypass the GPU, slow but works)" {
+    linux /casper/vmlinuz boot=casper nomodeset nosplash console=tty0 console=ttyS0,115200 ---
+    initrd /casper/initrd.img
+}
 GRUB
     if ! grub-mkstandalone -O x86_64-efi -o "$work/bootx64.efi" \
         --modules="part_gpt part_msdos fat iso9660 normal linux search configfile echo all_video gfxterm test" \

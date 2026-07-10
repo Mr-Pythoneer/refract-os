@@ -130,6 +130,19 @@ for h in /home/*; do
 done
 echo "polish: gnome-initial-setup neutralized (purge + gdm gate + user-unit masks + stamp)."
 
+# Diagnostic aid: auto-login the live 'ubuntu' user on tty3 (Ctrl+Alt+F3) with no
+# password. If the graphical session ever fails to render on real hardware, the
+# user gets an INSTANT shell to pull logs (journalctl / Xorg.0.log) instead of
+# fighting a locked login prompt. Harmless on a working boot (tty3 is a spare
+# console). tty1/tty2 keep the normal getty.
+install -d /etc/systemd/system/getty@tty3.service.d
+cat > /etc/systemd/system/getty@tty3.service.d/autologin.conf <<'EOF'
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin ubuntu --noclear %I $TERM
+EOF
+echo "polish: tty3 auto-login enabled (Ctrl+Alt+F3 = instant shell for diagnostics)."
+
 # SHIP-BLOCKING GUARD: if we disabled Wayland but there is no Xorg session file,
 # gdm would abort at boot ("no session desktop files installed") and the ISO
 # would be a guaranteed brick. FAIL THE BUILD LOUDLY rather than ship that. On
