@@ -88,6 +88,13 @@ cropped.save(os.environ["DEST_PNG"])
 rasterize "$SRC/logo.svg" 512 512 "logo.png"
 rasterize "$SRC/welcome.svg" 1024 460 "welcome.png"
 rasterize "$SRC/logo.svg" 256 256 "favicon.png"
+# logo-clean.png + logo-small.png are consumed by iso/build.sh (Plymouth splash,
+# /usr/share/refract, GDM greeter, fastfetch). They used to be hand-made 720px
+# PNGs with the logo anchored in the TOP-LEFT of an oversized transparent canvas,
+# which is why the boot splash + login logo rendered up-and-left of center.
+# Generate them here from the SVG so the content is centered/tight like the rest.
+rasterize "$SRC/logo.svg" 512 512 "logo-clean.png"
+rasterize "$SRC/logo.svg" 200 200 "logo-small.png"
 
 mkdir -p "$CALAMARES_DIR"
 cp "$OUT/logo.png" "$CALAMARES_DIR/logo.png"

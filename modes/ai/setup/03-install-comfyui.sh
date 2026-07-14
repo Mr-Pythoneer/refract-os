@@ -46,7 +46,10 @@ pip install --upgrade pip
 echo -e "\033[36mInstalling PyTorch (CUDA cu130 — required for Blackwell/RTX 5090 sm_120)...\033[0m"
 # cu130 stable supports sm_120; cu128 is the floor; cu126/older fail on a 5090.
 # Do NOT add xformers on Blackwell — ComfyUI uses PyTorch SDPA and doesn't need it.
-pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu130
+# --index-url (NOT --extra-index-url): the CUDA index must be the ONLY source for
+# torch, else pip is free to resolve the CPU-only torch wheel from PyPI and leave
+# torch.cuda.is_available() False on Blackwell (the exact failure we're avoiding).
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu130
 
 echo -e "\033[36mInstalling ComfyUI requirements...\033[0m"
 pip install -r requirements.txt

@@ -19,7 +19,7 @@ After=default.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStartPre=%h/.lmstudio/bin/lms daemon up
+ExecStartPre=-%h/.lmstudio/bin/lms daemon up
 ExecStart=%h/.lmstudio/bin/lms server start --port 8080
 ExecStop=%h/.lmstudio/bin/lms server stop
 

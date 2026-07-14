@@ -59,10 +59,15 @@ require_root_for() {
         # on the root pass, and without this the re-exec drops --yes, so a
         # non-interactive `switch server --yes` would abort on the second pass
         # (defeating the whole point of the flag).
+        # Mark the re-exec so the root pass skips the per-user steps (theme/dock/
+        # AI model) that already ran as the invoking user on this pass — without
+        # this they run a SECOND time as the desktop user, reloading the AI model
+        # needlessly. --preserve-env carries the marker across sudo's env reset.
+        export _REFRACT_REEXEC=1
         if [ "$ASSUME_YES" = "true" ]; then
-            sudo "$0" "$@" --yes
+            sudo --preserve-env=_REFRACT_REEXEC "$0" "$@" --yes
         else
-            sudo "$0" "$@"
+            sudo --preserve-env=_REFRACT_REEXEC "$0" "$@"
         fi
         exit $?
     fi
@@ -162,7 +167,12 @@ apply_gpu_perf() {
         # Guard the substitution: under `set -euo pipefail` a failing nvidia-smi
         # here would otherwise abort the whole mode switch.
         local maxclk=""
-        maxclk=$(nvidia-smi -q -d SUPPORTED_CLOCKS 2>/dev/null | awk '/Graphics/{print $3; exit}') || maxclk=""
+        # `|| true` (not `|| maxclk=""`): the awk early-exit closes the pipe and
+        # nvidia-smi dies with SIGPIPE (141), which under `set -o pipefail` makes
+        # the pipeline non-zero AFTER the value was already captured — overwriting
+        # it with "" would silently skip the clock lock. The assignment already
+        # holds awk's stdout, so just swallow the pipe status.
+        maxclk=$(nvidia-smi -q -d SUPPORTED_CLOCKS 2>/dev/null | awk '/Graphics/{print $3; exit}') || true
         if [ -n "${maxclk:-}" ]; then
             # Both bounds = maxclk actually PINS the clock; a min of 0 would let
             # the GPU keep downclocking, defeating the point of the lock.
@@ -194,7 +204,15 @@ apply_services() {
     done
     for svc in "${disable_list[@]:-}"; do
         [ -z "$svc" ] && continue
-        systemctl disable --now "$svc" 2>/dev/null || true
+        # Display managers: plain `disable` (NOT --now) so the effect is deferred
+        # to next boot, matching the confirm prompt + profile NOTES wording. Using
+        # --now here would tear down the ACTIVE graphical session immediately
+        # (Xorg is owned by gdm under WaylandEnable=false), losing unsaved work.
+        if [[ "$svc" =~ ^(gdm|gdm3|sddm|lightdm)$ ]]; then
+            systemctl disable "$svc" 2>/dev/null || true
+        else
+            systemctl disable --now "$svc" 2>/dev/null || true
+        fi
     done
 }
 
@@ -325,10 +343,14 @@ do_switch() {
 
     # Run before the sudo re-exec below: gsettings needs the invoking user's
     # own session bus, and LM Studio (distro-ai-model) is per-user, not root's.
-    # Both are no-ops / skipped on the root re-exec pass.
-    apply_pinned_apps PINNED_APPS
-    apply_theme
-    apply_ai_model
+    # Skipped on the root re-exec pass ($_REFRACT_REEXEC set by require_root_for)
+    # so they run EXACTLY ONCE — but still run when invoked directly via `sudo`
+    # (no marker), which is the case the id!=0 guard used to wrongly skip.
+    if [ -z "${_REFRACT_REEXEC:-}" ]; then
+        apply_pinned_apps PINNED_APPS
+        apply_theme
+        apply_ai_model
+    fi
 
     require_root_for switch "$mode"
 

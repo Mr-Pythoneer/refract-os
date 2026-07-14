@@ -20,31 +20,44 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Every script in this repo uses the identical shebang
-          # "#!/usr/bin/env bash" (verified by hand at the time this
-          # workflow was written) — that's the discovery mechanism, rather
-          # than guessing at naming conventions or extensions.
+          # Discover by shebang, covering BOTH bash and POSIX-sh scripts. The
+          # live-build hooks (iso/config/hooks/*.chroot, *.binary) are #!/bin/sh
+          # — an earlier bash-only discovery skipped all 7 of them (including the
+          # boot-fix hooks 0400-polish.chroot and 500-refract-bootfix.binary) yet
+          # still printed "All clean", so they were never linted. Now they are.
           # modes/modectl/profiles/*.conf are deliberately excluded: they're
-          # sourced data fragments with no shebang, not standalone scripts,
-          # and shellchecking them alone produces false-positive "unused
-          # variable" warnings for vars the sourcing script does use.
-          mapfile -t files < <(grep -rl '^#!/usr/bin/env bash' . | grep -v '^\./\.git/')
+          # sourced data fragments with no shebang, not standalone scripts, and
+          # shellchecking them alone produces false-positive "unused variable"
+          # warnings for vars the sourcing script does use.
+          mapfile -t bash_files < <(grep -rlE '^#!/(usr/bin/env bash|bin/bash)' . | grep -v '^\./\.git/')
+          mapfile -t sh_files   < <(grep -rlE '^#!/bin/sh' . | grep -v '^\./\.git/')
 
-          if [ "${#files[@]}" -eq 0 ]; then
-            echo "No scripts found — that's almost certainly the discovery mechanism breaking, not an empty repo." >&2
+          if [ "${#bash_files[@]}" -eq 0 ]; then
+            echo "No bash scripts found — that's almost certainly the discovery mechanism breaking, not an empty repo." >&2
             exit 1
           fi
 
-          echo "Checking ${#files[@]} scripts:"
-          printf '  %s\n' "${files[@]}"
+          echo "Checking ${#bash_files[@]} bash + ${#sh_files[@]} sh scripts:"
+          printf '  [bash] %s\n' "${bash_files[@]}"
+          [ "${#sh_files[@]}" -gt 0 ] && printf '  [sh]   %s\n' "${sh_files[@]}"
 
-          echo "--- shellcheck ---"
-          shellcheck -S warning "${files[@]}"
+          echo "--- shellcheck (bash) ---"
+          shellcheck -S warning "${bash_files[@]}"
 
           echo "--- bash -n ---"
-          for f in "${files[@]}"; do
+          for f in "${bash_files[@]}"; do
             bash -n "$f"
           done
+
+          if [ "${#sh_files[@]}" -gt 0 ]; then
+            echo "--- shellcheck -s sh ---"
+            shellcheck -s sh -S warning "${sh_files[@]}"
+
+            echo "--- dash -n (POSIX syntax) ---"
+            for f in "${sh_files[@]}"; do
+              dash -n "$f" 2>/dev/null || sh -n "$f"
+            done
+          fi
 
           echo "All clean."
 

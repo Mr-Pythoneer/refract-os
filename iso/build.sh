@@ -311,20 +311,26 @@ set timeout=5
 set default=0
 insmod all_video
 search --set=root --file /casper/vmlinuz
+# console ORDER matters: the LAST console= is where /dev/console and the
+# emergency shell land. Put the serial console FIRST and tty0 (the laptop
+# panel) LAST so on a real X1 an early failure shows ON SCREEN — with the old
+# order the emergency shell went to an invisible ttyS0 and any recoverable
+# failure looked like an identical silent hang. Serial is still mirrored for
+# QEMU capture in CI.
 menuentry "Refract OS (live)" {
-    linux /casper/vmlinuz boot=casper quiet splash console=tty0 console=ttyS0,115200 ---
+    linux /casper/vmlinuz boot=casper quiet splash console=ttyS0,115200 console=tty0 ---
     initrd /casper/initrd.img
 }
 menuentry "Refract OS (verbose boot -- show progress)" {
-    linux /casper/vmlinuz boot=casper nosplash systemd.show_status=true console=tty0 console=ttyS0,115200 ---
+    linux /casper/vmlinuz boot=casper nosplash systemd.show_status=true console=ttyS0,115200 console=tty0 ---
     initrd /casper/initrd.img
 }
 menuentry "Refract OS (recovery -- Intel display quirks: no PSR/FBC)" {
-    linux /casper/vmlinuz boot=casper nosplash i915.enable_psr=0 i915.enable_fbc=0 console=tty0 console=ttyS0,115200 ---
+    linux /casper/vmlinuz boot=casper nosplash i915.enable_psr=0 i915.enable_fbc=0 console=ttyS0,115200 console=tty0 ---
     initrd /casper/initrd.img
 }
 menuentry "Refract OS (SOFTWARE GRAPHICS -- bypass the GPU, slow but works)" {
-    linux /casper/vmlinuz boot=casper nomodeset nosplash console=tty0 console=ttyS0,115200 ---
+    linux /casper/vmlinuz boot=casper nomodeset nosplash console=ttyS0,115200 console=tty0 ---
     initrd /casper/initrd.img
 }
 GRUB

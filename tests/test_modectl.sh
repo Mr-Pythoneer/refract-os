@@ -19,7 +19,9 @@ sd="$(new_stubdir)"
 stub "$sd" id 'if [ "$1" = "-u" ]; then echo 1000; else exit 0; fi'
 stub "$sd" sudo 'echo "REEXEC: $*"; exit 0'
 out="$(PATH="$sd:$PATH" "$MODECTL" switch server --yes </dev/null 2>&1)"
-assert_contains "switch --yes re-execs WITH --yes" "$out" "REEXEC: $MODECTL switch server --yes"
+assert_contains "switch --yes re-execs WITH --yes" "$out" "$MODECTL switch server --yes"
+# the re-exec marker is preserved across sudo so the root pass skips per-user steps
+assert_contains "re-exec preserves the _REFRACT_REEXEC marker" "$out" "preserve-env=_REFRACT_REEXEC"
 
 # non-interactive switch WITHOUT --yes refuses to silently prompt
 stub "$sd" id 'if [ "$1" = "-u" ]; then echo 1000; else exit 0; fi'

@@ -91,15 +91,23 @@ if [ "$WANT_SCHNELL" = true ]; then
 fi
 
 if [ "$WANT_DEV" = true ]; then
-    echo -e "\033[36m== FLUX.1-dev (GATED — needs HF_TOKEN + accepted license, ~24GB) ==\033[0m"
     if [ -z "${HF_TOKEN:-}" ]; then
-        echo "HF_TOKEN is not set. FLUX.1-dev is gated: accept the license at" >&2
-        echo "https://huggingface.co/black-forest-labs/FLUX.1-dev and export an HF read token:" >&2
-        echo "  export HF_TOKEN=hf_xxx ; ./04-download-image-models.sh \"$COMFY_DIR\" --flux-dev" >&2
-        exit 1
+        # No token: fall back to the token-free Comfy-Org/flux1-dev fp8 mirror
+        # (the catalog markes flux1-dev "gated": false precisely because of this
+        # mirror). This keeps the non-interactive `distro-ai-setup --install --yes`
+        # path working on high/max/ultra tiers instead of exit 1'ing. fp8 all-in-
+        # one goes in checkpoints, same as the schnell mirror above.
+        echo -e "\033[36m== FLUX.1-dev fp8 (Comfy-Org mirror, no token, ~17GB) ==\033[0m"
+        echo "HF_TOKEN not set — using the token-free Comfy-Org/flux1-dev fp8 mirror." >&2
+        echo "For the full gated fp16 dev weights, accept the license at" >&2
+        echo "https://huggingface.co/black-forest-labs/FLUX.1-dev and re-run with HF_TOKEN set." >&2
+        "$HF" download Comfy-Org/flux1-dev flux1-dev-fp8.safetensors --local-dir "$ckpt" \
+            || echo "WARNING: flux1-dev-fp8 download failed — check the repo/file name on HF." >&2
+    else
+        echo -e "\033[36m== FLUX.1-dev fp16 (GATED — HF_TOKEN set, ~24GB) ==\033[0m"
+        "$HF" download black-forest-labs/FLUX.1-dev flux1-dev.safetensors --local-dir "$unet"
+        "$HF" download black-forest-labs/FLUX.1-dev ae.safetensors --local-dir "$vae"
     fi
-    "$HF" download black-forest-labs/FLUX.1-dev flux1-dev.safetensors --local-dir "$unet"
-    "$HF" download black-forest-labs/FLUX.1-dev ae.safetensors --local-dir "$vae"
 elif [ "$WANT_SCHNELL" = true ]; then
     # schnell needs a VAE too; the dev ae.safetensors is gated, so fetch the
     # repackaged open VAE for the schnell pipeline.

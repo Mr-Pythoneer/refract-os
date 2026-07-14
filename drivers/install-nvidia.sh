@@ -63,7 +63,11 @@ else
     # `ubuntu-drivers install nvidia` frequently selects the closed recommended
     # driver. So derive the newest available driver branch and install its -open
     # variant; only fall back to the autoinstaller if no -open package exists.
-    REC_VER="$(ubuntu-drivers list 2>/dev/null | grep -oE 'nvidia-driver-[0-9]+' | grep -oE '[0-9]+' | sort -rn | head -n1)"
+    # `|| true`: under `set -euo pipefail` a no-match grep makes the whole
+    # pipeline exit non-zero, which would abort the script BEFORE the graceful
+    # `[ -n "$REC_VER" ]` fallback below — the exact new-Blackwell case where no
+    # nvidia-driver-NNN line exists yet. Tolerate the empty result instead.
+    REC_VER="$(ubuntu-drivers list 2>/dev/null | grep -oE 'nvidia-driver-[0-9]+' | grep -oE '[0-9]+' | sort -rn | head -n1 || true)"
     if [ -n "$REC_VER" ] && apt-cache show "nvidia-driver-${REC_VER}-open" >/dev/null 2>&1; then
         echo -e "\033[36mInstalling nvidia-driver-${REC_VER}-open (open kernel module — Blackwell-safe)...\033[0m"
         sudo apt-get install -y "nvidia-driver-${REC_VER}-open"

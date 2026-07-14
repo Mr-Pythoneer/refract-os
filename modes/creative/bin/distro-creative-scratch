@@ -104,13 +104,29 @@ EOF
         echo "Scratch directory: $scratch_dir"
         echo "REFRACT_SCRATCH_DIR exported via $PROFILE_D_FILE (takes effect in new login sessions)"
 
+        # Blender ships as the Flatpak org.blender.Blender on this distro (see
+        # modes/creative/setup/02-install-blender.sh) — there is NO `blender` in
+        # PATH — so also detect the Flatpak and drive it via `flatpak run`. The
+        # preference is per-user, so when we're root (setup writes /etc/profile.d)
+        # run Blender as the invoking desktop user so it lands in THEIR home.
+        blender_cmd=""
         if command -v blender >/dev/null 2>&1; then
+            blender_cmd="blender"
+        elif command -v flatpak >/dev/null 2>&1 && flatpak info org.blender.Blender >/dev/null 2>&1; then
+            blender_cmd="flatpak run org.blender.Blender"
+        fi
+
+        if [ -n "$blender_cmd" ]; then
             echo "Setting Blender's temporary-files preference to \$REFRACT_SCRATCH_DIR..."
-            if blender --background --python-expr "
-import bpy
+            blender_pref="import bpy
 bpy.context.preferences.filepaths.temporary_directory = '$scratch_dir'
-bpy.ops.wm.save_userpref()
-" >/dev/null 2>&1; then
+bpy.ops.wm.save_userpref()"
+            if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+                run_blender() { sudo -u "$SUDO_USER" $blender_cmd "$@"; }
+            else
+                run_blender() { $blender_cmd "$@"; }
+            fi
+            if run_blender --background --python-expr "$blender_pref" >/dev/null 2>&1; then
                 echo "Blender preference set."
             else
                 echo "Blender preference update failed (non-fatal) -- set it manually:" >&2

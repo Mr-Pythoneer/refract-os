@@ -16,6 +16,12 @@ jobs:
   inspect-squashfs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # `gh run download` needs actions:read to fetch another run's artifact; the
+    # default GITHUB_TOKEN is read-contents-only and would 403 without this
+    # (matches boot-smoke / uefi-boot / install-smoke / mode-test).
+    permissions:
+      actions: read
+      contents: read
     steps:
       - name: Download the built laptop ISO
         run: |
