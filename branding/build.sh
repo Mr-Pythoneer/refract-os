@@ -79,6 +79,33 @@ else:
     box = (left, 0, left + content_w, square)
 
 cropped = im.crop(box).resize((target_w, target_h), Image.LANCZOS)
+
+# qlmanage composites the SVG onto an OPAQUE WHITE canvas, so any area the
+# artwork leaves transparent (the corners outside logo.svg circle, or letterbox
+# bands) ships as a solid white box -- which looks terrible on the near-black
+# Plymouth splash and dark GDM login. Restore transparency by flood-filling the
+# background inward from each corner, but ONLY from corners that are actually
+# white (>=245): welcome.svg paints its own dark card to the edge, so its
+# corners are dark and must be left fully opaque. A high thresh (160) also
+# swallows the light anti-aliased fringe qlmanage bakes at the artwork boundary
+# so no gray halo ring remains; the flood is region-grown from the corner and
+# cannot cross the dark logo disc (value ~22) that walls off the interior
+# artwork, so a large thresh stays safe for these branding assets.
+from PIL import ImageDraw
+gray = cropped.convert("L")
+work = gray.copy()
+keyed = False
+w0, h0 = cropped.size
+for corner in ((0, 0), (w0 - 1, 0), (0, h0 - 1), (w0 - 1, h0 - 1)):
+    if gray.getpixel(corner) >= 245:
+        ImageDraw.floodfill(work, corner, 1, thresh=160)
+        keyed = True
+if keyed:
+    bg = work.point(lambda p: 255 if p == 1 else 0)
+    r, g, b, a = cropped.split()
+    a = Image.composite(Image.new("L", cropped.size, 0), a, bg)
+    cropped.putalpha(a)
+
 cropped.save(os.environ["DEST_PNG"])
 '
     rm -f "$OUT/$(basename "$svg").png"
