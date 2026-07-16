@@ -12,7 +12,14 @@
     --bg: #0a0b0d; --bg-card: #14161a; --bg-card2: #1a1d22;
     --border: #232730; --border-hi: #343944;
     --text: #e9eaed; --text-dim: #93989f; --text-faint: #5d6168;
-    --accent: #ff7a47; --ok: #4ade80; --warn: #fbbf24; --m-ai: #4f8df5;
+    /* Keep in sync with index.html — same brand palette, same reasons:
+       the five values are the logo prism's refracted rays, and --accent is the
+       Calamares installer's prism-violet so web + installer read as one product. */
+    --accent: #c9a5ff; --accent-ink: #1a1024;
+    --ok: #7bc043; --warn: #ffa23d;
+    --m-gaming: #ff5a52; --m-normal: #ffa23d; --m-server: #7bc043;
+    --m-ai: #4a9df0; --m-creative: #e857a0;
+    --beam: #f7f7f7;
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
@@ -65,7 +72,7 @@
   .warn-inline { color: var(--warn); }
 
   .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; border-radius: 9px; font-weight: 600; font-size: 0.95rem; border: none; }
-  .btn-primary { background: var(--accent); color: #1a0a04; }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); }
   .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border-hi); }
   .btn:hover { text-decoration: none; opacity: 0.92; }
   .endcta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
@@ -94,7 +101,7 @@
     <p class="tagline">Download one image, flash it to a USB from <strong>any OS — Windows, macOS, or Linux</strong>, and install. Local AI sized to your GPU. Here's the whole path.</p>
     <div class="callout">
       <i class="ti ti-alert-triangle" aria-hidden="true"></i>
-      <div class="t"><strong>Fresh milestone, honest caveats.</strong> The ISO <strong>builds in CI</strong> and <strong>boots to a full GNOME desktop in QEMU</strong> (CI-verified, screenshots in the boot-smoke artifacts). Prebuilt images download from the <a href="https://github.com/Mr-Pythoneer/refract-os/releases">Releases page</a> (no login) — flash from any OS. But it has <strong>never touched real hardware</strong>, the installer has never run on a real disk, and it's <strong>BIOS/CSM-boot only</strong> (UEFI in progress) — so treat it as early. Cross-check <a href="https://github.com/Mr-Pythoneer/refract-os/blob/main/TODO.md">TODO.md</a>.</div>
+      <div class="t"><strong>Fresh milestone, honest caveats.</strong> The ISO <strong>builds in CI</strong>, <strong>boots to a full GNOME desktop in QEMU</strong>, and — as of <strong>2026-07-16</strong> — <strong>boots on real hardware</strong>: a UEFI-only ThinkPad X1 Carbon Gen 13 (Intel Arc 140V), reaching the login screen. Prebuilt images download from the <a href="https://github.com/Mr-Pythoneer/refract-os/releases">Releases page</a> (no login) — flash from any OS. Still genuinely early, though: <strong>the installer has never completed a real install on a real disk</strong>, so don't point it at a drive you care about without a backup. Cross-check <a href="https://github.com/Mr-Pythoneer/refract-os/blob/main/TODO.md">TODO.md</a>.</div>
     </div>
   </div>
 </header>
@@ -109,7 +116,7 @@
     </ul>
     <div class="callout">
       <i class="ti ti-info-circle" aria-hidden="true"></i>
-      <div class="t"><strong>Two honest hardware limits.</strong> The image currently boots via <strong>BIOS/CSM</strong> — on a modern UEFI-only PC you'll need to enable Legacy/CSM in firmware until UEFI support lands (in progress). And an <strong>Apple-Silicon Mac (M1–M4) can flash the USB but can't boot an x86 OS</strong> — you'd install onto a PC, or run it in an emulated VM. Intel Macs can boot it once UEFI is in.</div>
+      <div class="t"><strong>One honest hardware limit.</strong> The image is a <strong>hybrid BIOS + UEFI</strong> ISO — it boots on modern UEFI-only PCs with no firmware fiddling (verified under OVMF in CI, and on a real UEFI-only ThinkPad X1 Carbon). <strong>Leave Secure Boot off</strong> for now. The one real limit: an <strong>Apple-Silicon Mac (M1–M4) can flash the USB but can't boot an x86 OS</strong> — install onto a PC, or use an emulated VM (slow).</div>
     </div>
   </div>
 </section>
@@ -163,7 +170,7 @@
       <div class="body">
         <h3>Boot from the USB</h3>
         <p>Reboot the target PC and open the one-time boot menu (usually <code>F12</code>, <code>F2</code>, <code>Del</code>, or <code>Esc</code> — it varies by vendor), then pick the USB stick.</p>
-        <p><strong>Modern PC won't see the stick?</strong> The image boots via BIOS/CSM for now, so enable <em>Legacy / CSM boot</em> (and disable UEFI-only) in firmware. Native UEFI boot is in progress — once it lands this step goes away.</p>
+        <p><strong>Modern PC won't see the stick?</strong> The image is a hybrid BIOS + UEFI ISO, so a UEFI-only machine boots it natively — <em>don't</em> enable Legacy/CSM. If the stick doesn't appear, turn <strong>Secure Boot off</strong> first, and prefer the entry the boot menu labels <em>UEFI</em>. If it still doesn't show, the write itself is the usual culprit: re-flash and verify the stick's checksum against the ISO before blaming firmware.</p>
         <p><strong>Secure Boot:</strong> on Nvidia Blackwell (RTX 50-series) and other recent GPUs you may need to turn Secure Boot off for the first boot. The driver installer (step 7) walks you through MOK signing so you can turn it back on afterwards — see <a href="blackwell-readiness.md">blackwell-readiness</a>.</p>
       </div>
     </div>

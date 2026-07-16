@@ -1,15 +1,56 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <circle cx="256" cy="256" r="248" fill="#161616"/>
+  <!-- Refract OS mark. One white beam enters a prism and refracts into the five
+       mode colours. Geometry is exact, not eyeballed:
+         * equilateral triangle (h/side = 0.8660 = sqrt(3)/2), centroid on the
+           canvas centre, apex up
+         * the beam enters the LEFT face at y=256 (dead centre), bends once
+           inside the glass, and exits the RIGHT face at y=282
+         * the fan spreads on even 9-degree steps, ordered the way real
+           dispersion works: red deviates least, magenta most
+       All artwork sits inside the r=248 disc so branding/build.sh can key the
+       corners transparent (qlmanage renders onto opaque white). -->
+  <defs>
+    <radialGradient id="disc" cx="50%" cy="42%" r="72%">
+      <stop offset="0%"   stop-color="#20202a"/>
+      <stop offset="70%"  stop-color="#17171d"/>
+      <stop offset="100%" stop-color="#101014"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#ffffff" stop-opacity="0.13"/>
+      <stop offset="55%"  stop-color="#ffffff" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.02"/>
+    </linearGradient>
+  </defs>
 
-  <polygon points="256,138 344,326 168,326" fill="#ffffff" fill-opacity="0.06"
-           stroke="#e8e8e8" stroke-width="5" stroke-linejoin="round"/>
+  <circle cx="256" cy="256" r="248" fill="url(#disc)"/>
+  <circle cx="256" cy="256" r="247" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="2"/>
 
-  <line x1="86" y1="250" x2="207" y2="250" stroke="#f2f2f2" stroke-width="11" stroke-linecap="round"/>
-  <line x1="207" y1="250" x2="312" y2="272" stroke="#f2f2f2" stroke-width="9" stroke-linecap="round"/>
+  <!-- refracted spectrum: soft glow underlay, then the crisp ray -->
+  <g stroke-linecap="round" fill="none">
+    <g stroke-width="17" stroke-opacity="0.15">
+      <line x1="340.3" y1="282" x2="476.2" y2="258.0" stroke="#ff5a52"/>
+      <line x1="340.3" y1="282" x2="478.3" y2="283.2" stroke="#ffa23d"/>
+      <line x1="340.3" y1="282" x2="475.8" y2="308.3" stroke="#7bc043"/>
+      <line x1="340.3" y1="282" x2="468.7" y2="332.6" stroke="#4a9df0"/>
+      <line x1="340.3" y1="282" x2="457.3" y2="355.1" stroke="#e857a0"/>
+    </g>
+    <g stroke-width="8">
+      <line x1="340.3" y1="282" x2="476.2" y2="258.0" stroke="#ff5a52"/>
+      <line x1="340.3" y1="282" x2="478.3" y2="283.2" stroke="#ffa23d"/>
+      <line x1="340.3" y1="282" x2="475.8" y2="308.3" stroke="#7bc043"/>
+      <line x1="340.3" y1="282" x2="468.7" y2="332.6" stroke="#4a9df0"/>
+      <line x1="340.3" y1="282" x2="457.3" y2="355.1" stroke="#e857a0"/>
+    </g>
+  </g>
 
-  <line x1="312" y1="272" x2="442" y2="206" stroke="#ff5a52" stroke-width="8" stroke-linecap="round"/>
-  <line x1="312" y1="272" x2="448" y2="236" stroke="#ffa23d" stroke-width="8" stroke-linecap="round"/>
-  <line x1="312" y1="272" x2="450" y2="266" stroke="#7bc043" stroke-width="8" stroke-linecap="round"/>
-  <line x1="312" y1="272" x2="448" y2="296" stroke="#4a9df0" stroke-width="8" stroke-linecap="round"/>
-  <line x1="312" y1="272" x2="442" y2="326" stroke="#e857a0" stroke-width="8" stroke-linecap="round"/>
+  <!-- prism -->
+  <polygon points="256,136 359.9,316 152.1,316"
+           fill="url(#glass)" stroke="#eaeaf0" stroke-width="6" stroke-linejoin="round"/>
+
+  <!-- incoming beam (glow + core), then the single bend inside the glass -->
+  <g stroke-linecap="round" fill="none">
+    <line x1="62" y1="256" x2="186.7" y2="256" stroke="#f2f2f2" stroke-opacity="0.16" stroke-width="17"/>
+    <line x1="62" y1="256" x2="186.7" y2="256" stroke="#f7f7f7" stroke-width="9"/>
+    <line x1="186.7" y1="256" x2="340.3" y2="282" stroke="#f7f7f7" stroke-width="7"/>
+  </g>
 </svg>

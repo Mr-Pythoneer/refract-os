@@ -17,14 +17,27 @@
     --text: #e9eaed;
     --text-dim: #93989f;
     --text-faint: #5d6168;
-    --accent: #ff7a47;
-    --ok: #4ade80;
-    --warn: #fbbf24;
-    --m-gaming: #f04848;
-    --m-ai: #4f8df5;
-    --m-server: #34c98f;
-    --m-creative: #d666e0;
-    --m-normal: #b8bcc4;
+    /* BRAND PALETTE — these are not decorative choices, they are the five
+       colours the logo's prism actually refracts the beam into, and the five
+       glows the shipped mode wallpapers actually use. The site previously
+       invented near-miss values (gaming #f04848, ai #4f8df5, server #34c98f,
+       creative #d666e0) and rendered Normal as grey, which broke the whole
+       "one beam -> five modes" idea the mark is built on. Keep these in sync
+       with branding/src/logo.svg and branding/out/wallpapers/*.png. */
+    --m-gaming:   #ff5a52;  /* red     — least deviated ray */
+    --m-normal:   #ffa23d;  /* orange  — was wrongly grey */
+    --m-server:   #7bc043;  /* green   */
+    --m-ai:       #4a9df0;  /* blue    */
+    --m-creative: #e857a0;  /* magenta — most deviated ray */
+    /* The beam itself, before refraction: the wordmark colour. */
+    --beam: #f7f7f7;
+    /* Interactive accent. Deliberately NOT one of the five mode colours (that
+       would imply a mode) — this is the same prism-violet the Calamares
+       installer uses, so the site and the installer read as one product. */
+    --accent: #c9a5ff;
+    --accent-ink: #1a1024;
+    --ok: #7bc043;
+    --warn: #ffa23d;
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
@@ -68,7 +81,7 @@
   .tagline { color: var(--text-dim); font-size: 1.2rem; max-width: 640px; margin: 0 0 34px; }
   .cta { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 44px; }
   .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 22px; border-radius: 9px; font-weight: 600; font-size: 0.95rem; cursor: pointer; border: none; }
-  .btn-primary { background: var(--accent); color: #1a0a04; }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); }
   .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border-hi); }
   .btn:hover { text-decoration: none; opacity: 0.92; }
 
@@ -174,7 +187,12 @@
 
 <header>
   <div class="wrap">
-    <div class="badge"><i class="ti ti-alert-triangle" aria-hidden="true"></i>Early design stage — nothing bootable yet</div>
+    <!-- Kept accurate against reality, in both directions. This said "nothing
+         bootable yet" until 2026-07-16, when the laptop ISO booted to a login
+         screen on a real ThinkPad X1 Carbon Gen 13 (UEFI, Intel Arc 140V).
+         The installer has still never completed a real install — say that
+         plainly rather than implying it's done. -->
+    <div class="badge"><i class="ti ti-device-laptop" aria-hidden="true"></i>Boots on real hardware — installer still unproven</div>
     <h1>One Linux install.<br>Five <span>modes</span>.</h1>
     <p class="tagline">An Ubuntu-based distro that switches its whole personality on command — Gaming, AI, Server, Creative, or a polished Normal mode — built around local-first AI, not a cloud assistant bolted onto a browser.</p>
     <div class="cta">
