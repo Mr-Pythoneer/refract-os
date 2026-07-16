@@ -29,8 +29,19 @@ jobs:
           # sourced data fragments with no shebang, not standalone scripts, and
           # shellchecking them alone produces false-positive "unused variable"
           # warnings for vars the sourcing script does use.
-          mapfile -t bash_files < <(grep -rlE '^#!/(usr/bin/env bash|bin/bash)' . | grep -v '^\./\.git/')
-          mapfile -t sh_files   < <(grep -rlE '^#!/bin/sh' . | grep -v '^\./\.git/')
+          # Classify by the FIRST LINE's shebang only. A plain `grep -rlE '^#!...'`
+          # matches a shebang ANYWHERE in the file, so a bash script that GENERATES
+          # a POSIX-sh script via a heredoc (e.g. iso/build.sh stages a '#!/bin/sh'
+          # boot hook at line 253) gets wrongly listed as sh AND bash, then fails
+          # when linted as sh (SC3010/SC3030/SC3054 for [[ ]], arrays, BASH_SOURCE).
+          # Reading line 1 per file classifies each script exactly once, correctly.
+          bash_files=(); sh_files=()
+          while IFS= read -r f; do
+            case "$(head -n1 "$f" 2>/dev/null)" in
+              '#!/usr/bin/env bash'|'#!/bin/bash') bash_files+=("$f") ;;
+              '#!/bin/sh')                         sh_files+=("$f")   ;;
+            esac
+          done < <(grep -rlE '^#!/(usr/bin/env bash|bin/bash|bin/sh)' . | grep -v '^\./\.git/')
 
           if [ "${#bash_files[@]}" -eq 0 ]; then
             echo "No bash scripts found — that's almost certainly the discovery mechanism breaking, not an empty repo." >&2
