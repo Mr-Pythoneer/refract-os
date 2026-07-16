@@ -30,6 +30,11 @@ on:
         required: false
         default: false
         type: boolean
+      testing_no_login:
+        description: "☠ DANGER: build a TESTING image with NO LOGIN / NO PASSWORD (dev only, never for users)"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   build:
@@ -61,15 +66,30 @@ jobs:
 
       - name: Build ISO
         working-directory: iso
+        env:
+          REFRACT_TESTING: ${{ inputs.testing_no_login && '1' || '0' }}
         run: |
           set -euo pipefail
-          sudo ./build.sh "${{ inputs.strain }}"
+          sudo -E ./build.sh "${{ inputs.strain }}"
+
+      # Rename the file itself so the DANGER is visible in the browser's
+      # download list, the Downloads folder, and Rufus/Etcher's file picker —
+      # not just in release notes nobody reads.
+      - name: Mark testing ISO as DANGEROUS
+        if: ${{ success() && inputs.testing_no_login }}
+        run: |
+          set -euo pipefail
+          for f in iso/*.iso; do
+            [ -e "$f" ] || continue
+            mv "$f" "iso/DANGER-DO-NOT-USE-TESTING-NO-LOGIN-$(basename "$f")"
+          done
+          ls -la iso/*.iso
 
       - name: Upload ISO artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: refract-os-${{ inputs.strain }}
+          name: ${{ inputs.testing_no_login && format('DANGER-TESTING-NO-LOGIN-refract-os-{0}', inputs.strain) || format('refract-os-{0}', inputs.strain) }}
           # Glob, not a fixed filename: if build.sh's rename step doesn't
           # run (build failed before producing output), this still uploads
           # whatever live-build did produce for debugging instead of the
@@ -87,7 +107,15 @@ jobs:
           set -uo pipefail
           ISO=$(ls iso/*.iso | head -n1)
           [ -n "$ISO" ] || { echo "no ISO produced — nothing to publish" >&2; exit 0; }
-          base=$(basename "$ISO"); strain="${{ inputs.strain }}"; tag="latest-${strain}"
+          base=$(basename "$ISO"); strain="${{ inputs.strain }}"
+          # A testing image MUST NOT land on the tag real users download. It gets
+          # its own tag, its own title, and its own notes; latest-${strain} stays
+          # whatever the last real build published.
+          if [ "${{ inputs.testing_no_login }}" = "true" ]; then
+            tag="DANGER-testing-no-login-${strain}"
+          else
+            tag="latest-${strain}"
+          fi
           sha=$(sha256sum "$ISO" | cut -d' ' -f1)
           echo "$sha  $base" > "iso/${strain}.sha256"
           # GitHub release assets are capped at 2 GiB. Split larger ISOs into
@@ -107,7 +135,50 @@ jobs:
             win=""; for p in "${parts[@]}"; do bn=$(basename "$p"); win="${win:+$win + }$bn"; done
             reasm=$'This ISO is split into '"${#parts[@]}"' parts (GitHub caps assets at 2 GiB) — download every `.part*`, rejoin, then flash:\n- **Linux/macOS:** `cat '"${base}"'.part* > '"${base}"'`\n- **Windows (cmd):** `copy /b '"$win"' '"${base}"'`'
           fi
-          notes="Rolling latest **${strain}** build of Refract OS.
+          if [ "${{ inputs.testing_no_login }}" = "true" ]; then
+            title="☠☠☠ DANGER — TESTING BUILD (${strain}) — NO LOGIN — DO NOT USE ☠☠☠"
+            notes="# ☠☠☠ DANGER — DO NOT DOWNLOAD THIS ☠☠☠
+          # ☠☠☠ THIS IS NOT REFRACT OS ☠☠☠
+          # ☠☠☠ DEVELOPER TESTING BUILD ONLY ☠☠☠
+
+          ## ⛔ STOP. If you are looking for Refract OS, you want [**latest-${strain}**](https://github.com/${GITHUB_REPOSITORY}/releases/tag/latest-${strain}) instead. Go there. Not here.
+
+          ---
+
+          ## What this build does that a normal OS does NOT:
+
+          | ☠ | |
+          |---|---|
+          | **NO LOGIN** | It boots straight to a desktop. No username. No password. |
+          | **NO PASSWORD** | The user account has an **empty password** and full \`sudo\`. |
+          | **NO SECURITY** | **Anyone** who picks up the machine has complete control of it. |
+          | **NO SPLASH** | Raw kernel output instead of a boot screen. |
+
+          **If you install this on a real computer, that computer is wide open to anyone who touches it.**
+
+          ## Why it exists
+          Purely so a developer can boot a test image and land on a desktop without typing anything. It is a debugging tool, not an operating system. It is **not** supported, **not** secure, and **not** for humans.
+
+          ## ⛔ DO NOT
+          - ⛔ **DO NOT** install this on any real machine
+          - ⛔ **DO NOT** give it to anyone
+          - ⛔ **DO NOT** use it for anything but throwaway testing
+          - ⛔ **DO NOT** mistake it for Refract OS — **it is not**
+
+          ---
+
+          Even the image screams it: the volume label is \`DANGER-TEST\`, the filename is \`DANGER-DO-NOT-USE-TESTING-NO-LOGIN-*\`, \`/etc/os-release\` says **DANGER: TESTING BUILD**, and \`/etc/refract-TESTING-BUILD-DO-NOT-USE\` exists on the filesystem.
+
+          ${reasm}
+
+          SHA-256 of the joined ISO: \`${sha}\`
+
+          Built from commit \`${GITHUB_SHA}\`.
+
+          # ☠☠☠ DANGER — NO LOGIN — DO NOT USE ☠☠☠"
+          else
+            title="Refract OS — latest ${strain}"
+            notes="Rolling latest **${strain}** build of Refract OS.
 
           **Flash it — Windows, macOS, or Linux:** balenaEtcher (any OS) or Rufus (Windows, *DD Image* mode). No Linux needed to install.
 
@@ -116,9 +187,10 @@ jobs:
           SHA-256 of the joined ISO: \`${sha}\`
 
           ⚠ Boots via BIOS/CSM for now (UEFI in progress). Apple-Silicon Macs can create the USB but can't boot an x86 OS."
+          fi
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
-            && gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes "$notes" \
+            && gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes "$notes" --title "$title" \
             || gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
-                 --title "Refract OS — latest ${strain}" --notes "$notes" --prerelease
+                 --title "$title" --notes "$notes" --prerelease
           gh release upload "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
           echo "Published ${#assets[@]} asset(s) to release '$tag'."

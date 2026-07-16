@@ -1,5 +1,12 @@
 [org/gnome/login-screen]
-logo='/usr/share/refract/logo-small.png'
+# NO logo= here, deliberately. GDM renders org.gnome.login-screen's logo at
+# close to its native size, and even the 200x200 logo-small.png landed right
+# on top of the username/password field — verified on a real X1 Carbon: the
+# login form was completely covered by the prism. GDM offers no scaling or
+# placement control for this key, so any logo big enough to look good is big
+# enough to obscure the form. The branding is already carried by the Plymouth
+# splash, the wallpaper behind the greeter, and the banner text below, so the
+# login screen loses nothing by dropping it. Do not re-add this key.
 banner-message-enable=true
 banner-message-text='Refract OS'
 
