@@ -119,14 +119,34 @@
 
   .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
   .mode-card {
-    background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 20px;
-    border-top: 3px solid var(--mode-color);
+    position: relative; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 22px; border-top: 3px solid var(--mode-color);
+    transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
   }
-  .mode-card .icon-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-  .mode-card i { font-size: 1.3rem; color: var(--mode-color); }
+  .mode-card:hover {
+    transform: translateY(-3px);
+    border-color: color-mix(in srgb, var(--mode-color) 55%, var(--border));
+    box-shadow: 0 14px 34px -18px color-mix(in srgb, var(--mode-color) 70%, transparent);
+  }
+  .mode-card .icon-row { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
+  /* icon in a tinted rounded chip in the mode's colour — more finished than a bare glyph */
+  .mode-card i {
+    font-size: 1.15rem; color: var(--mode-color);
+    background: color-mix(in srgb, var(--mode-color) 15%, transparent);
+    width: 36px; height: 36px; border-radius: 9px;
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+  }
   .mode-card .value { font-size: 1.12rem; font-weight: 700; }
-  .mode-card .role { color: var(--text-dim); font-size: 0.88rem; }
+  .mode-card .role { color: var(--text-dim); font-size: 0.9rem; line-height: 1.55; }
+  .mode-card .role a { color: color-mix(in srgb, var(--mode-color) 75%, var(--text)); }
   .mode-card code { font-size: 0.78rem; }
+  /* the 6th "your call" card — accent-themed, spans nothing special but a subtle wash */
+  .mode-card.pick { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, var(--bg-card)), var(--bg-card)); }
+  .mode-card .pilltag {
+    display: inline-block; margin-top: 12px; font-size: 0.72rem; font-weight: 600;
+    color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 999px; padding: 3px 10px;
+  }
 
   .strains { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
   .strain-card { background: var(--bg-card2); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
@@ -243,8 +263,8 @@
 
 <section id="modes">
   <div class="wrap">
-    <h2>One system, five modes</h2>
-    <p class="sub">Not five separate OS images — one base install, switched live via <code>distro-modectl switch &lt;mode&gt;</code>.</p>
+    <h2>One system, five modes — or fewer</h2>
+    <p class="sub">Not five separate OS images — one base install, switched live via <code>distro-modectl switch &lt;mode&gt;</code>. Ship all of them, or only the ones you want.</p>
     <div class="modes">
       <div class="mode-card" style="--mode-color: var(--m-gaming)">
         <div class="icon-row"><i class="ti ti-device-gamepad-2" aria-hidden="true"></i><span class="value">Gaming</span></div>
@@ -265,6 +285,11 @@
       <div class="mode-card" style="--mode-color: var(--m-normal)">
         <div class="icon-row"><i class="ti ti-layout-dashboard" aria-hidden="true"></i><span class="value">Normal</span></div>
         <div class="role">A polished, macOS-style default look — dock, theme, balanced power.</div>
+      </div>
+      <div class="mode-card pick" style="--mode-color: var(--accent)">
+        <div class="icon-row"><i class="ti ti-adjustments-horizontal" aria-hidden="true"></i><span class="value">Your call</span></div>
+        <div class="role">Every mode is opt-in — nothing installs, no AI, no background daemons, until you choose it. Don't want AI on your machine? Build it with the mode left out entirely, so it's <em>provably</em> absent, not just hidden.</div>
+        <span class="pilltag">no forced AI</span>
       </div>
     </div>
   </div>
