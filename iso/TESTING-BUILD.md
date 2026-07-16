@@ -54,7 +54,7 @@ The image announces itself at every layer someone might look at:
 | ISO filename | `DANGER-DO-NOT-USE-TESTING-NO-LOGIN-*.iso` |
 | ISO volume label | `DANGER-TEST` (the 11-char ISO9660 cap) |
 | ISO application id | `*** DANGER - REFRACT OS TESTING BUILD - NO LOGIN - DO NOT USE OR INSTALL ***` |
-| CI artifact name | `DANGER-TESTING-NO-LOGIN-refract-os-<strain>` |
+| CI artifact name | `refract-os-<strain>-DANGER-TESTING-NO-LOGIN` (suffix, not prefix — downstream VM workflows match `refract-os-*`) |
 | Release tag | `DANGER-testing-no-login-<strain>` — **never** `latest-<strain>` |
 | Release title | `☠☠☠ DANGER — TESTING BUILD — NO LOGIN — DO NOT USE ☠☠☠` |
 | Running system | `PRETTY_NAME`, `/etc/motd`, `/etc/refract-TESTING-BUILD-DO-NOT-USE` |

@@ -89,7 +89,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.testing_no_login && format('DANGER-TESTING-NO-LOGIN-refract-os-{0}', inputs.strain) || format('refract-os-{0}', inputs.strain) }}
+          # The DANGER marker goes at the END, not the front: every downstream VM
+          # workflow (boot-smoke, screenshot-tour, install-smoke, uefi-boot,
+          # mode-test) downloads with `pattern: refract-os-*`, so a name starting
+          # with "DANGER-" matches nothing and those jobs die with a useless
+          # "Failed to open refract.iso". The ISO FILE inside is still named
+          # DANGER-DO-NOT-USE-TESTING-NO-LOGIN-*.iso, which is what a human
+          # actually sees when they download and flash it.
+          name: ${{ inputs.testing_no_login && format('refract-os-{0}-DANGER-TESTING-NO-LOGIN', inputs.strain) || format('refract-os-{0}', inputs.strain) }}
           # Glob, not a fixed filename: if build.sh's rename step doesn't
           # run (build failed before producing output), this still uploads
           # whatever live-build did produce for debugging instead of the
