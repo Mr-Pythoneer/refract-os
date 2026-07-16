@@ -1,5 +1,7 @@
 # Project TODO — full framework
 
+> **Design doc:** [`docs/mode-selection-design.md`](docs/mode-selection-design.md) — the "choose your modes" installer feature (let users deselect Gaming/AI/Server/Creative; AI can be made *provably absent* via a build flag, for the anti-AI-in-the-OS audience). Buildable 20-step checklist; gated on the first real install landing.
+
 Living checklist for the whole distro. Organized by the same structure as `DESIGN.md`. Check items off as they're built; every item should eventually link to the file/dir that implements it. Items marked **(needs hardware)** can't be verified until the real build lands (**RTX 5090 ~late July 2026, full 5090+9950X3D build ~early August 2026** — see `modes/ai/README.md` and `docs/blackwell-readiness.md`) or a generic test VM/box is available; items marked **(needs live desktop)** need an actual running GNOME session to build/verify against, not just a remote shell.
 
 ## 0. Foundation
