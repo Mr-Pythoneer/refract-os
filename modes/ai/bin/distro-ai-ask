@@ -2,22 +2,25 @@
 #
 # Shared backend for the hotkey overlay and the Nautilus "ask AI about this
 # file" action (modes/ai/integrations/nautilus-ask-ai). Both are thin clients
-# on top of whatever model LM Studio has loaded -- per DESIGN.md
-# §5 this just does an OpenAI-compatible HTTP call to localhost:8080, no new
-# inference logic.
+# on top of whatever model Ollama has loaded -- this just does an
+# OpenAI-compatible HTTP call to Ollama's server, no new inference logic.
 #
 # Usage:
 #   distro-ai-ask "<prompt text>"
 #   echo "<prompt text>" | distro-ai-ask
 #
 # Reads the prompt from $1 if given, otherwise from stdin. Prints the model's
-# reply to stdout. Exits non-zero (with a message on stderr) if no preset is
-# reachable on localhost:8080 -- callers (overlay/Nautilus script) are
-# expected to surface that to the user rather than failing silently.
+# reply to stdout. Exits non-zero (with a message on stderr) if Ollama isn't
+# reachable -- callers (overlay/Nautilus script) are expected to surface that to
+# the user rather than failing silently.
 
 set -euo pipefail
 
-ENDPOINT="http://127.0.0.1:8080/v1/chat/completions"
+# Ollama's OpenAI-compatible endpoint. Port 11434 (was LM Studio's 8080).
+# OLLAMA_HOST lets a remote/relocated daemon be targeted; default localhost.
+BASE="${OLLAMA_HOST:-127.0.0.1:11434}"
+case "$BASE" in http://*|https://*) ;; *) BASE="http://$BASE" ;; esac
+ENDPOINT="$BASE/v1/chat/completions"
 
 if [ -n "${1:-}" ]; then
     prompt="$1"
@@ -40,9 +43,30 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 
-payload="$(PROMPT="$prompt" python3 -c '
+# Ollama's OpenAI endpoint REQUIRES a model field (LM Studio inferred the loaded
+# one). Preserve "ask whatever's loaded": take the first model Ollama reports as
+# resident (/api/ps); fall back to the first installed model (/api/tags).
+model="$(curl -sS --max-time 5 "$BASE/api/ps" 2>/dev/null | python3 -c '
+import json,sys
+try: print(json.load(sys.stdin).get("models",[{}])[0].get("name",""))
+except Exception: print("")
+' 2>/dev/null || true)"
+if [ -z "$model" ]; then
+    model="$(curl -sS --max-time 5 "$BASE/api/tags" 2>/dev/null | python3 -c '
+import json,sys
+try: print(json.load(sys.stdin).get("models",[{}])[0].get("name",""))
+except Exception: print("")
+' 2>/dev/null || true)"
+fi
+if [ -z "$model" ]; then
+    echo "distro-ai-ask: no model is loaded or installed. Pull one first: distro-ai-model use coding" >&2
+    exit 1
+fi
+
+payload="$(PROMPT="$prompt" MODEL="$model" python3 -c '
 import json, os
 print(json.dumps({
+    "model": os.environ["MODEL"],
     "messages": [{"role": "user", "content": os.environ["PROMPT"]}],
     "stream": False,
 }))
@@ -51,7 +75,7 @@ print(json.dumps({
 response="$(curl -sS --max-time 60 -X POST "$ENDPOINT" \
     -H "Content-Type: application/json" \
     -d "$payload" 2>&1)" || {
-    echo "distro-ai-ask: could not reach $ENDPOINT -- is a model loaded and the server up? Try: distro-ai-model status  (start it: distro-ai-model server start)" >&2
+    echo "distro-ai-ask: could not reach $ENDPOINT -- is Ollama running? Try: systemctl status ollama  (and: distro-ai-model status)" >&2
     echo "$response" >&2
     exit 1
 }

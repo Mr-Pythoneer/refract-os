@@ -9,7 +9,7 @@
 # and the /run state file. It proves the CONTROL PLANE (what commands the switcher
 # fires) without needing any of the hardware those commands drive.
 #
-# HOW it fakes the world without a GPU / LM Studio / real init:
+# HOW it fakes the world without a GPU / Ollama / real init:
 #   * Recording stubs for every external tool (gsettings, cpupower,
 #     powerprofilesctl, nvidia-smi, systemctl, distro-ai-model,
 #     distro-ai-detect-tier, ...) are put FIRST on PATH. Each stub appends its

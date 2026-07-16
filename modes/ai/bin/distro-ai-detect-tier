@@ -7,8 +7,12 @@
 # What it detects (all cross-vendor, no root needed):
 #   VRAM  - Nvidia via nvidia-smi; AMD (and APU carveout) via
 #           /sys/class/drm/card*/device/mem_info_vram_total. MULTI-GPU: sums
-#           VRAM across HOMOGENEOUS same-name cards (LM Studio 0.4.15+ pools
+#           VRAM across HOMOGENEOUS same-name cards (Ollama pools
 #           same-vendor cards via layer-split); mixed vendors are NOT pooled.
+#   iGPU  - Intel Arc (integrated) via lspci + vulkaninfo --summary, ONLY when no
+#           discrete GPU is found. An iGPU has no VRAM of its own (it shares LPDDR
+#           system RAM), so it's tiered by usable system RAM, not VRAM, and Ollama's
+#           Vulkan backend (OLLAMA_VULKAN=1) is turned on for it.
 #   RAM   - /proc/meminfo MemTotal.
 #   form  - laptop vs desktop via DMI chassis_type + battery presence.
 #
@@ -29,8 +33,9 @@
 #
 # Detection inputs are overridable by env (REFRACT_VRAM_MIB, REFRACT_GPU_LIST
 # ["mib:name;mib:name"], REFRACT_IS_LAPTOP, REFRACT_RAM_MB, REFRACT_ALLOW_
-# DATACENTER, NVIDIA_SMI, SYS_DRM_ROOT, SYS_DMI_CHASSIS, SYS_POWER_ROOT,
-# PROC_MEMINFO) so this is testable without the real hardware.
+# DATACENTER, REFRACT_LSPCI, REFRACT_VULKAN_SUMMARY, NVIDIA_SMI, SYS_DRM_ROOT,
+# SYS_DMI_CHASSIS, SYS_POWER_ROOT, PROC_MEMINFO) so this is testable without the
+# real hardware.
 #
 # Usage:
 #   distro-ai-detect-tier                 # detect; ask (laptop profile + image) if a TTY; write config
@@ -58,7 +63,7 @@ while [ $# -gt 0 ]; do
         --profile) FORCE_PROFILE="${2:-}"; shift ;;
         --image)   FORCE_IMAGE="${2:-}"; shift ;;
         -h|--help)
-            sed -n '2,40p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
+            sed -n '2,45p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown arg: $1 (see --help)" >&2; exit 1 ;;
     esac
     shift
@@ -135,7 +140,7 @@ classify_gpu() {
 }
 
 # compute_vram: reads "<mib>\t<name>" lines on stdin, prints "<pooled>\t<single>\t<count>".
-# pooled = largest sum over a HOMOGENEOUS same-name group (LM Studio pools those);
+# pooled = largest sum over a HOMOGENEOUS same-name group (Ollama pools those);
 # single = largest single card; count = number of GPUs in the winning group.
 # NOTE: uses `python3 -c` (not a heredoc) so the piped GPU list stays on stdin —
 # a `python3 - <<HEREDOC` would make the heredoc itself python's stdin.
@@ -188,6 +193,70 @@ detect_ram_mb() {
     echo $(( kb / 1024 ))
 }
 
+# ---- Intel iGPU (Arc) detection — env-overridable, no root needed ------------
+# An Intel Arc integrated GPU has no dedicated VRAM: the nvidia/amd probes above
+# see nothing and would drop us to the cpu tier. Ollama can still drive an Arc via
+# its opt-in Vulkan backend, so detect one here with two injectable probes.
+
+# intel_vga_present: does `lspci -nn` list an Intel VGA/Display/3D controller?
+# (REFRACT_LSPCI injects the lspci output for hermetic tests.)
+intel_vga_present() {
+    local out hits
+    if [ -n "${REFRACT_LSPCI:-}" ]; then
+        out="$REFRACT_LSPCI"
+    else
+        command -v lspci >/dev/null 2>&1 || return 1
+        out="$(lspci -nn 2>/dev/null || true)"
+    fi
+    hits="$(printf '%s\n' "$out" \
+        | grep -iE 'VGA compatible controller|Display controller|3D controller' \
+        | grep -i 'intel' || true)"
+    [ -n "$hits" ]
+}
+
+# intel_vulkan_device: echoes the Vulkan deviceName and returns 0 iff
+# `vulkaninfo --summary` exposes a REAL Arc/Intel device — NOT Mesa's llvmpipe
+# software rasterizer (which is what shows up when the Vulkan userspace is too old
+# or absent). Returns 1 and echoes nothing otherwise. Never uses grep -q on a pipe
+# (SIGPIPE + pipefail can misreport a match). (REFRACT_VULKAN_SUMMARY injects text.)
+intel_vulkan_device() {
+    local out line name low
+    if [ -n "${REFRACT_VULKAN_SUMMARY:-}" ]; then
+        out="$REFRACT_VULKAN_SUMMARY"
+    else
+        command -v vulkaninfo >/dev/null 2>&1 || return 1
+        out="$(vulkaninfo --summary 2>/dev/null || true)"
+    fi
+    while IFS= read -r line; do
+        case "$line" in *deviceName*) ;; *) continue ;; esac
+        read -r name <<< "${line#*=}"          # value after '=', whitespace-trimmed
+        low="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+        case "$low" in
+            *llvmpipe*)     continue ;;         # software rasterizer — not a usable GPU
+            *arc*|*intel*)  printf '%s' "$name"; return 0 ;;
+        esac
+    done <<< "$out"
+    return 1
+}
+
+# enable_ollama_vulkan: Ollama's Vulkan backend is opt-in (OLLAMA_VULKAN=1). Drop a
+# systemd override into the system 'ollama' service so an Arc iGPU actually gets
+# used. No-ops (prints a hint instead) unless we're root with a live systemd — so
+# it's harmless run unprivileged or inside a build chroot.
+enable_ollama_vulkan() {
+    if [ "$(id -u)" != 0 ] || [ ! -d /run/systemd/system ] || ! command -v systemctl >/dev/null 2>&1; then
+        echo "  (To use the Arc iGPU, enable Ollama's Vulkan backend as root:"
+        echo "     sudo systemctl edit ollama   # add:  Environment=\"OLLAMA_VULKAN=1\")"
+        return 0
+    fi
+    local dir="/etc/systemd/system/ollama.service.d"
+    mkdir -p "$dir"
+    printf '[Service]\nEnvironment="OLLAMA_VULKAN=1"\n' > "$dir/10-refract-vulkan.conf"
+    systemctl daemon-reload || true
+    systemctl restart ollama 2>/dev/null || true
+    cl 32 "  Enabled Ollama Vulkan backend (OLLAMA_VULKAN=1) + restarted ollama."
+}
+
 tier_for_vram() {  # <vram_mib> -> tier
     local v="$1"
     if   [ "$v" -lt 5120 ];  then echo cpu
@@ -196,6 +265,16 @@ tier_for_vram() {  # <vram_mib> -> tier
     elif [ "$v" -lt 30720 ]; then echo high
     elif [ "$v" -lt 46080 ]; then echo max     # 30-45GB: RTX 5090 32GB class
     else echo ultra; fi                          # >=45GB: 48-96GB workstation (or 2x pooled)
+}
+
+# tier_for_igpu_ram: an Intel iGPU has no VRAM — tier by how much system RAM is
+# usable for models after leaving ~6 GiB headroom for the OS/desktop.
+#   <8 GiB usable -> entry | 8-16 -> entry(<12)/mid(>=12) | >16 -> mid.
+# A 16GB Arc laptop (~10 GiB usable) lands 'entry'; a 32GB one (~26 GiB) 'mid'.
+# An iGPU never reaches high/max/ultra — it's shared, bandwidth-limited memory.
+tier_for_igpu_ram() {  # <usable_mib> -> entry|mid
+    local u="$1"
+    if [ "$u" -lt 12288 ]; then echo entry; else echo mid; fi
 }
 
 # ---- catalog helpers ---------------------------------------------------------
@@ -262,8 +341,8 @@ if [ -z "${REFRACT_ALLOW_DATACENTER:-}" ] && [ -z "$FORCE_TIER" ] && [ -n "$GPU_
     done <<< "$GPU_LINES"
     if [ -n "$dc_hit" ]; then
         cl 33 "Detected server-class hardware: $dc_hit"
-        echo "Refract OS AI mode is a local-first DESKTOP experience (LM Studio GUI + ComfyUI)."
-        echo "Datacenter GPUs belong in Server mode's headless serving path (lms CLI / vLLM),"
+        echo "Refract OS AI mode is a local-first DESKTOP experience (Ollama + ComfyUI)."
+        echo "Datacenter GPUs belong in Server mode's headless serving path (Ollama / vLLM),"
         echo "not a desktop AI tier — a desktop chat GUI is the wrong shape for this hardware."
         echo ""
         echo "  -> Use Server mode:   distro-modectl switch server"
@@ -293,7 +372,34 @@ RAM_MB="$(detect_ram_mb)"
 VRAM_GIB="$(python3 -c "print(round($VRAM_MIB/1024, 1))")"
 RAM_GIB="$(python3 -c "print(round($RAM_MB/1024, 1))")"
 
-TIER="${FORCE_TIER:-$(tier_for_vram "$VRAM_MIB")}"
+# ---- Intel Arc iGPU fallback (after nvidia/amd, before the cpu fallback) ------
+# The discrete-GPU probes found no usable VRAM (VRAM_MIB below the cpu cutoff).
+# Before settling for the cpu tier, look for an Intel Arc iGPU that Ollama could
+# drive over Vulkan. Skipped when a tier is forced or a real dGPU was found.
+INTEL_ARC=""            # Vulkan device name once a real Arc is confirmed
+INTEL_TIER=""           # tier chosen from system RAM for that iGPU
+usable_mib=0
+if [ -z "$FORCE_TIER" ] && [ "$VRAM_MIB" -lt 5120 ] && intel_vga_present; then
+    if INTEL_ARC="$(intel_vulkan_device)"; then
+        usable_mib=$(( RAM_MB - 6144 ))          # leave ~6 GiB for the OS/desktop
+        [ "$usable_mib" -lt 0 ] && usable_mib=0
+        INTEL_TIER="$(tier_for_igpu_ram "$usable_mib")"
+        GPU_DESC="$INTEL_ARC (Intel Arc iGPU — shares system RAM)"
+    else
+        INTEL_ARC=""
+        cl 33 "WARNING: Intel graphics present, but Vulkan exposes no usable Arc device (only llvmpipe / software)."
+        echo "  Ollama can't use the iGPU without the Vulkan userspace (recent Mesa + vulkan-loader + intel driver)."
+        echo "  Falling back to the cpu tier. Install the Vulkan stack, then rerun: distro-ai-detect-tier"
+    fi
+fi
+
+if [ -n "$FORCE_TIER" ]; then
+    TIER="$FORCE_TIER"
+elif [ -n "$INTEL_ARC" ]; then
+    TIER="$INTEL_TIER"                            # iGPU: tiered by shared RAM, not VRAM
+else
+    TIER="$(tier_for_vram "$VRAM_MIB")"
+fi
 valid_tier "$TIER" || { echo "Invalid --tier '$TIER' (cpu entry mid high max ultra)." >&2; exit 1; }
 
 if [ -n "$FORCE_PROFILE" ]; then
@@ -310,7 +416,11 @@ IMAGE="${FORCE_IMAGE:-$(default_image_token "$TIER")}"
 # ---- report ------------------------------------------------------------------
 cl 36 '== Refract AI hardware detection =='
 printf '  %-14s %s\n' "GPU:"    "$GPU_DESC"
-if [ "${GPU_COUNT:-0}" -gt 1 ]; then
+if [ -n "$INTEL_ARC" ]; then
+    printf '  %-14s %s\n' "VRAM:" "n/a — integrated GPU shares system RAM"
+    printf '  %-14s %s GiB usable for models (RAM - 6 GiB headroom)\n' \
+        "Shared mem:" "$(python3 -c "print(round($usable_mib/1024, 1))")"
+elif [ "${GPU_COUNT:-0}" -gt 1 ]; then
     printf '  %-14s %s GiB pooled across %s x %s (%s MiB); largest single %s MiB\n' \
         "VRAM:" "$VRAM_GIB" "$GPU_COUNT" "$GPU_DESC" "$VRAM_MIB" "$SINGLE"
 else
@@ -324,9 +434,12 @@ echo ""
 if [ "$RAM_MB" -gt 0 ] && [ "$RAM_MB" -lt 4096 ]; then
     cl 33 "WARNING: only ${RAM_GIB} GiB RAM — even cpu-tier 3B models want ~4GB+ free. Expect swapping."
 fi
+if [ -n "$INTEL_ARC" ]; then
+    cl 32 "Intel Arc iGPU usable via Ollama's Vulkan backend (OLLAMA_VULKAN=1); tiered by shared RAM, not VRAM."
+fi
 if [ "$TIER" = "cpu" ]; then
     cl 33 'No usable dedicated VRAM detected -> cpu tier (CPU inference, no image generation).'
-    echo "If you DO have a discrete GPU we missed (e.g. Intel Arc), rerun: distro-ai-detect-tier --tier entry|mid|high|max"
+    echo "If you have a discrete GPU we missed, rerun with an explicit tier: distro-ai-detect-tier --tier entry|mid|high|max"
 fi
 if [ "$TIER" = "ultra" ]; then
     cl 32 "Ultra tier: 70B runs FULLY in VRAM (no CPU offload). 96GB+ also unlocks 104B/123B and gpt-oss-120B."
@@ -392,9 +505,13 @@ if [ "$DO_WRITE" = "1" ]; then
         echo "tier=$TIER"
         echo "profile=$PROFILE"
         echo "image=$IMAGE"
+        echo "intel_arc=$INTEL_ARC"
     } > "$CONFIG_HOME/detected"
     echo ""
     cl 32 "Wrote $CONFIG_HOME/{tier,profile,image,vram_mib}."
+    if [ -n "$INTEL_ARC" ]; then
+        enable_ollama_vulkan
+    fi
     echo "Next: preload the models for this tier ->"
     echo "  modes/ai/setup/02-preload-models.sh          # all $TIER-tier LLMs"
     if [ "$IMAGE" != "none" ]; then

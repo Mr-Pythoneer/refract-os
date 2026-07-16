@@ -264,7 +264,7 @@ jobs:
           echo "by each 'distro-modectl switch' (the WhiteSur theme stays constant)."
           echo "NOT proven here (hardware-only, needs a real GPU box / Pi):"
           echo "  * in-game FPS from performance governor + pinned GPU clocks"
-          echo "  * LLM tokens/sec + model load in AI mode (needs LM Studio + model)"
+          echo "  * LLM tokens/sec + model load in AI mode (needs Ollama + model)"
           echo "  * real CPU-frequency / power-draw / wattage changes"
           echo "  * nvidia-smi clock-lock / persistence actually taking hold on silicon"
           echo "=================================================================="

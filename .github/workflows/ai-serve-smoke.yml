@@ -1,152 +1,112 @@
 name: ai-serve-smoke
 
 # Partially closes the AI-mode "needs hardware" TODO by proving the FUNCTIONAL
-# half on CPU: the OpenAI-compatible :8080 serve contract + thin-client answer,
-# and that real LM Studio (llmster) installs/loads/serves headless. The GPU half
-# (correct --gpu offload, tokens/sec, VRAM fit) stays hardware-gated — a runner
-# has no GPU, so we can only prove --gpu off / CPU inference here.
+# half on CPU: the OpenAI-compatible :11434 serve contract + thin-client answer,
+# and that real Ollama installs/serves headless. The GPU half (Vulkan offload to
+# the Arc iGPU, CUDA offload on the 5090, tokens/sec, VRAM fit) stays
+# hardware-gated — a runner has no usable GPU, so we can only prove CPU inference
+# here.
 #
-#  Job A (llama-serve-contract): fast, deterministic, always-green. Serves a tiny
-#    GGUF on :8080 with llama.cpp and drives the repo's own distro-ai-ask thin
-#    client → proves the /v1/chat/completions contract every AI-mode client uses.
-#  Job B (lmstudio-headless-smoke): best-effort (the llmster CPU image is
-#    preview-status). Runs the OFFICIAL headless LM Studio daemon on CPU and does
-#    lms get → load → server start → query — the real `lms` CLI surface the repo's
-#    setup/01-install-lmstudio.sh drives.
+# This installs the SAME pinned Ollama tarball the ISO ships (see
+# modes/ai/setup/01-install-ollama.sh), starts `ollama serve`, pulls a tiny
+# CPU-friendly model, then asserts in order:
+#   1. GET  /api/tags            -> 200 (native REST is up, model is installed).
+#   2. POST /v1/chat/completions -> a well-formed OpenAI completion. The api_key
+#      is required-but-ignored on Ollama's OpenAI surface, so we pass the literal
+#      "ollama"; the "model" field is MANDATORY there (unlike native /api/*).
+#   3. modes/ai/bin/distro-ai-ask returns a real answer — the exact thin-client
+#      contract the overlay + Nautilus action + AI mode all use.
+# Deterministic and always-green on ubuntu-latest: no GPU, no GUI, no Docker.
 
 on:
   workflow_dispatch:
 
 jobs:
-  llama-serve-contract:
+  ollama-serve-contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
+    env:
+      # Pin the SAME version the ISO ships so CI exercises the shipped runtime.
+      OLLAMA_VERSION: "0.32.0"
+      # A tiny instruct model: fast CPU inference, small pull. Exact tag, never
+      # ':latest', mirroring the repo's pin-everything rule.
+      OLLAMA_TEST_MODEL: "qwen2.5:0.5b"
+      # Serve + client + distro-ai-ask all target this. Default Ollama bind.
+      OLLAMA_HOST: "127.0.0.1:11434"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download a tiny instruct GGUF (~105 MB, CPU-friendly)
+      - name: Install the pinned Ollama tarball into /usr (same method as 01-install-ollama.sh)
         run: |
           set -euo pipefail
-          url="https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct-Q4_K_M.gguf?download=true"
-          curl -fSL --retry 3 -o model.gguf "$url"
-          sz=$(stat -c%s model.gguf)
-          echo "model.gguf = $sz bytes"
-          [ "$sz" -gt 50000000 ] || { echo "FAIL: model download too small ($sz) — bad URL/redirect"; exit 1; }
+          # unzstd (from the zstd package) unpacks the .tar.zst. Usually present
+          # on ubuntu-latest, but guard so the job is self-contained.
+          if ! command -v unzstd >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y zstd
+          fi
+          # x86_64 runner -> the amd64 tarball. Pinned URL, fail loudly on a 404.
+          url="https://ollama.com/download/v${OLLAMA_VERSION}/ollama-linux-amd64.tar.zst"
+          echo "Fetching $url"
+          curl -fsSL "$url" | sudo tar -x --use-compress-program=unzstd -C /usr \
+            || { echo "FAIL: download/extract failed for $url"; exit 1; }
+          command -v ollama >/dev/null 2>&1 || { echo "FAIL: ollama not on PATH after install"; exit 1; }
+          ollama --version || true
 
-      - name: Fetch a prebuilt CPU llama-server
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Start `ollama serve` and wait until the API is ready
         run: |
           set -euo pipefail
-          # The Linux CPU build is a .tar.gz named ...bin-ubuntu-x64.tar.gz. That
-          # exact suffix uniquely selects the plain CPU build (not the vulkan/
-          # rocm/sycl/openvino/arm64 variants, which carry an extra token before
-          # -x64). Only the Windows assets are .zip.
-          url=$(gh api repos/ggml-org/llama.cpp/releases/latest \
-                  --jq '.assets[].browser_download_url | select(test("bin-ubuntu-x64\\.tar\\.gz$"))' | head -1)
-          echo "llama.cpp asset: $url"
-          [ -n "$url" ] || { echo "FAIL: could not find an ubuntu-x64 llama.cpp asset"; exit 1; }
-          curl -fSL --retry 3 -o llama.tgz "$url"
-          mkdir -p llama && tar -xzf llama.tgz -C llama
-          bin=$(find llama -type f -name llama-server | head -1)
-          [ -n "$bin" ] || { echo "FAIL: llama-server not found in archive"; exit 1; }
-          echo "LLAMA_SERVER=$bin"         >> "$GITHUB_ENV"
-          echo "LLAMA_LIBDIR=$(dirname "$bin")" >> "$GITHUB_ENV"
-
-      - name: Serve the model on :8080 and wait until ready
-        run: |
-          set -euo pipefail
-          LD_LIBRARY_PATH="$LLAMA_LIBDIR" "$LLAMA_SERVER" \
-            -m model.gguf --host 127.0.0.1 --port 8080 --ctx-size 512 \
-            > llama-server.log 2>&1 &
-          echo $! > server.pid
-          for i in $(seq 1 90); do
-            if curl -sf http://127.0.0.1:8080/v1/models >/dev/null 2>&1; then
-              echo "server up after ${i}s"; break
+          # The runner user is fine for a CPU smoke (the ISO runs it as the
+          # 'ollama' system user via systemd — that unit is out of scope here).
+          nohup ollama serve > ollama-serve.log 2>&1 &
+          echo $! > ollama.pid
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+              echo "ollama up after ${i}s"; break
             fi
             sleep 1
-            [ "$i" = 90 ] && { echo "FAIL: llama-server never became ready"; tail -40 llama-server.log; exit 1; }
+            [ "$i" = 60 ] && { echo "FAIL: ollama never became ready"; tail -40 ollama-serve.log; exit 1; }
           done
+
+      - name: Pull the tiny test model
+        run: |
+          set -euo pipefail
+          ollama pull "$OLLAMA_TEST_MODEL"
+          ollama list
+
+      - name: Assert GET /api/tags returns 200
+        run: |
+          set -euo pipefail
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:11434/api/tags)
+          echo "/api/tags -> HTTP $code"
+          [ "$code" = "200" ] || { echo "FAIL: /api/tags did not return 200 (got $code)"; exit 1; }
+
+      - name: Assert one /v1/chat/completions round-trip (OpenAI-compatible)
+        run: |
+          set -euo pipefail
+          # api_key is required-but-ignored -> literal "ollama". "model" field is
+          # MANDATORY on Ollama's OpenAI endpoint.
+          resp="$(curl -sf http://127.0.0.1:11434/v1/chat/completions \
+            -H 'Content-Type: application/json' \
+            -H 'Authorization: Bearer ollama' \
+            -d "{\"model\":\"${OLLAMA_TEST_MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly: OK\"}],\"stream\":false}")"
+          echo "$resp" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("completion:", d["choices"][0]["message"]["content"])'
 
       - name: Prove the repo's distro-ai-ask thin client gets a real answer
         run: |
           set -euo pipefail
-          # distro-ai-ask POSTs to http://127.0.0.1:8080/v1/chat/completions (no
-          # model field) and parses choices[0].message.content — the exact contract
-          # the overlay + Nautilus action + AI mode all use.
+          # distro-ai-ask reads OLLAMA_HOST (default 127.0.0.1:11434), auto-picks
+          # the loaded/installed model via /api/ps then /api/tags, and POSTs to
+          # /v1/chat/completions — the exact contract the overlay + Nautilus
+          # action + AI mode all use.
           out="$(modes/ai/bin/distro-ai-ask 'Reply with exactly: OK' || true)"
           echo "distro-ai-ask returned: [$out]"
-          [ -n "$out" ] || { echo "FAIL: distro-ai-ask returned empty"; tail -20 llama-server.log; exit 1; }
-          # Belt-and-suspenders: a raw OpenAI call returns a well-formed completion.
-          curl -sf http://127.0.0.1:8080/v1/chat/completions \
-            -H 'Content-Type: application/json' \
-            -d '{"messages":[{"role":"user","content":"Say OK"}],"stream":false}' \
-            | python3 -c 'import json,sys; d=json.load(sys.stdin); print("completion:", d["choices"][0]["message"]["content"])'
-          echo "PASS: the :8080 OpenAI serve contract + distro-ai-ask thin client work on CPU."
+          [ -n "$out" ] || { echo "FAIL: distro-ai-ask returned empty"; tail -20 ollama-serve.log; exit 1; }
+          echo "PASS: the :11434 Ollama serve contract + distro-ai-ask thin client work on CPU."
 
       - name: Stop the server
         if: always()
-        run: '[ -f server.pid ] && kill "$(cat server.pid)" 2>/dev/null || true'
+        run: '[ -f ollama.pid ] && kill "$(cat ollama.pid)" 2>/dev/null || true'
 
-  lmstudio-headless-smoke:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    # The official llmster CPU image is preview-status; don't red-X the run on
-    # their infra flakiness. Job A is the always-green guardrail.
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Require AVX2 (LM Studio's inference backend needs it on x86)
-        run: |
-          grep -q avx2 /proc/cpuinfo \
-            && echo "AVX2 present — LM Studio backend supported" \
-            || { echo "no AVX2 on this runner — LM Studio cannot run, skipping"; exit 1; }
-
-      - name: Run the official LM Studio headless daemon (CPU-only image)
-        run: |
-          set -euo pipefail
-          docker run -d --name lms -p 1234:1234 lmstudio/llmster-preview:cpu
-          for i in $(seq 1 60); do
-            if curl -sf http://127.0.0.1:1234/v1/models >/dev/null 2>&1; then echo "daemon up after ${i}s"; break; fi
-            sleep 2
-            [ "$i" = 60 ] && { echo "daemon never came up"; docker logs lms || true; exit 1; }
-          done
-
-      - name: Assert LM Studio installs + lms CLI works headless (deterministic)
-        run: |
-          set -euo pipefail
-          # This is the reliable, fast proof of the TODO's first clause: "LM Studio
-          # installs + lms CLI works on the box" — headless, CPU-only, no GUI/Xvfb.
-          docker exec lms lms server status || true   # informational; CLI is reachable
-          docker exec lms lms ls || true               # may be empty (no models yet)
-          # Hard assertion: the OpenAI HTTP layer answers (this exact curl is what
-          # confirmed "daemon up" earlier, so it's the reliable proof).
-          curl -sf http://127.0.0.1:1234/v1/models \
-            | python3 -c 'import json,sys; json.load(sys.stdin); print("/v1/models responded")'
-          echo "PASS: LM Studio (llmster) installs and its lms CLI serves headless on CPU."
-
-      - name: Bonus — real lms model lifecycle on CPU (best-effort, time-boxed)
-        continue-on-error: true
-        run: |
-          set -uo pipefail
-          # CPU model pull+load in CI is slow; time-box it so it can NEVER cancel
-          # the job. The serve/answer CONTRACT is already proven deterministically
-          # by Job A (llama-server); this only exercises the real lms model
-          # lifecycle opportunistically. Real --gpu offload stays hardware-gated.
-          timeout 600 docker exec lms lms get google/gemma-3-1b \
-            || { echo "BONUS SKIP: model pull exceeded the time box on this CPU runner — daemon + lms CLI already verified above."; exit 0; }
-          docker exec lms lms load google/gemma-3-1b --gpu off || { echo "BONUS SKIP: CPU load didn't finish in time."; exit 0; }
-          docker exec lms lms server start || true
-          resp="$(curl -sf http://127.0.0.1:1234/v1/chat/completions \
-            -H 'Content-Type: application/json' \
-            -d '{"model":"google/gemma-3-1b","messages":[{"role":"user","content":"Reply with OK"}],"stream":false}' || true)"
-          if echo "$resp" | python3 -c 'import json,sys; print("LM Studio completion:", json.load(sys.stdin)["choices"][0]["message"]["content"])' 2>/dev/null; then
-            echo "BONUS PASS: real lms get -> load -> server -> query completed on CPU."
-          else
-            echo "BONUS SKIP: query did not return in time — daemon + lms CLI already verified above."
-          fi
-
-      - name: Daemon logs (on failure)
+      - name: Server logs (on failure)
         if: failure()
-        run: docker logs lms || true
+        run: tail -60 ollama-serve.log || true

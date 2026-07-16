@@ -7,7 +7,7 @@
 # user provides themselves, same OpenClaw-gateway principle of "the user's
 # own choice, not a forced background service."
 #
-# This does NOT start a local server (that's distro-ai-model / LM Studio) --
+# This does NOT start a local server (that's distro-ai-model / Ollama) --
 # it's purely an OpenCode config swap plus an explicit acknowledgment that
 # requests leave the device.
 #
@@ -50,7 +50,7 @@ EOF
         ;;
     disable)
         echo "No state to tear down here (this script doesn't run a service)."
-        echo "To go back to the local model: cp $SCRIPT_DIR/../config/opencode.lmstudio.json $TARGET"
+        echo "To go back to the local model: cp $SCRIPT_DIR/../config/opencode.ollama.json $TARGET"
         echo "(and make sure a local model is loaded: distro-ai-model use coding)"
         ;;
     status)

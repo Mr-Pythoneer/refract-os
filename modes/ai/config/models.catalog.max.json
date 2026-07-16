@@ -1,94 +1,117 @@
 {
-  "$comment": "AI-mode model catalog for the RTX 5090 / Ryzen 9 9950X3D / 64GB DDR5 build. Maps the user's use-case menu to concrete models. Text + vision LLMs run in LM Studio (lms get / lms load, OpenAI-compatible server on port 8080); image-generation models run in ComfyUI (separate, port 8188 — LM Studio cannot serve diffusion models). Every repo/quant/size here is web-verified (2026-06). Future hardware tiers (see docs/website-configurator-design.md) would scale this catalog by VRAM.",
+  "$comment": "AI-mode model catalog for the RTX 5090 / Ryzen 9 9950X3D / 64GB DDR5 build (32GB VRAM 'max' tier). Maps the user's use-case menu to concrete models. Text + vision LLMs run in Ollama (OpenAI-compatible server on :11434); image-generation models run in ComfyUI (separate, port 8188 — Ollama has no diffusion on Linux). Each 'repo' is an exact ollama.com tag (pinned, never ':latest'); tags verified 2026-07-16. 70B models (~43GB Q4) do NOT fit 32GB VRAM — they are 'heavy' offload options, never the default. Larger tiers (see docs/website-configurator-design.md) scale this catalog by VRAM.",
   "schema_version": 1,
   "hardware_profile": "rtx5090-9950x3d-64gb",
   "server": {
-    "runtime": "lmstudio",
-    "port": 8080,
-    "endpoint": "http://127.0.0.1:8080/v1",
-    "note": "LM Studio's OpenAI-compatible server; --port 8080 so the existing thin clients (distro-ai-ask/overlay/nautilus) work unchanged."
+    "runtime": "ollama",
+    "port": 11434,
+    "endpoint": "http://127.0.0.1:11434/v1",
+    "note": "Ollama's OpenAI-compatible server on :11434 (native REST also at /api/*); the existing thin clients (distro-ai-ask/overlay/nautilus) target it unchanged."
   },
   "use_cases": {
     "coding":      { "label": "Coding",              "best": "qwen2.5-coder-32b", "fast": "qwen2.5-coder-7b" },
-    "cad":         { "label": "CAD / Design",        "best": "qwen2.5-coder-32b", "alt":  "deepseek-coder-v2-16b" },
-    "day-to-day":  { "label": "Day-to-day",          "best": "llama3.3-70b", "balanced": "qwen2.5-14b", "fast": "llama3.2-3b" },
-    "know-it-all": { "label": "Know-it-all",         "best": "llama3.3-70b" },
-    "uncensored":  { "label": "Uncensored",          "best": "dolphin-llama3-8b", "alt": "dolphin-mixtral-8x7b" },
-    "assistant":   { "label": "Desktop assistant",   "best": "llama3.2-3b", "alt": "qwen2.5-7b" },
-    "vision":      { "label": "Image recognition",   "best": "qwen2.5-vl-32b", "light": "qwen2.5-vl-7b" },
+    "cad":         { "label": "CAD / Design",        "best": "qwen2.5-coder-32b", "alt":  "qwen2.5-coder-7b" },
+    "day-to-day":  { "label": "Day-to-day",          "best": "qwen3-32b", "balanced": "qwen2.5-14b", "fast": "gemma3-4b", "heavy": "llama3.3-70b" },
+    "know-it-all": { "label": "Know-it-all",         "best": "deepseek-r1-32b", "fast": "qwen3-8b", "heavy": "deepseek-r1-70b" },
+    "uncensored":  { "label": "Uncensored",          "best": "dolphin-mixtral-8x7b", "fast": "dolphin3-8b" },
+    "assistant":   { "label": "Desktop assistant",   "best": "qwen3-30b-a3b", "fast": "llama3.2-3b" },
+    "vision":      { "label": "Image recognition",   "best": "qwen2.5vl-32b", "light": "qwen2.5vl-7b" },
     "image":       { "label": "Image generation",    "best": "flux1-dev", "fast": "sdxl", "runtime": "comfyui" }
   },
   "models": {
     "qwen2.5-coder-32b": {
-      "name": "Qwen2.5-Coder-32B-Instruct", "runtime": "lmstudio",
-      "repo": "bartowski/Qwen2.5-Coder-32B-Instruct-GGUF", "quant": "Q4_K_M",
+      "name": "Qwen2.5-Coder-32B-Instruct", "runtime": "ollama",
+      "repo": "qwen2.5-coder:32b", "quant": "Q4_K_M",
       "size_gb": 19.9, "gpu": "max", "context": 16384, "vision": false,
-      "note": "Best coding/CAD model; fits fully in 32GB VRAM. Q6_K (26.9GB) also fits if you want higher quality."
+      "note": "Best coding/CAD model; fits fully in 32GB VRAM with large context headroom."
     },
     "qwen2.5-coder-7b": {
-      "name": "Qwen2.5-Coder-7B-Instruct", "runtime": "lmstudio",
-      "repo": "lmstudio-community/Qwen2.5-Coder-7B-Instruct-GGUF", "quant": "Q4_K_M",
-      "size_gb": 4.68, "gpu": "max", "context": 16384, "vision": false,
+      "name": "Qwen2.5-Coder-7B-Instruct", "runtime": "ollama",
+      "repo": "qwen2.5-coder:7b", "quant": "Q4_K_M",
+      "size_gb": 4.7, "gpu": "max", "context": 16384, "vision": false,
       "note": "Fast coder, ~100+ tok/s."
     },
-    "deepseek-coder-v2-16b": {
-      "name": "DeepSeek-Coder-V2-Lite-Instruct (16B MoE)", "runtime": "lmstudio",
-      "repo": "lmstudio-community/DeepSeek-Coder-V2-Lite-Instruct-GGUF", "quant": "Q4_K_M",
-      "size_gb": 10.4, "gpu": "max", "context": 16384, "vision": false,
-      "note": "16B-total MoE (~2.4B active) — fast. If output is garbage on an old LM Studio build, disable flash attention."
+    "qwen3-32b": {
+      "name": "Qwen3-32B (reasoning)", "runtime": "ollama",
+      "repo": "qwen3:32b", "quant": "Q4_K_M",
+      "size_gb": 20.0, "gpu": "max", "context": 16384, "vision": false,
+      "note": "Best day-to-day model that fits 32GB fully."
     },
-    "llama3.3-70b": {
-      "name": "Llama-3.3-70B-Instruct", "runtime": "lmstudio",
-      "repo": "lmstudio-community/Llama-3.3-70B-Instruct-GGUF", "quant": "Q4_K_M",
-      "size_gb": 42.5, "gpu": "0.8", "context": 8192, "vision": false, "needs_offload": true,
-      "note": "Q4_K_M is 42.5GB — EXCEEDS 32GB VRAM, so partial CPU offload (--gpu 0.8) to the 64GB DDR5. Realistic ~6-12 tok/s (the optimistic 15-20 needs a smaller quant)."
+    "deepseek-r1-32b": {
+      "name": "DeepSeek-R1 32B (distill, reasoning)", "runtime": "ollama",
+      "repo": "deepseek-r1:32b", "quant": "Q4_K_M",
+      "size_gb": 20.0, "gpu": "max", "context": 8192, "vision": false,
+      "note": "Strong reasoner/know-it-all; fits 32GB."
     },
     "qwen2.5-14b": {
-      "name": "Qwen2.5-14B-Instruct", "runtime": "lmstudio",
-      "repo": "lmstudio-community/Qwen2.5-14B-Instruct-GGUF", "quant": "Q4_K_M",
-      "size_gb": 8.99, "gpu": "max", "context": 16384, "vision": false,
+      "name": "Qwen2.5-14B-Instruct", "runtime": "ollama",
+      "repo": "qwen2.5:14b", "quant": "Q4_K_M",
+      "size_gb": 9.0, "gpu": "max", "context": 16384, "vision": false,
       "note": "Balanced day-to-day; fits fully with huge context headroom."
     },
-    "qwen2.5-7b": {
-      "name": "Qwen2.5-7B-Instruct", "runtime": "lmstudio",
-      "repo": "lmstudio-community/Qwen2.5-7B-Instruct-GGUF", "quant": "Q4_K_M",
-      "size_gb": 4.68, "gpu": "max", "context": 16384, "vision": false,
-      "note": "Fast general assistant alt, ~100 tok/s."
+    "qwen3-8b": {
+      "name": "Qwen3-8B (reasoning)", "runtime": "ollama",
+      "repo": "qwen3:8b", "quant": "Q4_K_M",
+      "size_gb": 5.2, "gpu": "max", "context": 16384, "vision": false,
+      "note": "Fast reasoner, ~100 tok/s."
     },
-    "llama3.2-3b": {
-      "name": "Llama-3.2-3B-Instruct", "runtime": "lmstudio",
-      "repo": "lmstudio-community/Llama-3.2-3B-Instruct-GGUF", "quant": "Q4_K_M",
-      "size_gb": 2.02, "gpu": "max", "context": 8192, "vision": false,
-      "note": "Lightweight always-on assistant; near-instant."
+    "gemma3-4b": {
+      "name": "Gemma 3 4B", "runtime": "ollama",
+      "repo": "gemma3:4b", "quant": "Q4_K_M",
+      "size_gb": 3.3, "gpu": "max", "context": 8192, "vision": false,
+      "note": "Lightweight always-on day-to-day; near-instant."
     },
-    "dolphin-llama3-8b": {
-      "name": "Dolphin 2.9 Llama-3 8B (uncensored)", "runtime": "lmstudio",
-      "repo": "bartowski/dolphin-2.9-llama3-8b-GGUF", "quant": "Q4_K_M",
-      "size_gb": 4.92, "gpu": "max", "context": 8192, "vision": false,
-      "note": "Uncensored; ChatML template. Maps the Ollama 'dolphin-llama3:8b' tag."
+    "llama3.3-70b": {
+      "name": "Llama-3.3-70B-Instruct", "runtime": "ollama",
+      "repo": "llama3.3:70b", "quant": "Q4_K_M",
+      "size_gb": 42.5, "gpu": "max", "context": 8192, "vision": false, "needs_offload": true,
+      "note": "Q4_K_M ~42.5GB EXCEEDS 32GB VRAM — Ollama auto-offloads the overflow layers to the 64GB DDR5. Realistic ~6-12 tok/s. A 'heavy' option, not the default."
+    },
+    "deepseek-r1-70b": {
+      "name": "DeepSeek-R1 70B (distill, reasoning)", "runtime": "ollama",
+      "repo": "deepseek-r1:70b", "quant": "Q4_K_M",
+      "size_gb": 43.0, "gpu": "max", "context": 8192, "vision": false, "needs_offload": true,
+      "note": "~43GB EXCEEDS 32GB VRAM — Ollama offloads overflow layers to system RAM (slow). 'heavy' know-it-all only."
     },
     "dolphin-mixtral-8x7b": {
-      "name": "Dolphin 2.7 Mixtral 8x7B (uncensored MoE)", "runtime": "lmstudio",
-      "repo": "TheBloke/dolphin-2.7-mixtral-8x7b-GGUF", "quant": "Q4_K_M",
-      "size_gb": 26.44, "gpu": "max", "context": 8192, "vision": false,
-      "note": "Right at the edge of 32GB VRAM — keep context modest or it spills to RAM. ChatML."
+      "name": "Dolphin 2.7 Mixtral 8x7B (uncensored MoE)", "runtime": "ollama",
+      "repo": "dolphin-mixtral:8x7b", "quant": "Q4_K_M",
+      "size_gb": 26.0, "gpu": "max", "context": 8192, "vision": false,
+      "note": "Right at the edge of 32GB VRAM — keep context modest or it spills to RAM."
     },
-    "qwen2.5-vl-32b": {
-      "name": "Qwen2.5-VL-32B-Instruct (vision)", "runtime": "lmstudio",
-      "repo": "lmstudio-community/Qwen2.5-VL-32B-Instruct-GGUF", "quant": "Q4_K_M",
-      "size_gb": 19.9, "gpu": "max", "context": 8192, "vision": true, "mmproj": true,
-      "note": "Vision WORKS in LM Studio (libmtmd). REQUIRES its mmproj-model-f16.gguf (1.38GB) in the same folder — lms get pulls it. Needs a current LM Studio CUDA runtime."
+    "dolphin3-8b": {
+      "name": "Dolphin 3.0 (Llama-3.1) 8B (uncensored)", "runtime": "ollama",
+      "repo": "dolphin3:8b", "quant": "Q4_K_M",
+      "size_gb": 4.9, "gpu": "max", "context": 8192, "vision": false,
+      "note": "Fast uncensored alt to the Mixtral MoE."
     },
-    "qwen2.5-vl-7b": {
-      "name": "Qwen2.5-VL-7B-Instruct (vision)", "runtime": "lmstudio",
-      "repo": "lmstudio-community/Qwen2.5-VL-7B-Instruct-GGUF", "quant": "Q4_K_M",
-      "size_gb": 5.37, "gpu": "max", "context": 8192, "vision": true, "mmproj": true,
-      "substitute_for": "llama3.2-vision:11b",
-      "note": "SUBSTITUTE for the requested llama3.2-vision:11b, which does NOT work in LM Studio — llama.cpp never implemented its 'mllama' architecture (loads fail with 'unknown model architecture: mllama'). Qwen2.5-VL-7B is the closest fully-supported lighter vision model."
+    "qwen3-30b-a3b": {
+      "name": "Qwen3-30B-A3B-Instruct (MoE)", "runtime": "ollama",
+      "repo": "qwen3:30b-a3b-instruct", "quant": "Q4_K_M",
+      "size_gb": 18.6, "gpu": "max", "context": 8192, "vision": false,
+      "note": "30B MoE (~3B active) — a capable desktop assistant that stays fast and fits 32GB."
+    },
+    "llama3.2-3b": {
+      "name": "Llama-3.2-3B-Instruct", "runtime": "ollama",
+      "repo": "llama3.2:3b", "quant": "Q4_K_M",
+      "size_gb": 2.0, "gpu": "max", "context": 8192, "vision": false,
+      "note": "Lightweight always-on assistant; near-instant."
+    },
+    "qwen2.5vl-32b": {
+      "name": "Qwen2.5-VL-32B-Instruct (vision)", "runtime": "ollama",
+      "repo": "qwen2.5vl:32b", "quant": "Q4_K_M",
+      "size_gb": 21.0, "gpu": "max", "context": 8192, "vision": true, "mmproj": true,
+      "note": "ollama pulls the vision projector with the tag; ~21GB fits 32GB."
+    },
+    "qwen2.5vl-7b": {
+      "name": "Qwen2.5-VL-7B-Instruct (vision)", "runtime": "ollama",
+      "repo": "qwen2.5vl:7b", "quant": "Q4_K_M",
+      "size_gb": 6.0, "gpu": "max", "context": 8192, "vision": true, "mmproj": true,
+      "note": "Lighter/faster vision option."
     },
     "flux1-dev": {
       "name": "FLUX.1-dev", "runtime": "comfyui", "gated": true,
-      "size_gb": 30, "note": "Best image gen. GATED on HF (accept license + token). Runs in ComfyUI, NOT LM Studio. Default install uses the no-token FLUX.1-schnell instead unless you provide HF_TOKEN."
+      "size_gb": 30, "note": "Best image gen. GATED on HF (accept license + token). Runs in ComfyUI, NOT Ollama. Default install uses the no-token FLUX.1-schnell instead unless you provide HF_TOKEN."
     },
     "sdxl": {
       "name": "Stable Diffusion XL base 1.0", "runtime": "comfyui", "gated": false,

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # One-command AI-mode setup — the front door. Detects this machine's hardware
-# TIER, then (with --install) installs LM Studio + ComfyUI and preloads the
+# TIER, then (with --install) installs Ollama + ComfyUI and preloads the
 # local models that fit the hardware. This is what makes "every build comes
 # pre-loaded with AIs that fit the hardware" actually happen on a real install.
 #
@@ -11,13 +11,13 @@
 # Usage:
 #   distro-ai-setup                 # detect tier (interactive), then print the plan
 #   distro-ai-setup --yes           # detect non-interactively (defaults), print the plan
-#   distro-ai-setup --install       # detect, then install LM Studio + preload the tier's models
+#   distro-ai-setup --install       # detect, then install Ollama + preload the tier's models
 #   distro-ai-setup --install --yes # fully non-interactive end-to-end (setup wizard / first boot)
 
 set -euo pipefail
 
 if [ "$(id -u)" -eq 0 ]; then
-    echo "Run as your normal user, not root (LM Studio + models are per-user)." >&2
+    echo "Run as your normal user, not root — your tier/model config is per-user; the Ollama installer elevates itself." >&2
     exit 1
 fi
 
@@ -64,7 +64,7 @@ IMAGE="$(cat "$CONFIG_HOME/image" 2>/dev/null || echo none)"
 if [ "$DO_INSTALL" != true ]; then
     echo ""
     c 36 "Plan for the '$TIER' tier (image: $IMAGE):"
-    echo "  1) $SETUP_DIR/01-install-lmstudio.sh        # LM Studio (headless)"
+    echo "  1) sudo $SETUP_DIR/01-install-ollama.sh       # Ollama (system service)"
     echo "  2) $SETUP_DIR/02-preload-models.sh          # preload the $TIER-tier LLMs (large download)"
     if [ "$IMAGE" != none ]; then
         echo "  3) $SETUP_DIR/03-install-comfyui.sh         # ComfyUI (image gen)"
@@ -78,8 +78,14 @@ fi
 
 # --- --install: run the setup scripts in order ---
 echo ""
-c 36 "== Step 2/3: install LM Studio + preload '$TIER' models =="
-"$SETUP_DIR/01-install-lmstudio.sh"
+c 36 "== Step 2/3: install Ollama + preload '$TIER' models =="
+# 01 needs root (creates the ollama system user + unit); re-exec it via sudo if
+# we're not already root, so `distro-ai-setup --install` as a normal user works.
+if [ "$(id -u)" -eq 0 ]; then
+    "$SETUP_DIR/01-install-ollama.sh"
+else
+    sudo "$SETUP_DIR/01-install-ollama.sh"
+fi
 "$SETUP_DIR/02-preload-models.sh"
 
 if [ "$IMAGE" != none ]; then

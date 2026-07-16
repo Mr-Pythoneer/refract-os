@@ -7,7 +7,7 @@ instead of improvised. Two tracks, because the hardware arrives in two pieces:
   installer + everything that does NOT need a GPU. This is where the entire
   `iso/` pipeline runs for the very first time.
 - **Track B — the 5090 build (~early August 2026):** everything GPU-dependent —
-  AI mode (LM Studio + ComfyUI), real driver/NVENC, real Proton-GE game launches.
+  AI mode (Ollama + ComfyUI), real driver/NVENC, real Proton-GE game launches.
 
 Both follow the project's **6-stage OS testing methodology**: (1) build
 succeeds → (2) ISO boots → (3) installer works → (4) installed system boots
@@ -136,26 +136,26 @@ the driver is either too old (<570) or not the `-open` variant — add the
 graphics-drivers PPA and reinstall (see the readiness doc). Confirm Secure Boot
 MOK enrollment if SB is on.
 
-### B2 — AI mode (LM Studio + ComfyUI — the biggest unverified piece)
+### B2 — AI mode (Ollama + ComfyUI — the biggest unverified piece)
 
-Run as your normal user (LM Studio is per-user). See `modes/ai/README.md`.
+Ollama installs as a system service; run distro-ai-setup as your normal user (config is per-user). See `modes/ai/README.md`.
 
 ```bash
 cd ../modes/ai
-./setup/01-install-lmstudio.sh        # headless llmster + lms CLI
+sudo ./setup/01-install-ollama.sh     # Ollama runtime + system service
 ./setup/02-preload-models.sh coding   # start with just the coding models (or omit arg for ALL ~150GB)
-distro-ai-model use coding            # loads Qwen2.5-Coder-32B, server on :8080
+distro-ai-model use coding            # loads qwen2.5-coder:32b, server on :11434
 distro-ai-ask "write a bubble sort in rust"   # confirm the thin client answers
 ```
 **Pass / tuning:** `nvidia-smi` shows VRAM in use; `distro-ai-ask` returns a
-reply on `localhost:8080`. For **Llama-3.3-70B** (exceeds 32 GB) tune the offload
-ratio: `lms load lmstudio-community/Llama-3.3-70B-Instruct-GGUF --gpu 0.8
+reply on `localhost:11434`. For a **70B** model (exceeds 32 GB) tune the offload
+ratio: Ollama auto-offloads to CPU when a model exceeds VRAM; check the split with `ollama ps`
 --estimate-only` first to preview the fit, expect ~6–12 tok/s. Then the rest:
 ```bash
-distro-ai-model use vision            # qwen2.5-vl:32b — attach an image, confirm it sees it (needs current LM Studio CUDA runtime)
+distro-ai-model use vision            # qwen2.5vl:32b — attach an image, confirm it sees it
 # auto-start the server on login:
-mkdir -p ~/.config/systemd/user && cp systemd/lmstudio.service ~/.config/systemd/user/
-systemctl --user daemon-reload && systemctl --user enable --now lmstudio.service
+sudo cp systemd/ollama.service /etc/systemd/system/   # (01-install-ollama.sh does this for you)
+sudo systemctl daemon-reload && sudo systemctl enable --now ollama.service
 # image generation (separate runtime):
 ./setup/03-install-comfyui.sh && ./setup/04-download-image-models.sh
 distro-ai-image                       # ComfyUI web UI on :8188 — render a test image with FLUX.1-schnell / SDXL
@@ -197,7 +197,7 @@ modes/normal/setup/03-apply-theme.sh
 modes/ai/bin/distro-ai-bind-hotkey        # Super+Space overlay
 modes/ai/integrations/install.sh          # Nautilus "ask AI about this file"
 ```
-**Pass:** WhiteSur theme applies; the hotkey overlay queries `localhost:8080`
+**Pass:** WhiteSur theme applies; the hotkey overlay queries `localhost:11434`
 and shows a reply; the Nautilus action appears.
 
 ---

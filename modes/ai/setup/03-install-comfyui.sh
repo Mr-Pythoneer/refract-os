@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Installs ComfyUI for AI mode's IMAGE GENERATION (FLUX / SDXL). This is a
-# SEPARATE runtime from LM Studio — LM Studio is an LLM/text+vision server and
+# SEPARATE runtime from Ollama — Ollama is an LLM/text+vision server and
 # cannot run diffusion models. ComfyUI serves its own web UI + API on port 8188.
 #
 # Installs the PyTorch CUDA wheel for the RTX 5090: Blackwell (sm_120) REQUIRES

@@ -17,7 +17,7 @@ build (`TODO.md` §4: "verify cpupower/powerprofilesctl calls on a real
 | Tier detection on GPU-less, DMI-less, low-RAM hardware | `modes/ai/bin/distro-ai-detect-tier --print` | tier `cpu`; "no dedicated GPU"; the **<4GB RAM warning fires for real**; form factor `desktop` — Pis have **no `/sys/class/dmi`** (ARM uses device-tree), so this exercises the chassis-read fallback → battery check → desktop path on real hardware |
 | modectl on a real non-Mac Linux | `sudo ./modes/modectl/distro-modectl switch normal --yes` then `status` | governor/power-profile calls run for real (`cpupower` / `powerprofilesctl` exist on arm64 Ubuntu); service enable/disable doesn't fight stock defaults — **this closes a live TODO item** |
 | Server-mode services on arm64 | server bundle pieces (sshd key-only config, Docker, Netdata all ship arm64 builds) | `verify-all.sh` server section |
-| systemd unit syntax | `systemd-analyze verify modes/ai/systemd/*.service` | parses clean (the units won't *run* here — no LM Studio — but syntax/lint is real) |
+| systemd unit syntax | `systemd-analyze verify modes/ai/systemd/*.service` | parses clean (the units won't *run* here — no Ollama — but syntax/lint is real) |
 
 ## What this box CANNOT do (don't try)
 
@@ -25,7 +25,7 @@ build (`TODO.md` §4: "verify cpupower/powerprofilesctl calls on a real
   a Pi is arm64 and doesn't boot standard ISOs anyway (Pi firmware boot chain,
   not UEFI ISO). Porting the distro to Pi is a separate project, not a test.
 - **Build the ISO.** Wrong architecture and nowhere near enough RAM/disk.
-- **Run local AI models.** LM Studio ships no Linux arm64 build (x64 only —
+- **Run local AI models.** Ollama's arm64 build exists, but the tier catalogs + models target x86_64/GPU (—
   re-verify when the Pi arrives, but true as of 2026-07), and 1–2GB RAM can't
   hold even a 1B Q4 model plus the OS without swap-thrashing. The AI-mode value
   here is exercising the *detection/selection logic*, not inference.

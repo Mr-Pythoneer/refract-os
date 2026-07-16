@@ -1,159 +1,233 @@
 #!/usr/bin/env bash
 #
-# AI-mode model control surface (LM Studio). Replaces the legacy
-# distro-ai-preset. Loads models by use-case from config/models.catalog.json
-# and manages the OpenAI-compatible server on port 8080 (so the existing
-# distro-ai-ask / overlay / nautilus clients work unchanged).
+# AI-mode model control surface (Ollama). Replaces the legacy distro-ai-preset.
+# Maps the use-case menu to concrete Ollama tags (the canonical model table
+# below) and pulls/loads them via the Ollama daemon, which serves the
+# OpenAI-compatible API on port 11434 (so the existing distro-ai-ask / overlay /
+# nautilus clients work unchanged).
 #
-# Run as the desktop user (LM Studio is per-user in ~/.lmstudio), NOT via sudo.
+# Ollama's server is a SYSTEM service (the 'ollama' systemd unit running as the
+# 'ollama' user), NOT per-user like LM Studio was. So the model CLI/API calls
+# here work as any user against 127.0.0.1:11434, and the 'server' subcommands
+# are thin wrappers over `systemctl {start,stop,status} ollama` (start/stop need
+# sudo). The old per-tier models.catalog.*.json files were LM Studio catalogs
+# (HuggingFace GGUF repos) and are superseded by the table below.
 #
 # Usage:
 #   distro-ai-model list                       -- show use-cases + models
-#   distro-ai-model use <use-case> [variant]   -- load the best (or named) model for a use-case
-#   distro-ai-model load <catalog-id>          -- load a specific model
-#   distro-ai-model server start|stop|status   -- control the :8080 server
-#   distro-ai-model status                     -- what's loaded (lms ps)
+#   distro-ai-model use <use-case> [variant]   -- pull+load the best (or named) model for a use-case
+#   distro-ai-model load <ollama-tag>          -- pull+load a specific Ollama tag
+#   distro-ai-model server start|stop|status   -- control the ollama systemd service
+#   distro-ai-model status                     -- what's loaded (ollama ps)
 #   distro-ai-model unload                     -- unload all models
 #
-# e.g.  distro-ai-model use coding       (-> Qwen2.5-Coder-32B)
-#       distro-ai-model use day-to-day fast   (-> Llama-3.2-3B)
+# e.g.  distro-ai-model use coding       (-> qwen2.5-coder:32b on a 5090, :7b on a laptop)
+#       distro-ai-model use day-to-day alt   (-> gemma3:4b)
 
 set -euo pipefail
 
-# Resolve through the /usr/local/bin symlink (build.sh installs these as
-# symlinks) so paths relative to the real script dir resolve correctly.
-SELF="${BASH_SOURCE[0]}"; [ -L "$SELF" ] && SELF="$(readlink "$SELF")"
-SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd)"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}/refract-ai"
 # Active AI-model tier (cpu/entry/mid/high/max/ultra) and laptop power profile
 # (efficiency/balance/power). distro-ai-detect-tier writes these into
 # $CONFIG_HOME; override via env. Default tier=max (the 5090 build), balance.
 TIER="${REFRACT_AI_TIER:-$(cat "$CONFIG_HOME/tier" 2>/dev/null || echo max)}"
 PROFILE="${REFRACT_AI_PROFILE:-$(cat "$CONFIG_HOME/profile" 2>/dev/null || echo balance)}"
-# Effective (pooled) VRAM in MiB, written by distro-ai-detect-tier. Used to gate
-# models whose min_vram_gb exceeds what this box has (mainly the ultra tier's
-# 96GB-class entries). 0/empty = unknown -> no gating (back-compat).
+# Effective (pooled) VRAM in MiB, written by distro-ai-detect-tier. Used to warn
+# when a tag wants more VRAM than this box has, and to skip a too-big default
+# variant. 0/empty = unknown -> no gating (back-compat).
 VRAM_MIB="${REFRACT_VRAM_MIB:-$(cat "$CONFIG_HOME/vram_mib" 2>/dev/null || echo 0)}"
 [[ "$VRAM_MIB" =~ ^[0-9]+$ ]] || VRAM_MIB=0
-CATALOG="$SCRIPT_DIR/../config/models.catalog.$TIER.json"
-[ -f "$CATALOG" ] || CATALOG="$SCRIPT_DIR/../config/models.catalog.max.json"
-PORT=8080
-LMS="$HOME/.lmstudio/bin/lms"
-[ -x "$LMS" ] || LMS="$(command -v lms 2>/dev/null || echo "$HOME/.lmstudio/bin/lms")"
+
+# Ollama's server. Port 11434 (was LM Studio's 8080). OLLAMA_HOST lets a
+# remote/relocated daemon be targeted; default localhost. /api/* is Ollama's
+# native REST, /v1 is the OpenAI-compatible surface the thin clients use.
+BASE="${OLLAMA_HOST:-127.0.0.1:11434}"
+case "$BASE" in http://*|https://*) ;; *) BASE="http://$BASE" ;; esac
 
 die() { echo "$1" >&2; exit 1; }
-[ -f "$CATALOG" ] || die "Catalog not found: $CATALOG"
-command -v python3 >/dev/null 2>&1 || die "python3 required to read the catalog."
+command -v python3 >/dev/null 2>&1 || die "python3 required to resolve the model table."
+command -v curl    >/dev/null 2>&1 || die "curl required to talk to the Ollama API."
 
-need_lms() { [ -x "$LMS" ] || die "lms CLI not found ($LMS) — run modes/ai/setup/01-install-lmstudio.sh first."; }
+need_ollama() { command -v ollama >/dev/null 2>&1 || die "ollama CLI not found — run modes/ai/setup/01-install-ollama.sh first."; }
 
-# catalog_query <python-expr-printing-output> — runs a python snippet with the
-# catalog loaded as `cat`. Args after the snippet are sys.argv[1:].
-catalog_py() { CATALOG="$CATALOG" PROFILE="$PROFILE" VRAM_MIB="$VRAM_MIB" python3 -c "$1" "${@:2}"; }
+# Canonical model table (exact ollama.com tags). Low tier = X1-class
+# shared-memory laptop (3-8B); high tier = RTX 5090 / 32GB-class dGPU. Each
+# use-case carries a "high" and a "low" tag, plus optional lighter alternates
+# ("cpu" = sub-4B for CPU/8GB boxes, "alt"/"light" = named extras). Pin exact
+# tags, never ':latest', for reproducibility. Image gen stays in ComfyUI —
+# Ollama has no diffusion backend on Linux.
+read -r -d '' MODEL_TABLE <<'JSON' || true
+{
+  "use_cases": {
+    "coding":      { "label": "Coding",            "high": "qwen2.5-coder:32b",      "low": "qwen2.5-coder:7b", "cpu": "qwen2.5-coder:3b" },
+    "cad":         { "label": "CAD / Design",      "high": "qwen2.5-coder:32b",      "low": "qwen2.5-coder:7b", "cpu": "qwen2.5-coder:3b" },
+    "day-to-day":  { "label": "Day-to-day",        "high": "qwen3:32b",              "low": "llama3.1:8b",      "alt": "gemma3:4b", "cpu": "gemma3:4b" },
+    "know-it-all": { "label": "Know-it-all",       "high": "deepseek-r1:32b",        "low": "qwen3:8b",         "alt": "deepseek-r1:8b" },
+    "uncensored":  { "label": "Uncensored",        "high": "dolphin-mixtral:8x7b",   "low": "dolphin3:8b" },
+    "assistant":   { "label": "Desktop assistant", "high": "qwen3:30b-a3b-instruct", "low": "llama3.1:8b" },
+    "vision":      { "label": "Image recognition", "high": "qwen2.5vl:32b",          "low": "qwen2.5vl:7b",     "light": "moondream:1.8b", "cpu": "moondream:1.8b" },
+    "image":       { "label": "Image generation",  "runtime": "comfyui",             "best": "comfyui" }
+  },
+  "models": {
+    "qwen2.5-coder:32b":      { "min_vram_gb": 20, "note": "Best coding/CAD; fits fully in 32GB VRAM." },
+    "qwen2.5-coder:7b":       { "min_vram_gb": 6,  "note": "Fast coder for laptop-class GPUs." },
+    "qwen2.5-coder:3b":       { "min_vram_gb": 3,  "note": "Tiny coder for ~8GB / CPU-only boxes." },
+    "qwen3:32b":              { "min_vram_gb": 20 },
+    "llama3.1:8b":            { "min_vram_gb": 6 },
+    "gemma3:4b":              { "min_vram_gb": 4,  "note": "Lightweight day-to-day for small/CPU boxes." },
+    "deepseek-r1:32b":        { "min_vram_gb": 20, "note": "Reasoning model." },
+    "qwen3:8b":               { "min_vram_gb": 6 },
+    "deepseek-r1:8b":         { "min_vram_gb": 6,  "note": "Reasoning (8B distill)." },
+    "dolphin-mixtral:8x7b":   { "min_vram_gb": 28, "note": "Uncensored MoE; at the edge of 32GB VRAM." },
+    "dolphin3:8b":            { "min_vram_gb": 6,  "note": "Uncensored." },
+    "qwen3:30b-a3b-instruct": { "min_vram_gb": 20, "note": "MoE assistant (~3B active)." },
+    "qwen2.5vl:32b":          { "min_vram_gb": 21, "vision": true },
+    "qwen2.5vl:7b":           { "min_vram_gb": 7,  "vision": true },
+    "moondream:1.8b":         { "min_vram_gb": 2,  "vision": true, "note": "Light vision fallback." },
+    "comfyui":                { "runtime": "comfyui", "note": "Image generation runs in ComfyUI, not Ollama." }
+  }
+}
+JSON
 
-resolve_usecase_model() {  # <usecase> [variant] -> prints catalog id
-    catalog_py '
+# table_py <python-expr-printing-output> — runs a python snippet with the model
+# table available as os.environ["TABLE"] (JSON). Args after the snippet are
+# sys.argv[1:]; TIER/VRAM_MIB/PROFILE are exported for selection.
+table_py() { TABLE="$MODEL_TABLE" TIER="$TIER" VRAM_MIB="$VRAM_MIB" PROFILE="$PROFILE" python3 -c "$1" "${@:2}"; }
+
+resolve_usecase_model() {  # <usecase> [variant] -> prints ollama tag
+    table_py '
 import json, os, sys
-cat = json.load(open(os.environ["CATALOG"]))
-models = cat["models"]
-uc_name = sys.argv[1]; variant = sys.argv[2] if len(sys.argv) > 2 else None
-uc = cat["use_cases"].get(uc_name)
-if not uc: print(f"error: unknown use-case: {uc_name}", file=sys.stderr); sys.exit(2)
+t = json.loads(os.environ["TABLE"])
+ucs = t["use_cases"]; models = t["models"]
+name = sys.argv[1]
+variant = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None
+uc = ucs.get(name)
+if not uc:
+    print("error: unknown use-case: {}".format(name), file=sys.stderr); sys.exit(2)
 vram = int(os.environ.get("VRAM_MIB", "0") or 0)
-def fits(mid):
-    mv = models.get(mid, {}).get("min_vram_gb")
+skip = ("label", "runtime")
+def fits(tag):
+    mv = models.get(tag, {}).get("min_vram_gb")
     if not mv or vram <= 0: return True   # no requirement, or VRAM unknown -> allow
     return mv * 1024 <= vram
 if variant:
-    # Explicit variant: honor it exactly (the user chose), no fit-filtering.
-    mid = uc.get(variant)
-    if not mid:
-        have = [k for k in uc if k not in ("label", "runtime")]
-        print("error: use-case {} has no variant {} (have: {})".format(uc_name, variant, have), file=sys.stderr); sys.exit(2)
-else:
-    # No explicit variant: order by laptop power profile, then skip any whose
-    # min_vram_gb does not fit the detected VRAM (mainly ultra 96GB-class models).
-    prof = os.environ.get("PROFILE", "balance")
-    order = {"power": ["best"], "balance": ["balanced", "best"],
-             "efficiency": ["fast", "balanced", "best"]}.get(prof, ["balanced", "best"])
-    keys = [k for k in order if uc.get(k)]
-    for k in uc:
-        if k in ("label", "runtime") or k in keys: continue
-        keys.append(k)
-    cands = [uc[k] for k in keys]
-    mid = next((m for m in cands if fits(m)), None)
-    if mid is None:   # nothing fits -> smallest requirement, load_model will warn
-        mid = min(cands, key=lambda m: models.get(m, {}).get("min_vram_gb") or 0) if cands else None
-print(mid if mid else "")   # empty (not "None") so the caller guard catches it
+    # Explicit variant: honor it exactly. Accept the legacy variant names the
+    # old catalogs used (best/balanced/fast) as aliases so docs/tests still work.
+    alias = {"best": "high", "balanced": "low", "fast": "cpu"}
+    key = variant if variant in uc else alias.get(variant)
+    tag = uc.get(key) if key else None
+    if not tag:
+        have = [k for k in uc if k not in skip]
+        print("error: use-case {} has no variant {} (have: {})".format(name, variant, have), file=sys.stderr); sys.exit(2)
+    print(tag); sys.exit(0)
+# No explicit variant: pick low-vs-high by the detected tier. high/max/ultra ->
+# the 32GB-class "high" tag; cpu -> the sub-4B "cpu" tag if present; everything
+# else (entry/mid) -> the 7-8B "low" tag. Then skip any candidate that does not
+# fit the detected VRAM (mainly a too-big "high" on a smaller box).
+tier = os.environ.get("TIER", "max")
+if tier in ("high", "max", "ultra"): base = ["high", "low", "cpu"]
+elif tier == "cpu":                  base = ["cpu", "low", "high"]
+else:                                base = ["low", "cpu", "high"]
+order = base + [k for k in uc if k not in skip and k not in base]
+cands = [uc[k] for k in order if k in uc]
+tag = next((c for c in cands if fits(c)), None)
+if tag is None:   # nothing fits -> first candidate, load_model will warn
+    tag = cands[0] if cands else None
+print(tag if tag else "")   # empty (not "None") so the caller guard catches it
 ' "$@"
 }
 
-model_field() {  # <catalog-id> <field> -> prints field (or empty)
-    catalog_py '
+model_field() {  # <ollama-tag> <field> -> prints field (or empty)
+    table_py '
 import json, os, sys
-cat = json.load(open(os.environ["CATALOG"]))
-m = cat["models"].get(sys.argv[1], {})
+t = json.loads(os.environ["TABLE"])
+m = t["models"].get(sys.argv[1], {})
 print(m.get(sys.argv[2], ""))
 ' "$@"
 }
 
-ensure_server() {
-    need_lms
-    "$LMS" daemon up >/dev/null 2>&1 || true
-    # `lms server start` is idempotent (it reuses the running server / last
-    # port), so just (re)assert it on 8080 rather than parsing status text.
-    "$LMS" server start --port "$PORT" >/dev/null 2>&1 || die "Failed to start the LM Studio server on port $PORT."
+server_up()      { curl -sf --max-time 3 "$BASE/api/tags" >/dev/null 2>&1; }
+model_present()  { ollama list 2>/dev/null | awk 'NR>1{print $1}' | grep -Fxq "$1"; }
+loaded_models()  { ollama ps   2>/dev/null | awk 'NR>1{print $1}'; }
+
+unload_all() {  # stop every resident model so only the next one occupies VRAM
+    local m
+    while IFS= read -r m; do
+        [ -n "$m" ] || continue
+        ollama stop "$m" >/dev/null 2>&1 || true
+    done < <(loaded_models)
 }
 
-load_model() {  # <catalog-id>
-    local id="$1"
-    local repo runtime gpu ctx
-    repo="$(model_field "$id" repo)"
-    runtime="$(model_field "$id" runtime)"
-    [ -n "$repo" ] || die "Unknown catalog id: $id"
-    if [ "$runtime" = "comfyui" ]; then
-        die "'$id' is an image-generation model (ComfyUI), not an LM Studio model. Use: distro-ai-image"
-    fi
-    gpu="$(model_field "$id" gpu)"; [ -n "$gpu" ] || gpu="max"
-    ctx="$(model_field "$id" context)"; [ -n "$ctx" ] || ctx="8192"
+ensure_server() {
+    need_ollama
+    server_up && return 0
+    # Ollama's API is served by the systemd 'ollama' service; (re)start it. This
+    # needs root, so try sudo (fall back to a plain start in case we already are).
+    sudo systemctl start ollama >/dev/null 2>&1 || systemctl start ollama >/dev/null 2>&1 || true
+    local _
+    for _ in 1 2 3 4 5; do server_up && return 0; sleep 1; done
+    die "Ollama API not reachable on $BASE — start it: sudo systemctl start ollama  (status: systemctl status ollama)"
+}
 
-    # Fit check: warn (don't block) if this model wants more VRAM than detected.
+load_model() {  # <ollama-tag>
+    local id="$1"
+    local runtime note minv resp
+    runtime="$(model_field "$id" runtime)"
+    if [ "$runtime" = "comfyui" ]; then
+        die "'$id' is an image-generation model (ComfyUI), not an Ollama model. Use: distro-ai-image"
+    fi
+
+    # Fit check: warn (don't block) if this tag wants more VRAM than detected.
     # Tolerate a float min_vram_gb (bash arithmetic is integer-only) by dropping
     # any fractional part before comparing.
-    local minv; minv="$(model_field "$id" min_vram_gb)"; minv="${minv%%.*}"
+    minv="$(model_field "$id" min_vram_gb)"; minv="${minv%%.*}"
     if [[ "$minv" =~ ^[0-9]+$ ]] && [ "$VRAM_MIB" -gt 0 ] && [ "$(( minv * 1024 ))" -gt "$VRAM_MIB" ]; then
-        echo "WARNING: $id wants ~${minv}GB VRAM but only ~$(( VRAM_MIB / 1024 ))GB detected — it may OOM or spill to system RAM (slow). A lighter variant may fit better." >&2
+        echo "WARNING: $id wants ~${minv}GB VRAM but only ~$(( VRAM_MIB / 1024 ))GB detected — Ollama will spill to system RAM (slow). A lighter variant may fit better." >&2
     fi
 
     ensure_server
-    echo "Loading $id ($repo, --gpu $gpu, ctx $ctx) ..."
-    "$LMS" unload --all >/dev/null 2>&1 || true   # one model at a time (VRAM)
-    "$LMS" load "$repo" --gpu "$gpu" --context-length "$ctx" --identifier "$id" --yes 2>/dev/null \
-        || "$LMS" load "$repo" --gpu "$gpu" --context-length "$ctx" --identifier "$id" \
-        || die "Failed to load $id. Is it downloaded? (modes/ai/setup/02-preload-models.sh $id). Check: $LMS ls"
-    local note; note="$(model_field "$id" note)"
+    # Ensure the model is present. Pull only when missing so offline mode still
+    # works for already-downloaded tags.
+    if ! model_present "$id"; then
+        echo "Pulling $id (first use) ..."
+        ollama pull "$id" || die "Failed to pull $id. Check the tag/network (or preload: modes/ai/setup/02-preload-models.sh $id). Installed: ollama list"
+    fi
+
+    echo "Loading $id ..."
+    unload_all   # one model at a time (VRAM)
+    # Load into memory without a prompt and pin it resident (keep_alive:-1), the
+    # Ollama equivalent of LM Studio's persistent `lms load`.
+    resp="$(curl -sS --max-time 300 -X POST "$BASE/api/generate" \
+        -H 'Content-Type: application/json' \
+        -d "{\"model\":\"$id\",\"keep_alive\":-1}" 2>&1)" \
+        || die "Failed to load $id — is Ollama running? (systemctl status ollama). Check: ollama ps"
+    case "$resp" in *'"error"'*) die "Ollama could not load $id: $resp" ;; esac
+
+    note="$(model_field "$id" note)"
     [ -n "$note" ] && echo "Note: $note"
-    echo "Loaded. API: http://127.0.0.1:$PORT/v1 (model id: $id)"
+    echo "Loaded. API: $BASE/v1 (model: $id)"
 }
 
 case "${1:-}" in
     list)
-        echo "Active tier: $TIER   profile: $PROFILE$([ "$VRAM_MIB" -gt 0 ] && echo "   VRAM: ~$(( VRAM_MIB / 1024 ))GB")   (catalog: $(basename "$CATALOG"))"
+        echo "Active tier: $TIER   profile: $PROFILE$([ "$VRAM_MIB" -gt 0 ] && echo "   VRAM: ~$(( VRAM_MIB / 1024 ))GB")"
         echo "Tiers: cpu entry mid high max ultra  ·  set via distro-ai-detect-tier or \$REFRACT_AI_TIER"
         echo ""
-        catalog_py '
+        table_py '
 import json, os
-cat = json.load(open(os.environ["CATALOG"]))
-print("Use-cases:")
-for name, uc in cat["use_cases"].items():
+t = json.loads(os.environ["TABLE"])
+print("Use-cases (high = 32GB+ dGPU, low = laptop/shared VRAM; picked by tier):")
+for name, uc in t["use_cases"].items():
     variants = ", ".join("{}={}".format(k, v) for k, v in uc.items() if k not in ("label", "runtime"))
     rt = " [ComfyUI]" if uc.get("runtime") == "comfyui" else ""
     print("  {:12s} {}{}: {}".format(name, uc.get("label", ""), rt, variants))
 print("")
-print("Models:")
-for mid, m in cat["models"].items():
+print("Models (Ollama tags):")
+for mid, m in t["models"].items():
     tag = " (vision)" if m.get("vision") else (" (image/ComfyUI)" if m.get("runtime") == "comfyui" else "")
-    print("  {:24s} {} GB{}".format(mid, m.get("size_gb", "?"), tag))
+    mv = m.get("min_vram_gb")
+    sz = " ~{}GB".format(mv) if mv else ""
+    print("  {:26s}{}{}".format(mid, sz, tag))
 '
         ;;
     use)
@@ -163,38 +237,39 @@ for mid, m in cat["models"].items():
         [ -n "$mid" ] || die "No model mapped for use-case '$2'."
         # Image use-case routes to ComfyUI.
         if [ "$(model_field "$mid" runtime)" = "comfyui" ]; then
-            echo "Use-case '$2' is image generation ($mid) — that runs in ComfyUI, not LM Studio."
+            echo "Use-case '$2' is image generation ($mid) — that runs in ComfyUI, not Ollama."
             echo "Start it with: distro-ai-image"
             exit 0
         fi
         load_model "$mid"
         ;;
     load)
-        [ $# -ge 2 ] || die "Usage: $(basename "$0") load <catalog-id>"
+        [ $# -ge 2 ] || die "Usage: $(basename "$0") load <ollama-tag>"
         load_model "$2"
         ;;
     server)
-        need_lms
+        need_ollama
         case "${2:-status}" in
-            start) ensure_server; "$LMS" server status ;;
-            stop)  "$LMS" server stop ;;
-            status) "$LMS" server status ;;
+            start)  sudo systemctl start ollama || die "Failed to start ollama (need sudo?). Try: sudo systemctl start ollama"; systemctl is-active ollama ;;
+            stop)   sudo systemctl stop  ollama || die "Failed to stop ollama (need sudo?). Try: sudo systemctl stop ollama" ;;
+            status) systemctl status ollama --no-pager 2>/dev/null || systemctl is-active ollama || true ;;
             *) die "Usage: $(basename "$0") server start|stop|status" ;;
         esac
         ;;
     status)
-        need_lms
-        echo "Active tier: $TIER   profile: $PROFILE$([ "$VRAM_MIB" -gt 0 ] && echo "   VRAM: ~$(( VRAM_MIB / 1024 ))GB")   (catalog: $(basename "$CATALOG"))"
-        "$LMS" server status 2>/dev/null || true
+        need_ollama
+        echo "Active tier: $TIER   profile: $PROFILE$([ "$VRAM_MIB" -gt 0 ] && echo "   VRAM: ~$(( VRAM_MIB / 1024 ))GB")"
+        command -v systemctl >/dev/null 2>&1 && echo "Server (systemd ollama): $(systemctl is-active ollama 2>/dev/null || echo unknown)"
+        if server_up; then echo "API: $BASE/v1 (reachable)"; else echo "API: $BASE/v1 (NOT reachable)"; fi
         echo "--- loaded models ---"
-        "$LMS" ps 2>/dev/null || echo "(none / lms not running)"
+        ollama ps 2>/dev/null || echo "(none / ollama not running)"
         ;;
     unload)
-        need_lms
-        "$LMS" unload --all && echo "Unloaded all models."
+        need_ollama
+        unload_all && echo "Unloaded all models."
         ;;
     *)
-        echo "Usage: $(basename "$0") list | use <use-case> [variant] | load <id> | server start|stop|status | status | unload" >&2
+        echo "Usage: $(basename "$0") list | use <use-case> [variant] | load <ollama-tag> | server start|stop|status | status | unload" >&2
         exit 1
         ;;
 esac

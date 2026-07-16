@@ -34,5 +34,5 @@ sudo npm install -g opencode-ai
 VERSION=$(opencode --version)
 echo -e "\033[32m\nOpenCode installed: $VERSION\033[0m"
 echo "Next: load a coding model and start the server:  distro-ai-model use coding"
-echo "Then copy config/opencode.lmstudio.json into your project as opencode.json before launching 'opencode'."
+echo "Then copy config/opencode.ollama.json into your project as opencode.json before launching 'opencode'."
 echo "(For Claude cloud instead: distro-ai-cloud-toggle enable — needs your ANTHROPIC_API_KEY.)"

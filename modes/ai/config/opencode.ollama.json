@@ -1,0 +1,19 @@
+{
+  "$comment": "Points OpenCode at the local Ollama OpenAI-compatible server (port 11434). Load a coding model first with: distro-ai-model use coding. The model ids below are exact Ollama tags -- they must match a model Ollama has installed (ollama list / GET /api/tags). Ollama's OpenAI endpoint requires an api key but ignores it, so any non-empty string works; we pass the literal 'ollama'. Copy this to ./opencode.json in your project, or use distro-ai-cloud-toggle to switch between this and Claude (cloud).",
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama (local, port 11434)",
+      "options": {
+        "baseURL": "http://127.0.0.1:11434/v1",
+        "apiKey": "ollama"
+      },
+      "models": {
+        "qwen2.5-coder:32b": { "name": "Qwen2.5-Coder-32B (Ollama)" },
+        "qwen2.5-coder:7b": { "name": "Qwen2.5-Coder-7B (Ollama)" },
+        "qwen2.5-coder:3b": { "name": "Qwen2.5-Coder-3B (Ollama, 8GB fallback)" }
+      }
+    }
+  }
+}

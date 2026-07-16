@@ -199,7 +199,7 @@
         <p>Install the GPU driver, then set up local AI — <code>distro-ai-setup</code> detects your GPU, picks the tier that fits, and preloads exactly those models (nothing your card can't run).</p>
         <pre class="code"><span class="p">$</span> sudo ./drivers/install-nvidia.sh   <span class="c"># RTX/Blackwell -open module + Secure Boot MOK</span>
   <span class="c"># AMD instead: sudo ./drivers/install-amd-microcode.sh</span>
-<span class="p">$</span> distro-ai-setup --install          <span class="c"># detect tier → install LM Studio/ComfyUI → preload fitting models</span></pre>
+<span class="p">$</span> distro-ai-setup --install          <span class="c"># detect tier → install Ollama/ComfyUI → preload fitting models</span></pre>
         <p>Switching into AI mode the first time also auto-detects your tier. Not sure what you'll get? <a href="index.html#download">Preview it in the configurator</a> — pick your GPU and it shows the exact models.</p>
       </div>
     </div>
@@ -209,7 +209,7 @@
       <div class="body">
         <h3>Verify it works</h3>
         <pre class="code"><span class="p">$</span> distro-ai-model list      <span class="c"># your tier's model menu</span>
-<span class="p">$</span> distro-ai-model status    <span class="c"># what's loaded + the :8080 server</span>
+<span class="p">$</span> distro-ai-model status    <span class="c"># what's loaded + the :11434 server</span>
 <span class="p">$</span> distro-ai-ask "write a haiku about linux"</pre>
         <p>That's it — local, private AI on your own hardware, plus a distro that retunes itself per task.</p>
       </div>
@@ -225,7 +225,7 @@
 
 <footer>
   <div class="wrap">
-    Built on Ubuntu 24.04 LTS · live-build · Calamares · <a href="https://lmstudio.ai">LM Studio</a> + <a href="https://github.com/comfyanonymous/ComfyUI">ComfyUI</a> for local AI ·
+    Built on Ubuntu 24.04 LTS · live-build · Calamares · <a href="https://ollama.com">Ollama</a> + <a href="https://github.com/comfyanonymous/ComfyUI">ComfyUI</a> for local AI ·
     <a href="index.html">Home</a>
   </div>
 </footer>

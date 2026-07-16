@@ -1,0 +1,34 @@
+# Refract OS — Ollama local-LLM daemon (OpenAI-compatible API on port 11434).
+#
+# This is a SYSTEM service (Ollama runs as the dedicated 'ollama' system user,
+# home /usr/share/ollama). 01-install-ollama.sh installs this to
+# /etc/systemd/system/ollama.service and enables it.
+#
+# Per-machine tuning is injected as a DROP-IN, never by editing this file:
+#   sudo systemctl edit ollama.service     # add Environment= lines under [Service]
+# distro-ai-detect-tier writes such a drop-in to turn on the Arc iGPU path
+# (Environment="OLLAMA_VULKAN=1") only when it has confirmed a real Vulkan
+# device (not llvmpipe). The default here leaves Vulkan OFF so a machine with a
+# too-old Mesa doesn't try to offload to a software renderer.
+#
+# API: 127.0.0.1:11434 (localhost only). Native REST at /api/*, OpenAI-compatible
+# at /v1/* — the api_key is required-but-ignored, pass the literal "ollama".
+# OLLAMA_MODELS defaults to /usr/share/ollama/.ollama/models; if relocated it
+# MUST be chown ollama:ollama or the service can't read it.
+
+[Unit]
+Description=Refract OS — Ollama LLM server (port 11434)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/ollama serve
+User=ollama
+Group=ollama
+Restart=always
+RestartSec=3
+Environment="OLLAMA_HOST=127.0.0.1:11434"
+Environment="OLLAMA_KEEP_ALIVE=5m"
+
+[Install]
+WantedBy=multi-user.target

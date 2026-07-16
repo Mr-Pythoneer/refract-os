@@ -23,3 +23,15 @@ intel-media-va-driver-non-free
 thermald
 fprintd
 libpam-fprintd
+## Vulkan userspace — REQUIRED for AI mode to use the Arc iGPU. The HWE kernel
+## (6.17, installed by build.sh --linux-flavours generic-hwe-24.04) enumerates
+## Lunar Lake's Xe2 in-kernel, but without a Vulkan ICD + loader NOTHING in
+## userspace can touch the GPU for compute -- Ollama's Vulkan backend (the only
+## in-tree path to the Arc 140V; Ollama has no Intel/SYCL/NPU support) would
+## find no device and fall to CPU. mesa-vulkan-drivers ships the ANV Intel
+## Vulkan driver; without it a Vulkan query returns only llvmpipe (software).
+## vulkan-tools provides vulkaninfo, which distro-ai-detect-tier uses to tell a
+## real Arc apart from an llvmpipe (kernel/Mesa too old) fallback.
+mesa-vulkan-drivers
+libvulkan1
+vulkan-tools

@@ -100,7 +100,7 @@ On this Intel laptop the CPU governor is set correctly per mode
 automatically — no scary warnings), and power is managed by
 `power-profiles-daemon`.
 
-Optional local AI: `distro-ai-setup` (add `--install` to actually install LM Studio
+Optional local AI: `distro-ai-setup` (add `--install` to actually install Ollama
 + a CPU-sized model). Expect small models only — the X1 has no discrete GPU.
 
 ## 7. Known caveats on the X1 specifically

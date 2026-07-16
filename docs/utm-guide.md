@@ -90,7 +90,7 @@ system.
 - **Pick a mode** for what you're doing:
   `sudo distro-modectl switch normal|gaming|creative|server|ai`.
 - **Set up local AI** (optional): run `distro-ai-setup` — it detects your hardware
-  tier and, with `--install`, installs LM Studio + the models that fit. In a VM this
+  tier and, with `--install`, installs Ollama + the models that fit. In a VM this
   detects the **cpu** tier (no GPU) and stays lightweight.
 
 ## What works in the VM vs. what needs a real box
@@ -98,7 +98,7 @@ system.
 | In the VM ✓ | Needs real hardware ✗ |
 |---|---|
 | Boot (UEFI+BIOS), desktop, the macOS-style shell, no setup wizard | GPU driver install (`-open` module) |
-| The full installer (partition → install → reboot into your system) | LLM inference in AI mode (LM Studio + a GPU) |
+| The full installer (partition → install → reboot into your system) | LLM inference in AI mode (Ollama + a GPU) |
 | Mode switching (governor/service changes; degrade gracefully with no real hardware) | Real FPS / Proton games, NVENC encode |
 | `keyd` ⌘ remap, theme, dock, `distro-ai-setup` cpu-tier detection | Fractional-scaling on a real HiDPI panel, fingerprint |
 

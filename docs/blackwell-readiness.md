@@ -37,9 +37,9 @@ then auto-signs `nvidia.ko` on every kernel update.
 
 ## 2. CUDA — who needs it, and which version
 
-The AI runtime is now **LM Studio** (bundles its own CUDA llama.cpp engine —
-just keep its runtime updated in the app/Runtimes panel) + **ComfyUI** (needs a
-CUDA PyTorch wheel you install). So you don't build llama.cpp yourself anymore.
+The AI runtime is now **Ollama** (bundles its own CUDA llama.cpp runners — the
+amd64 tarball ships CUDA v12/v13 backends) + **ComfyUI** (needs a CUDA PyTorch
+wheel you install). So you don't build llama.cpp yourself anymore.
 What still matters:
 
 - **ComfyUI's PyTorch must be a CUDA 12.8+ build for Blackwell** — install the
@@ -57,33 +57,32 @@ What still matters:
   flags: `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120`) is preserved in
   `modes/ai/legacy-crucible12/` if you ever go back to it.
 
-## 3. Models — LM Studio (LLMs) + ComfyUI (images)
+## 3. Models — Ollama (LLMs) + ComfyUI (images)
 
 Full catalog + exact repos/quants: `modes/ai/config/models.catalog.json` and
 `modes/ai/README.md`. Highlights for the 32 GB card:
 
 | Use-case | Model | Repo | Fit on 32 GB |
 |---|---|---|---|
-| coding / cad | Qwen2.5-Coder-32B | `lmstudio-community/Qwen2.5-Coder-32B-Instruct-GGUF` Q4_K_M ~20 GB | fully |
-| day-to-day / know-it-all | Llama-3.3-70B | `lmstudio-community/Llama-3.3-70B-Instruct-GGUF` Q4_K_M ~42.5 GB | **partial CPU offload** (`--gpu 0.8`, ~6-12 tok/s) |
-| vision | Qwen2.5-VL-32B (+mmproj) | `lmstudio-community/Qwen2.5-VL-32B-Instruct-GGUF` ~21 GB | fully |
-| uncensored | Dolphin 2.7 Mixtral 8x7B | `TheBloke/dolphin-2.7-mixtral-8x7b-GGUF` ~26 GB | tight |
+| coding / cad | Qwen2.5-Coder-32B | `ollama pull qwen2.5-coder:32b` (~20 GB) | fully |
+| day-to-day / know-it-all | qwen3:32b / deepseek-r1:32b | `ollama pull qwen3:32b` (~20 GB) | fully (32B fits; a 70B would need CPU offload) |
+| vision | Qwen2.5-VL-32B | `ollama pull qwen2.5vl:32b` (~21 GB) | fully |
+| uncensored | Dolphin Mixtral 8x7B | `ollama pull dolphin-mixtral:8x7b` (~26 GB) | tight |
 | image (ComfyUI) | FLUX.1-schnell / SDXL | `Comfy-Org/flux1-schnell` / `stabilityai/stable-diffusion-xl-base-1.0` | fully (FLUX fp8 ~12 GB) |
 
-Note: `llama3.2-vision:11b` does **not** work in LM Studio (no `mllama` support)
-→ the catalog substitutes Qwen2.5-VL-7B. FLUX.1-dev is gated → default is the
-no-token FLUX.1-schnell.
+Note: vision uses `qwen2.5vl` (Ollama runs it natively). FLUX.1-dev is gated →
+the image default is the no-token FLUX.1-schnell (ComfyUI).
 
 ### VRAM math on the 32 GB 5090 (starting points, tune empirically)
 
-The 5090 has **32 GB VRAM**. In LM Studio, GPU offload is per-model via
-`lms load <model> --gpu max|<ratio>`:
+The 5090 has **32 GB VRAM**. Ollama offloads automatically — it fits as many
+layers on the GPU as VRAM allows and spills the rest to CPU/RAM:
 
-- Models ≤ ~26 GB (everything except the 70B) load fully on GPU: `--gpu max`.
-- **Llama-3.3-70B** (~42.5 GB Q4) does NOT fit — load with a partial ratio
-  (`--gpu 0.8`) so the overflow spills to the 64 GB DDR5. Use
-  `lms load … --gpu 0.8 --estimate-only` FIRST to preview the fit, then tune the
-  ratio down if it OOMs. Realistic ~6-12 tok/s once layers are on CPU.
+- Models ≤ ~26 GB (32B-class and below) load fully on GPU automatically.
+- A **70B** (~42.5 GB Q4) does NOT fit 32 GB — Ollama auto-offloads the overflow
+  to the 64 GB DDR5 (realistic ~6-12 tok/s once layers are on CPU). Check the
+  actual GPU/CPU split with `ollama ps`. The tier defaults avoid 70B on a 5090
+  for this reason — prefer 32B, which stays fully on-GPU.
 - Leave a few GB of VRAM for the KV cache (grows with context length).
 
 The 70B ratio is the single biggest real-hardware tuning task. DDR5 EXPO/XMP
@@ -103,11 +102,11 @@ should be ON in BIOS for the offloaded layers' bandwidth.
 
 - [ ] `nvidia-smi` lists the 5090 after installing `nvidia-driver-<v>-open` (v ≥ 570) + reboot
 - [ ] `./verify-drivers.sh` passes (driver + microcode + Secure Boot state)
-- [ ] `01-install-lmstudio.sh` installs LM Studio (llmster + lms CLI); `02-preload-models.sh` pulls the catalog
+- [ ] `sudo 01-install-ollama.sh` installs Ollama (system service); `02-preload-models.sh` pulls the tier default
 - [ ] each catalog model loads (`distro-ai-model use <case>`) and `nvidia-smi` shows expected VRAM use
-- [ ] tune the Llama-3.3-70B offload ratio (`lms load … --gpu 0.8 --estimate-only`) so it fits 32 GB without OOM
+- [ ] confirm a 32B model loads fully on-GPU (`ollama ps` shows 100% GPU); a 70B auto-offloads without OOM
 - [ ] confirm DDR5 EXPO/XMP is on (helps the 70B's CPU-offloaded layers)
-- [ ] `lmstudio.service` (user unit) auto-starts the OpenAI server on :8080; ComfyUI sees the 5090 (`torch.cuda.is_available()`)
-- [ ] `distro-ai-model use <case>` loads + serves on :8080; the 70B loads with `--gpu` partial offload without OOM
+- [ ] `ollama.service` (system unit) serves on :11434; ComfyUI sees the 5090 (`torch.cuda.is_available()`)
+- [ ] `distro-ai-model use <case>` loads + serves on :11434; a 32B loads fully on-GPU
 - [ ] `ffmpeg -hide_banner -encoders | grep nvenc` lists h264/hevc/av1_nvenc; a real NVENC encode succeeds
 - [ ] DaVinci Resolve 21.x launches and sees the GPU

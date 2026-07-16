@@ -7,7 +7,7 @@
 # What this script actually does per switch:
 #   - sets CPU governor (cpupower) and power profile (powerprofilesctl)
 #   - enables/disables/starts/stops the profile's service list
-#   - loads/unloads the LM Studio model for AI mode (AI_AUTOSTART_USECASE),
+#   - loads/unloads the Ollama model for AI mode (AI_AUTOSTART_USECASE),
 #     or unloads it when leaving to another mode (STOP_AI_MODEL=true)
 #   - asks for explicit confirmation before disabling a display manager
 #     (CONFIRM_DISPLAY_MANAGER_STOP=true) since that can kill an active desktop session
@@ -216,15 +216,17 @@ apply_services() {
     done
 }
 
-# AI-model handling runs as the USER (LM Studio lives in ~/.lmstudio, never
-# root), so this is called BEFORE the sudo re-exec and is a NO-OP on the root
-# pass (guarded by id != 0). Best-effort: a failure warns but never aborts the
-# mode switch (the system settings still apply).
+# AI-model handling runs as the USER, so this is called BEFORE the sudo re-exec.
+# Ollama itself is a system service (user 'ollama' on :11434), but distro-ai-model
+# keeps its per-user tier/use-case state in the desktop user's ~/.config/refract-ai
+# and reaches Ollama over localhost (the user is in the 'ollama' group) — so it
+# must run as that user, not root. Best-effort: a failure warns but never aborts
+# the mode switch (the system settings still apply).
 apply_ai_model() {
-    # LM Studio lives in the user's home, so run these as the desktop user via
-    # run_as_user — which works whether invoked bare OR via sudo (previously this
-    # early-returned when id==0, so `sudo distro-modectl switch ai` never loaded
-    # a model). Skips entirely when there's no desktop user.
+    # distro-ai-model's config lives in the user's home, so run these as the
+    # desktop user via run_as_user — which works whether invoked bare OR via sudo
+    # (previously this early-returned when id==0, so `sudo distro-modectl switch
+    # ai` never loaded a model). Skips entirely when there's no desktop user.
     [ -n "$(target_user)" ] || return 0
     if [ "${STOP_AI_MODEL:-false}" = "true" ]; then
         command -v distro-ai-model >/dev/null 2>&1 && run_as_user distro-ai-model unload >/dev/null 2>&1 || true
@@ -342,7 +344,7 @@ do_switch() {
     fi
 
     # Run before the sudo re-exec below: gsettings needs the invoking user's
-    # own session bus, and LM Studio (distro-ai-model) is per-user, not root's.
+    # own session bus, and distro-ai-model's config is per-user, not root's.
     # Skipped on the root re-exec pass ($_REFRACT_REEXEC set by require_root_for)
     # so they run EXACTLY ONCE — but still run when invoked directly via `sudo`
     # (no marker), which is the case the id!=0 guard used to wrongly skip.

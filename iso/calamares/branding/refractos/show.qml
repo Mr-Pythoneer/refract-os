@@ -65,7 +65,7 @@ Presentation
     }
 
     Slide {
-        centeredText: qsTr("AI mode: a local-first AI layer built on LM Studio (chat + coding models on your own GPU, OpenAI-compatible server) and ComfyUI for image generation -- sized to your hardware, no API keys, no cloud, no telemetry by default.")
+        centeredText: qsTr("AI mode: a local-first AI layer built on Ollama (chat + coding models on your own GPU, OpenAI-compatible server) and ComfyUI for image generation -- sized to your hardware, no API keys, no cloud, no telemetry by default.")
     }
 
     Slide {

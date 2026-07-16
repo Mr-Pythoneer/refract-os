@@ -85,27 +85,33 @@ Net effect: Creative mode's pitch should be "Resolve + FreeCAD + Blender work gr
 
 ---
 
-## 5. Local AI layer — LM Studio + ComfyUI (was Crucible12)
+## 5. Local AI layer — Ollama + ComfyUI (was Crucible12)
 
-**Runtime change (2026-06-30):** AI mode now runs on **LM Studio** (text +
+**Runtime change (2026-06-30):** AI mode now runs on **Ollama** (text +
 vision LLMs) + **ComfyUI** (image generation) instead of the original
-Crucible12/llama.cpp stack. LM Studio is far more turnkey for a desktop distro
-— one official installer, a model catalog, a built-in OpenAI-compatible server
-— and supports the broader model menu (coding / CAD / day-to-day / know-it-all
-/ uncensored / assistant / vision / image). It's still **local-first** (the
-server is 127.0.0.1, no cloud, no keys; LM Studio is free for personal +
-commercial use) — the "not Copilot slop" bar still holds. The original
-Crucible12 port is preserved, not deleted, in `modes/ai/legacy-crucible12/`
-(and the standalone Crucible12 project is unaffected). The implementation,
-the exact model catalog, and the key caveats live in `modes/ai/README.md`.
+Crucible12/llama.cpp stack. Ollama is turnkey for a desktop distro — one pinned
+install, a model registry, a built-in OpenAI-compatible server — and supports
+the broader model menu (coding / CAD / day-to-day / know-it-all / uncensored /
+assistant / vision / image). It's still **local-first** (the server is
+127.0.0.1, no cloud, no keys) — the "not Copilot slop" bar still holds.
+Crucially, Ollama is **MIT-licensed**, so Refract can vendor, pin, and ship it
+inside the ISO — the reason it replaced LM Studio, whose proprietary terms forbid
+redistribution (a distro cannot legally bundle it). Both wrap the same llama.cpp
+core, so this is a licensing + footprint win (a native systemd daemon, no
+Electron), not a speed one. The original Crucible12 port is preserved, not
+deleted, in `modes/ai/legacy-crucible12/` (and the standalone Crucible12 project
+is unaffected). The implementation, the exact model catalog, and the key caveats
+live in `modes/ai/README.md`.
 
 Key verified facts that shaped the build (researched, not guessed):
-- **LM Studio** installs headless via `curl -fsSL https://lmstudio.ai/install.sh
-  | bash` (llmster daemon + `lms` CLI, no GUI needed); `lms server start --port
-  8080` gives an OpenAI-compatible endpoint on the same port the existing thin
-  clients already use, so `distro-ai-ask`/overlay/nautilus work unchanged.
-- Models are pulled with `lms get <repo>@<quant>` and loaded with `lms load
-  --gpu max|<ratio>`. The new `distro-ai-model` switches by use-case.
+- **Ollama** installs from a pinned tarball via `sudo ./setup/01-install-ollama.sh`,
+  which creates the dedicated `ollama` system user and a Refract-owned systemd
+  unit. The daemon serves an OpenAI-compatible endpoint at
+  `http://127.0.0.1:11434/v1` (api_key is the literal string "ollama") plus a
+  native REST API at `/api/*`, so `distro-ai-ask`/overlay/nautilus work unchanged.
+- Models are pulled with `ollama pull <tag>` (exact ollama.com tags) and loaded
+  via the API; `ollama ps` shows what's resident. `distro-ai-model` switches by
+  use-case on top of that.
 - **Hardware tiers (2026-07-01):** every build preloads local models sized to
   its hardware. `distro-ai-detect-tier` auto-detects VRAM (Nvidia `nvidia-smi`,
   AMD/APU sysfs), RAM, and laptop-vs-desktop, and maps VRAM → one of six tiers
@@ -120,21 +126,25 @@ Key verified facts that shaped the build (researched, not guessed):
   W7900 48GB, or 2× homogeneous cards pooled) — its win over `max` is running
   70B/72B **fully in VRAM** (no CPU offload) at 48GB, plus 104B/123B dense and
   gpt-oss-120B MoE resident at 96GB. Detection **sums** VRAM across homogeneous
-  same-model cards (LM Studio pools them via layer-split), never across mixed
+  same-model cards (Ollama splits a model across them by layer), never across mixed
   vendors. True **datacenter** silicon (A100/H100/H200/B200/GB200, MI300X/MI325X,
   Gaudi, Grace-ARM) is deliberately NOT a desktop tier — the detector routes it
-  to **Server mode** (headless `lms`/vLLM) instead of a desktop LM Studio GUI,
+  to **Server mode** (headless Ollama/vLLM) instead of a desktop AI-mode GUI,
   the honest product line for a local-first desktop distro. Backed by a verified
   6-dimension GPU-landscape study.
-- **Llama-3.3-70B** (~42.5GB Q4) exceeds the 32GB 5090 → partial CPU offload,
-  ~6–12 tok/s; everything else fits fully in VRAM.
-- The requested **Llama-3.2-Vision does NOT work in LM Studio** (llama.cpp has
-  no `mllama` support) → substituted with the verified **Qwen2.5-VL-7B**.
-- **Image generation is ComfyUI, not LM Studio** (LM Studio can't run diffusion
-  models). FLUX.1-dev is gated → default to the no-token FLUX.1-schnell + SDXL.
+- **Intel Arc laptops:** with no dGPU, the detector finds a real Arc iGPU via
+  `vulkaninfo` (not Mesa `llvmpipe`) and turns on **Ollama's Vulkan backend**
+  (`OLLAMA_VULKAN=1` drop-in), which needs the laptop strain's Vulkan userspace.
+  The Arc NPU is not usable by Ollama and is not part of this path.
+- **Llama-3.3-70B** (~43GB Q4) exceeds the 32GB 5090 → Ollama offloads the
+  overflow layers to system RAM, ~6–12 tok/s; everything else fits fully in VRAM.
+- **Vision uses Qwen2.5-VL** (`qwen2.5vl`), which Ollama runs natively — it pulls
+  the vision projector automatically, no separate mmproj step.
+- **Image generation is ComfyUI, not Ollama** (Ollama has no Linux diffusion).
+  FLUX.1-dev is gated → default to the no-token FLUX.1-schnell + SDXL.
 
 The original rationale for a local-first coding stack (below) still applies; it
-just runs on LM Studio's engine now instead of a hand-built llama.cpp service.
+just runs on Ollama's engine now instead of a hand-built llama.cpp service.
 
 Currently Crucible12 is Windows-11/PowerShell-native (`01-install-llamacpp.ps1`, `02-download-models.ps1`, `run-refract.ps1`, etc., targeting CUDA + `nvidia-smi`). Porting work for AI mode:
 
@@ -150,16 +160,16 @@ Optional, explicit opt-in only: a toggle to also route through Claude (cloud) wh
 
 This is the part of the project most worth prototyping first — you already have a working stack, the task is porting + systemd-wrapping it, not inventing it.
 
-**Status: built (LM Studio + ComfyUI)**, see `modes/ai/`. Install scripts
-(LM Studio headless, tier-aware model preload, ComfyUI, image-model download),
-the `distro-ai-model` use-case switcher + the six per-tier
+**Status: built (Ollama + ComfyUI)**, see `modes/ai/`. Install scripts
+(pinned Ollama tarball, tier-aware model preload, ComfyUI, image-model download,
+optional Alpaca GUI), the `distro-ai-model` use-case switcher + the six per-tier
 `models.catalog.<tier>.json`, `distro-ai-detect-tier` hardware auto-detect,
-`distro-ai-image`, user-level systemd units, and the thin clients (unchanged, on
-:8080). The switcher + tier detection are execution-tested with a **stubbed
-`lms`** and fully injected hardware inputs (`tests/test_ai_model.sh` +
-`tests/test_detect_tier.sh`) — never a real LM Studio or GPU. **Not yet
+`distro-ai-image`, the `ollama.service` system unit, and the thin clients
+(unchanged, on :11434). The switcher + tier detection are execution-tested with a
+**stubbed `ollama`** and fully injected hardware inputs (`tests/test_ai_model.sh` +
+`tests/test_detect_tier.sh`) — never a real Ollama daemon or GPU. **Not yet
 run on the real card — the RTX 5090 arrives ~late July 2026, full build ~early
-August 2026.** Install method, exact model repos/quants, vision-support, and
+August 2026.** Install method, exact model tags/quants, vision-support, and
 ComfyUI/FLUX facts are all web-verified — see `modes/ai/README.md` and
 `docs/blackwell-readiness.md`.
 

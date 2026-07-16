@@ -127,12 +127,12 @@ if have curl; then
     url_ok "Flatpak: Blender"          "https://flathub.org/api/v2/appstream/org.blender.Blender"
     url_ok "Flatpak: Kdenlive"         "https://flathub.org/api/v2/appstream/org.kde.kdenlive"
     url_ok "Flatpak: Bottles"          "https://flathub.org/api/v2/appstream/com.usebottles.bottles"
-    # AI mode (LM Studio + ComfyUI) deps
-    url_ok "LM Studio installer"       "https://lmstudio.ai/install.sh"
+    # AI mode (Ollama + ComfyUI) deps
+    url_ok "Ollama release tarball"    "https://ollama.com/download/v0.32.0/ollama-linux-amd64.tar.zst"
+    url_ok "Ollama model: coder"       "https://ollama.com/library/qwen2.5-coder"
+    url_ok "Ollama model: vision"      "https://ollama.com/library/qwen2.5vl"
     url_ok "ComfyUI repo"              "https://github.com/comfyanonymous/ComfyUI"
     url_ok "PyTorch cu130 index"       "https://download.pytorch.org/whl/cu130"
-    url_ok "HF: Qwen2.5-Coder-32B"     "https://huggingface.co/api/models/lmstudio-community/Qwen2.5-Coder-32B-Instruct-GGUF"
-    url_ok "HF: Qwen2.5-VL-32B"        "https://huggingface.co/api/models/lmstudio-community/Qwen2.5-VL-32B-Instruct-GGUF"
     url_ok "HF: SDXL base"             "https://huggingface.co/api/models/stabilityai/stable-diffusion-xl-base-1.0"
 else
     skip "network checks (curl missing)"

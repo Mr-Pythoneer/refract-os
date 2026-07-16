@@ -1,26 +1,29 @@
 {
-  "$comment": "AI-model catalog for the 'cpu' tier — no dedicated GPU / integrated graphics, inference on CPU + system RAM. Models capped at ~3B (quantized GGUF) so they're usable on CPU. gpu='off' (pure CPU). No image generation (diffusion needs a real GPU). All repos/quants/sizes web-verified 2026-06. Selected by distro-ai-detect-tier when no usable dedicated VRAM is found.",
+  "$comment": "AI-model catalog for the 'cpu' tier — no dedicated GPU / integrated graphics, inference on CPU + system RAM. Models capped at ~3B (Q4_K_M) so they're usable on CPU. gpu='off' (pure CPU). No image generation (diffusion needs a real GPU). Runtime is Ollama; each 'repo' is an exact ollama.com tag (pinned, never ':latest'). Tags verified 2026-07-16. Selected by distro-ai-detect-tier when no usable dedicated VRAM is found.",
   "schema_version": 1,
   "hardware_profile": "cpu",
-  "server": { "runtime": "lmstudio", "port": 8080, "endpoint": "http://127.0.0.1:8080/v1" },
+  "server": { "runtime": "ollama", "port": 11434, "endpoint": "http://127.0.0.1:11434/v1" },
   "use_cases": {
     "coding":      { "label": "Coding",            "best": "qwen2.5-coder-3b", "fast": "qwen2.5-coder-1.5b" },
     "cad":         { "label": "CAD / Design",      "best": "qwen2.5-coder-3b", "fast": "qwen2.5-coder-1.5b" },
     "day-to-day":  { "label": "Day-to-day",        "best": "qwen2.5-3b", "balanced": "llama3.2-3b", "fast": "llama3.2-1b" },
-    "know-it-all": { "label": "Know-it-all",       "best": "qwen2.5-3b" },
-    "uncensored":  { "label": "Uncensored",        "best": "dolphin3-llama3.2-3b", "fast": "dolphin3-llama3.2-1b" },
+    "know-it-all": { "label": "Know-it-all",       "best": "qwen3-4b", "fast": "deepseek-r1-1.5b" },
+    "uncensored":  { "label": "Uncensored",        "best": "dolphin-phi-2.7b", "fast": "tinydolphin-1.1b" },
     "assistant":   { "label": "Desktop assistant", "best": "llama3.2-1b", "alt": "qwen2.5-1.5b" },
-    "vision":      { "label": "Image recognition", "best": "qwen2.5-vl-3b" }
+    "vision":      { "label": "Image recognition", "best": "qwen2.5vl-3b", "light": "moondream-1.8b" }
   },
   "models": {
-    "qwen2.5-coder-3b":   { "name": "Qwen2.5-Coder-3B-Instruct",  "runtime": "lmstudio", "repo": "lmstudio-community/Qwen2.5-Coder-3B-Instruct-GGUF",  "quant": "Q4_K_M", "size_gb": 1.93, "gpu": "off", "context": 8192, "vision": false },
-    "qwen2.5-coder-1.5b": { "name": "Qwen2.5-Coder-1.5B-Instruct","runtime": "lmstudio", "repo": "lmstudio-community/Qwen2.5-Coder-1.5B-Instruct-GGUF","quant": "Q4_K_M", "size_gb": 0.99, "gpu": "off", "context": 8192, "vision": false },
-    "qwen2.5-3b":         { "name": "Qwen2.5-3B-Instruct",        "runtime": "lmstudio", "repo": "lmstudio-community/Qwen2.5-3B-Instruct-GGUF",        "quant": "Q4_K_M", "size_gb": 1.93, "gpu": "off", "context": 8192, "vision": false },
-    "llama3.2-3b":        { "name": "Llama-3.2-3B-Instruct",      "runtime": "lmstudio", "repo": "lmstudio-community/Llama-3.2-3B-Instruct-GGUF",      "quant": "Q4_K_M", "size_gb": 2.02, "gpu": "off", "context": 8192, "vision": false },
-    "llama3.2-1b":        { "name": "Llama-3.2-1B-Instruct",      "runtime": "lmstudio", "repo": "lmstudio-community/Llama-3.2-1B-Instruct-GGUF",      "quant": "Q8_0",   "size_gb": 1.32, "gpu": "off", "context": 8192, "vision": false, "note": "1B — Q8_0 for quality at negligible CPU cost. Lightest always-on assistant." },
-    "qwen2.5-1.5b":       { "name": "Qwen2.5-1.5B-Instruct",      "runtime": "lmstudio", "repo": "lmstudio-community/Qwen2.5-1.5B-Instruct-GGUF",      "quant": "Q4_K_M", "size_gb": 0.99, "gpu": "off", "context": 8192, "vision": false },
-    "dolphin3-llama3.2-3b": { "name": "Dolphin 3.0 Llama-3.2 3B (uncensored)", "runtime": "lmstudio", "repo": "bartowski/Dolphin3.0-Llama3.2-3B-GGUF", "quant": "Q4_K_M", "size_gb": 2.02, "gpu": "off", "context": 8192, "vision": false, "note": "Uncensored, text-only." },
-    "dolphin3-llama3.2-1b": { "name": "Dolphin 3.0 Llama-3.2 1B (uncensored)", "runtime": "lmstudio", "repo": "bartowski/Dolphin3.0-Llama3.2-1B-GGUF", "quant": "Q4_K_M", "size_gb": 0.81, "gpu": "off", "context": 8192, "vision": false, "note": "Ultra-light uncensored." },
-    "qwen2.5-vl-3b":      { "name": "Qwen2.5-VL-3B-Instruct (vision)", "runtime": "lmstudio", "repo": "ggml-org/Qwen2.5-VL-3B-Instruct-GGUF", "quant": "Q4_K_M", "size_gb": 3.3, "gpu": "off", "context": 8192, "vision": true, "mmproj": true, "note": "Smallest LM-Studio-supported vision model (CLIP-projector/libmtmd); pulls its mmproj. ~3.3GB incl. f16 mmproj. Slow on CPU but works." }
+    "qwen2.5-coder-3b":   { "name": "Qwen2.5-Coder-3B-Instruct",  "runtime": "ollama", "repo": "qwen2.5-coder:3b",   "quant": "Q4_K_M", "size_gb": 1.9,  "gpu": "off", "context": 8192, "vision": false },
+    "qwen2.5-coder-1.5b": { "name": "Qwen2.5-Coder-1.5B-Instruct","runtime": "ollama", "repo": "qwen2.5-coder:1.5b", "quant": "Q4_K_M", "size_gb": 0.99, "gpu": "off", "context": 8192, "vision": false },
+    "qwen2.5-3b":         { "name": "Qwen2.5-3B-Instruct",        "runtime": "ollama", "repo": "qwen2.5:3b",         "quant": "Q4_K_M", "size_gb": 1.9,  "gpu": "off", "context": 8192, "vision": false },
+    "llama3.2-3b":        { "name": "Llama-3.2-3B-Instruct",      "runtime": "ollama", "repo": "llama3.2:3b",        "quant": "Q4_K_M", "size_gb": 2.0,  "gpu": "off", "context": 8192, "vision": false },
+    "llama3.2-1b":        { "name": "Llama-3.2-1B-Instruct",      "runtime": "ollama", "repo": "llama3.2:1b",        "quant": "Q4_K_M", "size_gb": 1.3,  "gpu": "off", "context": 8192, "vision": false, "note": "Lightest always-on assistant — near-instant even on CPU." },
+    "qwen2.5-1.5b":       { "name": "Qwen2.5-1.5B-Instruct",      "runtime": "ollama", "repo": "qwen2.5:1.5b",       "quant": "Q4_K_M", "size_gb": 0.99, "gpu": "off", "context": 8192, "vision": false },
+    "qwen3-4b":           { "name": "Qwen3-4B (reasoning)",       "runtime": "ollama", "repo": "qwen3:4b",           "quant": "Q4_K_M", "size_gb": 2.6,  "gpu": "off", "context": 8192, "vision": false, "note": "Smallest qwen3 that reasons usefully; the know-it-all family sized down for CPU." },
+    "deepseek-r1-1.5b":   { "name": "DeepSeek-R1 1.5B (distill, reasoning)", "runtime": "ollama", "repo": "deepseek-r1:1.5b", "quant": "Q4_K_M", "size_gb": 1.1, "gpu": "off", "context": 8192, "vision": false, "note": "Tiny reasoner; verbose think-tokens make it slow on CPU but it fits anywhere." },
+    "dolphin-phi-2.7b":   { "name": "Dolphin 2.6 Phi-2 2.7B (uncensored)", "runtime": "ollama", "repo": "dolphin-phi:2.7b", "quant": "Q4_K_M", "size_gb": 1.6, "gpu": "off", "context": 8192, "vision": false, "note": "Uncensored, text-only. dolphin3 has no sub-8B tag, so CPU uses this smaller Phi-2 dolphin." },
+    "tinydolphin-1.1b":   { "name": "TinyDolphin 1.1B (uncensored)", "runtime": "ollama", "repo": "tinydolphin:1.1b", "quant": "Q4_K_M", "size_gb": 0.64, "gpu": "off", "context": 8192, "vision": false, "note": "Ultra-light uncensored (TinyLlama base)." },
+    "qwen2.5vl-3b":       { "name": "Qwen2.5-VL-3B-Instruct (vision)", "runtime": "ollama", "repo": "qwen2.5vl:3b", "quant": "Q4_K_M", "size_gb": 3.2, "gpu": "off", "context": 8192, "vision": true, "mmproj": true, "note": "Smallest full Qwen2.5-VL; ollama pulls its vision projector with the tag. Slow on CPU but works." },
+    "moondream-1.8b":     { "name": "Moondream2 1.8B (vision)", "runtime": "ollama", "repo": "moondream:1.8b", "quant": "Q4_K_M", "size_gb": 1.7, "gpu": "off", "context": 2048, "vision": true, "mmproj": true, "note": "Featherweight captioner/VQA — the fastest vision option on CPU." }
   }
 }
