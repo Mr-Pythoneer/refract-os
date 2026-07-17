@@ -48,7 +48,13 @@ if command -v ollama >/dev/null 2>&1; then
     echo "Ollama already installed: $(ollama --version 2>/dev/null || true)"
 else
     echo -e "\033[36mInstalling Ollama ${OLLAMA_VERSION} (pinned tarball) into /usr...\033[0m"
-    url="https://ollama.com/download/v${OLLAMA_VERSION}/${TARBALL}"
+    # Pinned tarballs live on the GitHub RELEASE, not on ollama.com. This was
+    # "https://ollama.com/download/v${OLLAMA_VERSION}/${TARBALL}" -- GitHub's
+    # path shape pattern-matched onto ollama.com -- which 404s, so this script
+    # could never install Ollama on any machine. ollama.com/download/<file>
+    # (no version segment) 307-redirects and works, but is UNPINNED; the
+    # release URL is both correct and pinned, which is what an ISO needs.
+    url="https://github.com/ollama/ollama/releases/download/v${OLLAMA_VERSION}/${TARBALL}"
     # Fail loudly if the pinned version/tarball 404s rather than shipping nothing.
     curl -fsSL "$url" | tar -x --use-compress-program=unzstd -C /usr \
         || { echo "Download/extract failed for $url" >&2; exit 1; }

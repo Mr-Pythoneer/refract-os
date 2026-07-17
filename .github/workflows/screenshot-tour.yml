@@ -7,7 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       build_run_id:
-        description: "build-iso run id (empty = latest successful)"
+        description: "build-iso run id (empty = latest successful FULL build)"
+        required: false
+        default: ""
+      artifact:
+        description: "ISO artifact name (empty = the run's full refract-os-<strain>)"
         required: false
         default: ""
 
@@ -20,24 +24,51 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Resolve build run id
+      - name: Resolve build run + artifact
         id: run
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_RUN: ${{ inputs.build_run_id }}
+          INPUT_ARTIFACT: ${{ inputs.artifact }}
         run: |
           set -euo pipefail
-          if [ -n "$INPUT_RUN" ]; then id="$INPUT_RUN"
-          else id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-iso.yml --status success --limit 1 --json databaseId -q '.[0].databaseId'); fi
-          [ -n "$id" ] || { echo "no successful build" >&2; exit 1; }
-          echo "id=$id" >> "$GITHUB_OUTPUT"
+          # Resolve the artifact by NAME, never a bare `refract-os-*` glob: a
+          # mode-omitted build uploads refract-os-<strain>-no<mode> and a testing
+          # build appends -DANGER-TESTING-NO-LOGIN. Both match that glob — and
+          # these screenshots are published as what Refract OS looks like, so
+          # touring an -noai/DANGER image is worse than a red X. A FULL build's
+          # artifact is exactly refract-os-<strain> — no -no*/-DANGER tail.
+          pick() {  # pick <run-id> -> wanted artifact name, empty if it has none
+            local list
+            list=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$1/artifacts" \
+                     --jq '.artifacts[] | select(.expired | not) | .name') || return 0
+            if [ -n "$INPUT_ARTIFACT" ]; then
+              printf '%s\n' "$list" | grep -xF -- "$INPUT_ARTIFACT" || true
+            else
+              printf '%s\n' "$list" | grep -E '^refract-os-[a-z0-9]+$' | head -n1 || true
+            fi
+          }
+          if [ -n "$INPUT_RUN" ]; then
+            id="$INPUT_RUN"; art=$(pick "$id")
+          else
+            id=""; art=""
+            for cand in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-iso.yml \
+                            --status success --limit 20 --json databaseId -q '.[].databaseId'); do
+              art=$(pick "$cand")
+              if [ -n "$art" ]; then id="$cand"; break; fi
+            done
+          fi
+          [ -n "$id" ] && [ -n "$art" ] || {
+            echo "No build-iso run with a ${INPUT_ARTIFACT:-full refract-os-<strain>} artifact (mode-omitted/testing builds don't count — pass 'artifact' to force one)." >&2
+            exit 1; }
+          echo "using run $id, artifact $art"
+          { echo "id=$id"; echo "artifact=$art"; } >> "$GITHUB_OUTPUT"
       - name: Download ISO
         uses: actions/download-artifact@v4
         with:
-          pattern: refract-os-*
+          name: ${{ steps.run.outputs.artifact }}
           run-id: ${{ steps.run.outputs.id }}
           github-token: ${{ github.token }}
-          merge-multiple: true
           path: iso-dl
       - name: Prepare QEMU + vncdotool
         run: |

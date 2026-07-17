@@ -36,9 +36,14 @@ assert_not_contains "empty selection writes no ai"       "$out" $'\nai'
 assert_contains     "empty selection still writes header" "$out" "enabled modes"
 
 # --- un-expanded gs[] literal is treated as empty, not a bogus token ---
-out="$(run_apply "gs[packagechooser_modes]")"
-assert_not_contains "literal gs[] token is NOT persisted" "$out" "packagechooser"
-assert_not_contains "literal gs[] yields no mode lines"   "$out" $'\ngaming'
+# Both forms: the CORRECT '${gs[...]}' (if a Calamares lacks gs support) and the
+# bare 'gs[...]' that shellprocess_modes.conf wrongly shipped — Calamares never
+# expanded that one, so it arrived verbatim on every install.
+for lit in '${gs[packagechooser_modes]}' 'gs[packagechooser_modes]'; do
+  out="$(run_apply "$lit")"
+  assert_not_contains "literal '$lit' is NOT persisted"   "$out" "packagechooser"
+  assert_not_contains "literal '$lit' yields no mode lines" "$out" $'\ngaming'
+done
 
 # --- whitelist + dedupe: junk and 'normal' dropped, duplicates collapsed ---
 out="$(run_apply "gaming,normal,bogus,ai,ai,gaming")"

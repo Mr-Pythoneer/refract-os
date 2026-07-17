@@ -25,10 +25,10 @@ python3 tests/validate-compat-db.py  # compat-db schema check (standalone)
 | `test_modectl.sh` | `distro-modectl` | `--yes` forwarded across sudo re-exec; usage() pipe-separated |
 | `test_gaming_compat.sh` | `distro-gaming-compat` | malformed DB entry hits the friendly guard, no traceback |
 | `test_creative_scratch.sh` | `distro-creative-scratch` | **GNU `df -l --output` works** (the `df -lP` bug); NVMe pick; df-failure fallback |
-| `test_ai_ask.sh` | `distro-ai-ask` | happy/empty/unreachable/malformed against a stub server |
+| `test_ai_ask.sh` | `distro-ai-ask` | happy/empty/unreachable/malformed against a stub server; a slow reply reports a **timeout**, not a dead daemon (the budget must cover a cold model load) |
 | `test_cloud_toggle.sh` | `distro-ai-cloud-toggle` | refuses enable without a key; writes config with one |
-| `test_detect_tier.sh` | `distro-ai-detect-tier` | VRAM→tier thresholds; multi-GPU homogeneous pooling; datacenter guard → Server mode; laptop profile + image opt-in |
-| `test_ai_model.sh` | `distro-ai-model` | tier/VRAM-fit tag resolution; `min_vram_gb` warning; ollama pull/ps/load path; ComfyUI tags refused |
+| `test_detect_tier.sh` | `distro-ai-detect-tier` | VRAM→tier thresholds; multi-GPU homogeneous pooling (reported by the **winning** group, not the first card probed); datacenter guard → Server mode; laptop profile + image opt-in; Intel Arc iGPU RAM-tiering incl. its **cpu floor**, vs a discrete Arc (PCI-address told apart, floored at `entry`, VRAM honestly unprobeable) |
+| `test_ai_model.sh` | `distro-ai-model` | tier/VRAM-fit tag resolution; **PROFILE is consulted** (`efficiency` ≠ `power`), not just printed; `min_vram_gb` warning; ollama pull/ps/load path; ComfyUI tags refused |
 | `test_ai_setup.sh` | `distro-ai-setup` | guided vs `--install` order; image=none skip; datacenter exit-3 passthrough; hermetic (stubbed detect + setup) |
 | `test_compat_db_schema.sh` | `validate-compat-db.py` | the validator rejects missing keys / bad status / etc. |
 

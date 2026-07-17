@@ -146,6 +146,42 @@ if [ -n "$LIVE_PORT" ]; then
   out="$(aim cpu 0 use coding 2>&1)"
   assert_contains "cpu tier coding -> 3B cpu tag" "$out" "qwen2.5-coder:3b"
 
+  # --- PROFILE is CONSULTED, not just printed -------------------------------
+  # Regression: the Ollama migration left PROFILE read + exported + printed but
+  # never used in the selection, so efficiency/balance/power all loaded the
+  # identical tag while modes/ai/README.md documented the opposite.
+  # aimp <profile> <tier> <vram_mib> <args...>
+  aimp() { HOME="$work" XDG_CONFIG_HOME="$work" PATH="$work:$PATH" OLLAMA_HOST="$OH" \
+           REFRACT_AI_PROFILE="$1" REFRACT_AI_TIER="$2" REFRACT_VRAM_MIB="$3" "$AIM" "${@:4}"; }
+
+  # efficiency takes the LIGHTEST tag the use-case offers; power stays on the
+  # tier's best. Asserting both directions is the point: a profile that is
+  # ignored again would make these two identical and fail.
+  out="$(aimp efficiency max 0 use coding 2>&1)"
+  assert_contains "profile=efficiency -> lightest coder tag" "$out" "qwen2.5-coder:3b"
+  assert_not_contains "profile=efficiency did NOT load the 32B tag" "$out" "qwen2.5-coder:32b"
+  out="$(aimp power max 0 use coding 2>&1)"
+  assert_contains "profile=power -> the tier's 32B coder tag" "$out" "qwen2.5-coder:32b"
+  out="$(aimp balance max 0 use coding 2>&1)"
+  assert_contains "profile=balance -> the tier's 32B coder tag" "$out" "qwen2.5-coder:32b"
+
+  # efficiency on a laptop tier drops 7B -> 3B (same tier, different profile).
+  out="$(aimp efficiency entry 0 use coding 2>&1)"
+  assert_contains "entry + efficiency -> 3B coder tag" "$out" "qwen2.5-coder:3b"
+  assert_not_contains "entry + efficiency did NOT load the 7B tag" "$out" "qwen2.5-coder:7b"
+
+  # a use-case with no "cpu" variant still downshifts (dolphin3:8b, not the MoE),
+  # proving the ranking uses the table's min_vram_gb, not a hardcoded key list.
+  out="$(aimp efficiency max 0 use uncensored 2>&1)"
+  assert_contains "efficiency uncensored -> the 8B tag" "$out" "dolphin3:8b"
+  assert_not_contains "efficiency uncensored did NOT load the 8x7B MoE" "$out" "dolphin-mixtral:8x7b"
+
+  # efficiency must not mistake the ComfyUI pseudo-tag (no min_vram_gb) for the
+  # "lightest" model and route an LLM use-case into image generation.
+  out="$(aimp efficiency max 0 use image 2>&1)"; rc=$?
+  assert_eq "efficiency use image still exits 0" "0" "$rc"
+  assert_contains "efficiency use image still routes to ComfyUI" "$out" "ComfyUI"
+
   # VRAM fit: at max tier but only ~8GB, the 32B "high" is skipped for the 7B "low"
   out="$(aim max 8192 use coding 2>&1)"
   assert_contains "8GB VRAM downgrades coding to the 7B tag" "$out" "qwen2.5-coder:7b"

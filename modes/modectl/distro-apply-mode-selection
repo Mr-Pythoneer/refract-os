@@ -5,8 +5,8 @@
 # See docs/mode-selection-design.md §3.4.
 #
 # Invoked by iso/calamares/modules/shellprocess_modes.conf as:
-#     distro-apply-mode-selection 'gs[packagechooser_modes]'
-# where Calamares expands gs[packagechooser_modes] to the comma-separated list
+#     distro-apply-mode-selection '${gs[packagechooser_modes]}'
+# where Calamares expands ${gs[packagechooser_modes]} to the comma-separated list
 # of selected mode ids (e.g. "gaming,ai" — empty string if nothing was ticked).
 # shellprocess runs with dontChroot:false, so this executes INSIDE the target
 # root: every path below is target-native and /opt/distro is already unpacked.
@@ -56,12 +56,19 @@ APPLY_HARD_REMOVAL="${APPLY_HARD_REMOVAL:-0}"
 # ---------------------------------------------------------------------------
 selection="${1:-}"
 
-# Defensive: if gs[] substitution did not happen (a Calamares older than the
-# gs[] feature), $1 is the literal "gs[packagechooser_modes]". Treat that as an
-# empty selection rather than persisting a bogus token (design §3.4).
-if [ "$selection" = "gs[packagechooser_modes]" ]; then
-    selection=""
-fi
+# Defensive: if ${gs[...]} substitution did not happen, $1 arrives as the
+# literal, unexpanded string. Treat that as an empty selection rather than
+# persisting a bogus token (design §3.4). BOTH forms are matched: the correct
+# "${gs[packagechooser_modes]}" (in case an old Calamares lacks gs support), and
+# the bare "gs[packagechooser_modes]" that shellprocess_modes.conf wrongly used
+# before — Calamares never expanded that one, so it reached us verbatim on every
+# install and silently threw the user's selection away.
+case "$selection" in
+    '${gs[packagechooser_modes]}'|'gs[packagechooser_modes]')
+        echo "distro-apply-mode-selection: GlobalStorage was not substituted (got the literal '$selection') — treating as an empty selection." >&2
+        selection=""
+        ;;
+esac
 
 # Normalise commas to spaces, then split on whitespace into an array (no
 # globbing, unlike a bare `for tok in $selection`).

@@ -84,11 +84,26 @@ fi
 # testing, which is exactly why boot-smoke never caught it. Xorg is the far
 # more battle-tested fallback; this is a one-line, well-documented GDM setting
 # (not a hack), and the desktop experience is identical either way.
-if grep -q '^WaylandEnable=' /etc/gdm3/daemon.conf; then
-    sed -i 's/^WaylandEnable=.*/WaylandEnable=false/' /etc/gdm3/daemon.conf
-else
-    sed -i '/^\[daemon\]/a WaylandEnable=false' /etc/gdm3/daemon.conf
-fi
+#
+# WHICH FILE: Ubuntu's gdm3 reads /etc/gdm3/custom.conf; Debian's reads
+# daemon.conf. This hook used to write ONLY daemon.conf, so on Ubuntu the whole
+# forced-Xorg fix silently did NOTHING -- and worse, the guard below and
+# verify-boot-fixes.yml both grepped the same daemon.conf we had just written,
+# so both reported PASS while the machine kept booting Wayland. Write BOTH, the
+# way iso/build.sh's autologin block already does: the unused one is inert.
+# Also match a COMMENTED key: Ubuntu ships custom.conf with '#WaylandEnable=false'
+# already present, which a '^WaylandEnable=' grep misses -- that would append a
+# duplicate below the commented line instead of setting it.
+for f in /etc/gdm3/custom.conf /etc/gdm3/daemon.conf; do
+    install -d /etc/gdm3
+    [ -f "$f" ] || printf '[daemon]\n' > "$f"
+    grep -q '^\[daemon\]' "$f" || printf '[daemon]\n' >> "$f"
+    if grep -qE '^#?WaylandEnable=' "$f"; then
+        sed -i 's/^#\?WaylandEnable=.*/WaylandEnable=false/' "$f"
+    else
+        sed -i '/^\[daemon\]/a WaylandEnable=false' "$f"
+    fi
+done
 # Because we now force Xorg (above), the Xorg DDX driver matters. The legacy
 # 'intel' DDX (xserver-xorg-video-intel) gets pulled in transitively and, if
 # present, Xorg auto-selects it over the kernel 'modesetting' driver for Intel
@@ -135,13 +150,52 @@ echo "polish: gnome-initial-setup neutralized (purge + gdm gate + user-unit mask
 # user gets an INSTANT shell to pull logs (journalctl / Xorg.0.log) instead of
 # fighting a locked login prompt. Harmless on a working boot (tty3 is a spare
 # console). tty1/tty2 keep the normal getty.
+#
+# LIVE SESSION ONLY. This hook bakes into the squashfs, and the squashfs is
+# exactly what Calamares unpacks onto the user's disk (unpackfs.conf source =
+# /cdrom/casper/filesystem.squashfs) — so an unconditional drop-in follows the
+# user onto their INSTALLED machine and hands a passwordless, sudo-capable shell
+# to anyone who walks up and presses Ctrl+Alt+F3, for any account named
+# 'ubuntu'. iso/TESTING-BUILD.md promises the normal image ships no autologin for
+# exactly this reason; only the opt-in DANGER testing build may.
+#
+# The gate is the kernel command line: the live ISO boots 'boot=casper' (see
+# build.sh's grub/isolinux entries) and MUST — casper's initramfs does not run
+# without it, so no live session lacks it. An installed system's GRUB is
+# regenerated on the target from /etc/default/grub, which never carries it. The
+# test runs at RUNTIME against /proc/cmdline, so the file following onto disk is
+# harmless: the autologin branch is simply unreachable there.
+#
+# It gates the AUTOLOGIN, not the unit, on purpose: a
+# ConditionKernelCommandLine= drop-in would condition-FAIL getty@tty3 on the
+# installed system, and since logind spawns spare VTs on demand via autovt@tty3
+# (an alias of getty@tty3), Ctrl+Alt+F3 would give a dead VT with no login
+# prompt at all. This dispatcher falls back to a stock password-prompting getty.
+# (NB: /run/live/medium is live-boot's path — this is a casper image, so that
+# check would never fire and would silently disable the diagnostic.)
+install -d /usr/local/sbin
+cat > /usr/local/sbin/refract-tty3-diag-getty <<'EOF'
+#!/bin/sh
+# Live session -> autologin the casper live user for diagnostics.
+# Installed system -> a stock, password-prompting getty. See 0400-polish.chroot.
+# The id check keeps a missing live user degrading to a normal getty rather than
+# an agetty respawn loop (Restart=always).
+# Match boot=casper as a WHOLE cmdline token: 'grep -w' would also accept
+# boot=casper-disabled ('-' is a word boundary), and a bare substring match would
+# accept noboot=casper.
+if grep -qE '(^| )boot=casper( |$)' /proc/cmdline 2>/dev/null && id -u ubuntu >/dev/null 2>&1; then
+    exec /sbin/agetty --autologin ubuntu --noclear "$@"
+fi
+exec /sbin/agetty --noclear "$@"
+EOF
+chmod 0755 /usr/local/sbin/refract-tty3-diag-getty
 install -d /etc/systemd/system/getty@tty3.service.d
 cat > /etc/systemd/system/getty@tty3.service.d/autologin.conf <<'EOF'
 [Service]
 ExecStart=
-ExecStart=-/sbin/agetty --autologin ubuntu --noclear %I $TERM
+ExecStart=-/usr/local/sbin/refract-tty3-diag-getty %I $TERM
 EOF
-echo "polish: tty3 auto-login enabled (Ctrl+Alt+F3 = instant shell for diagnostics)."
+echo "polish: tty3 auto-login enabled for the LIVE session only (Ctrl+Alt+F3 = instant shell for diagnostics; an installed system gets a normal login prompt)."
 
 # SHIP-BLOCKING GUARD: if we disabled Wayland but there is no Xorg session file,
 # gdm would abort at boot ("no session desktop files installed") and the ISO
@@ -149,11 +203,19 @@ echo "polish: tty3 auto-login enabled (Ctrl+Alt+F3 = instant shell for diagnosti
 # noble the Xorg session (/usr/share/xsessions/ubuntu-xorg.desktop) is provided
 # by ubuntu-session, a hard dep of ubuntu-desktop-minimal — so this passes on
 # every GNOME strain; the guard just makes a future regression impossible.
-if grep -q '^WaylandEnable=false' /etc/gdm3/daemon.conf 2>/dev/null; then
+# Check custom.conf — the file Ubuntu's gdm3 ACTUALLY reads. Grepping the
+# daemon.conf we had just written made this guard self-satisfying: it verified
+# our own write rather than the setting gdm would honour.
+if grep -q '^WaylandEnable=false' /etc/gdm3/custom.conf 2>/dev/null; then
     if [ -z "$(ls /usr/share/xsessions/*.desktop 2>/dev/null)" ]; then
         echo "FATAL: WaylandEnable=false but NO /usr/share/xsessions/*.desktop — gdm would abort at boot. Ensure ubuntu-session (or a package providing an Xorg session) is installed." >&2
         exit 1
     fi
     echo "polish: verified an Xorg session exists ($(ls /usr/share/xsessions/*.desktop | tr '\n' ' '))."
+else
+    # If the write above didn't land in the file gdm reads, we are about to ship
+    # the exact silent no-op this hook exists to prevent. Fail the build.
+    echo "FATAL: WaylandEnable=false is NOT set in /etc/gdm3/custom.conf — the forced-Xorg fix would silently no-op on Ubuntu's gdm3." >&2
+    exit 1
 fi
 exit 0

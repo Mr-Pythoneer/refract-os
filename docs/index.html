@@ -211,6 +211,9 @@
   .cfg-models li:last-child { border-bottom: none; }
   .cfg-models .k { color: var(--text-dim); white-space: nowrap; }
   .cfg-models .v { color: var(--text); font-weight: 600; text-align: right; }
+  /* The exact ollama.com tag under each model name — the tag is the precise
+     thing (the pretty name is the readable one), so show both. */
+  .cfg-models .v .tag { display: block; font-weight: 400; font-size: 0.8em; color: var(--text-faint); font-family: "Fira Code", "SF Mono", Menlo, Consolas, monospace; }
   .cfg-cmd { margin-top: 16px; background: var(--bg-card2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-family: "Fira Code", "SF Mono", Menlo, Consolas, monospace; font-size: 0.82rem; color: var(--text); overflow-x: auto; }
   .cfg-cmd .prompt { color: var(--ok); }
   .cfg-note { color: var(--text-faint); font-size: 0.8rem; margin-top: 14px; }
@@ -332,7 +335,7 @@
         <select id="cpu" aria-label="Select your CPU class"></select>
         <label for="ram" class="mt">System RAM</label>
         <select id="ram" aria-label="Select your system RAM"></select>
-        <div class="cfg-hint">VRAM sets the tier (it's the binding constraint for local LLMs). RAM decides whether big models can spill to system memory (CPU offload); CPU sets speed when there's no GPU. Two identical cards pool (2&times;48GB&rarr;96GB); mixed vendors don't. Datacenter cards route to Server mode.</div>
+        <div class="cfg-hint">On Nvidia and AMD, VRAM sets the tier — it's the binding constraint for local LLMs. Intel has no VRAM probe at all: an Arc iGPU is tiered by system RAM, a discrete Arc is floored at <code>entry</code> until you set a tier. CPU sets speed when there's no GPU. Two identical cards pool (2&times;48GB&rarr;96GB); mixed vendors don't. Datacenter cards route to Server mode.</div>
       </div>
       <div class="cfg-result" id="cfg-result" aria-live="polite"></div>
     </div>
@@ -409,25 +412,56 @@
 
 <script>
 (function () {
-  // Tier headline models — mirrors modes/ai/config/models.catalog.<tier>.json.
-  var TIERS = {
-    cpu:   { blurb: 'CPU inference — small (≤3B) quantized models. Slow but fully private.',
-             models: { Coding: 'Qwen2.5-Coder-3B', General: 'Qwen2.5-3B', Vision: 'Qwen2.5-VL-3B', 'Image gen': '— (needs a GPU)' } },
-    entry: { blurb: '7–8B models fit fully in VRAM.',
-             models: { Coding: 'Qwen2.5-Coder-7B', General: 'Llama-3.1-8B', Vision: 'Qwen2.5-VL-7B', 'Image gen': 'SDXL' } },
-    mid:   { blurb: '14B-class models, plus a 16B MoE coder.',
-             models: { Coding: 'Qwen2.5-Coder-14B', General: 'Qwen2.5-14B', Vision: 'Qwen2.5-VL-7B', 'Image gen': 'SDXL / FLUX.1-schnell' } },
-    high:  { blurb: '32B-class models fit fully in VRAM.',
-             models: { Coding: 'Qwen2.5-Coder-32B', General: 'Qwen2.5-32B', Vision: 'Qwen2.5-VL-32B', 'Image gen': 'FLUX.1-dev' } },
-    max:   { blurb: 'RTX 5090 class — 70B runs via partial CPU offload if you have the system RAM.',
-             models: { Coding: 'Qwen2.5-Coder-32B', General: 'Llama-3.3-70B (partial offload)', Vision: 'Qwen2.5-VL-32B', 'Image gen': 'FLUX.1-dev' } },
-    ultra: { blurb: 'Workstation cards — 70B runs FULLY in VRAM (no offload); 96GB unlocks 100B+ models.',
-             models: { Coding: 'Qwen2.5-Coder-32B', General: 'Llama-3.3-70B in VRAM · 104B/123B & gpt-oss-120B @96GB', Vision: 'Qwen2.5-VL-72B', 'Image gen': 'FLUX.1-dev' } }
+  // ---- What a machine actually runs ----------------------------------------
+  // Mirrored from the two things that really resolve a model at runtime — NOT
+  // from the per-tier models.catalog.<tier>.json LLM lists, which nothing reads:
+  //   LLMs  -> the canonical MODEL_TABLE in modes/ai/bin/distro-ai-model. It is
+  //            what `distro-ai-model use <case>` resolves and what
+  //            setup/02-preload-models.sh pulls. It has only THREE classes
+  //            (cpu/low/high), so entry+mid share tags, as do high+max+ultra.
+  //   Image -> the "image" use_case of models.catalog.<tier>.json, which IS
+  //            read — by distro-ai-detect-tier — and fetched by
+  //            setup/04-download-image-models.sh. Image gen is ComfyUI; Ollama
+  //            has no diffusion backend on Linux.
+  // Keys/tags below are copied verbatim so they can be diffed against the source.
+  var MODEL_TABLE = {
+    'coding':     { label: 'Coding',     high: 'qwen2.5-coder:32b', low: 'qwen2.5-coder:7b', cpu: 'qwen2.5-coder:3b' },
+    'day-to-day': { label: 'Day-to-day', high: 'qwen3:32b',         low: 'llama3.1:8b',      alt: 'gemma3:4b',        cpu: 'gemma3:4b' },
+    'vision':     { label: 'Vision',     high: 'qwen2.5vl:32b',     low: 'qwen2.5vl:7b',     light: 'moondream:1.8b', cpu: 'moondream:1.8b' }
+  };
+  // min_vram_gb from the same table — the gate distro-ai-model's fits() applies.
+  var MIN_VRAM_GB = {
+    'qwen2.5-coder:32b': 20, 'qwen2.5-coder:7b': 6, 'qwen2.5-coder:3b': 3,
+    'qwen3:32b': 20, 'llama3.1:8b': 6, 'gemma3:4b': 4,
+    'qwen2.5vl:32b': 21, 'qwen2.5vl:7b': 7, 'moondream:1.8b': 2
+  };
+  var MODEL_NAMES = {
+    'qwen2.5-coder:32b': 'Qwen2.5-Coder-32B', 'qwen2.5-coder:7b': 'Qwen2.5-Coder-7B', 'qwen2.5-coder:3b': 'Qwen2.5-Coder-3B',
+    'qwen3:32b': 'Qwen3-32B', 'llama3.1:8b': 'Llama-3.1-8B', 'gemma3:4b': 'Gemma-3-4B',
+    'qwen2.5vl:32b': 'Qwen2.5-VL-32B', 'qwen2.5vl:7b': 'Qwen2.5-VL-7B', 'moondream:1.8b': 'Moondream2-1.8B'
+  };
+  // Image models the tier's catalog offers, in detect-tier's own order
+  // (best/alt/fast). The cpu tier has no "image" use_case at all — no GPU.
+  var IMAGE_FOR = {
+    cpu:   '— (needs a GPU)',
+    entry: 'SDXL',
+    mid:   'SDXL · FLUX.1-schnell',
+    high:  'FLUX.1-dev · SDXL',
+    max:   'FLUX.1-dev · SDXL',
+    ultra: 'FLUX.1-dev · FLUX.1-schnell · SDXL'
+  };
+  var TIER_BLURB = {
+    cpu:   'No usable GPU — inference on the CPU, ≤4B models. Slow, but fully private.',
+    entry: '7–8B models fit fully in VRAM.',
+    mid:   'More VRAM than entry — but the switcher loads the same 7–8B tags; a 32B Q4 (~20GB) needs the high tier.',
+    high:  '32B-class models (~20GB at Q4) fit fully in VRAM.',
+    max:   'RTX 5090 class — the same 32B tags as high, with VRAM headroom to spare.',
+    ultra: '48–96GB workstation cards — the same 32B tags as high, fully resident.'
   };
   // Every GPU as its own option, grouped by vendor. vram in GB.
   var GPU_GROUPS = [
     { label: 'No dedicated GPU', gpus: [
-      { g: 'Integrated graphics / iGPU / APU (no VRAM)', vram: 0 } ] },
+      { g: 'No GPU / AMD APU (CPU inference)', vram: 0 } ] },
     { label: 'NVIDIA GeForce — RTX 50', gpus: [
       { g: 'RTX 5090', vram: 32 }, { g: 'RTX 5080', vram: 16 }, { g: 'RTX 5070 Ti', vram: 16 }, { g: 'RTX 5070', vram: 12 }, { g: 'RTX 5060 Ti (16GB)', vram: 16 }, { g: 'RTX 5060', vram: 8 } ] },
     { label: 'NVIDIA GeForce — RTX 40', gpus: [
@@ -442,8 +476,14 @@
       { g: 'RX 7900 XTX (24GB)', vram: 24 }, { g: 'RX 7900 XT (20GB)', vram: 20 }, { g: 'RX 7900 GRE / 7800 XT / 9070 XT / 9070', vram: 16 }, { g: 'RX 6900 XT / 6800 XT / 6800', vram: 16 }, { g: 'RX 7700 XT / 6700 XT', vram: 12 }, { g: 'RX 7600 / 6600', vram: 8 } ] },
     { label: 'AMD Radeon PRO', gpus: [
       { g: 'Radeon PRO W7900 (48GB)', vram: 48 }, { g: 'Radeon PRO W7800 (32GB)', vram: 32 } ] },
-    { label: 'Intel Arc', gpus: [
-      { g: 'Arc B580 (12GB)', vram: 12 }, { g: 'Arc A770 (16GB)', vram: 16 }, { g: 'Arc A750 / A580 (8GB)', vram: 8 } ] },
+    // Intel is never tiered by VRAM: there is no Intel VRAM probe at all
+    // (mem_info_vram_total is amdgpu-only; i915/xe export no equivalent). So
+    // detect-tier splits Intel by PCI address — an iGPU (always 00:02.x) is
+    // tiered by shared system RAM, a discrete Arc is floored at 'entry'. The
+    // VRAM below is the card's real spec but does NOT pick the tier.
+    { label: 'Intel Arc — no VRAM probe (see note)', gpus: [
+      { g: 'Arc 140V / 130V (Core Ultra iGPU — X1 Carbon)', vram: 0, intel: 'igpu' }, { g: 'Iris Xe / UHD (integrated)', vram: 0, intel: 'igpu' },
+      { g: 'Arc B580 (12GB)', vram: 12, intel: 'discrete' }, { g: 'Arc A770 (16GB)', vram: 16, intel: 'discrete' }, { g: 'Arc A750 / A580 (8GB)', vram: 8, intel: 'discrete' } ] },
     { label: 'Two identical cards (pooled)', gpus: [
       { g: '2× RTX 6000 Ada (48GB → 96GB)', vram: 96, pooled: true }, { g: '2× RTX 5090 (32GB → 64GB)', vram: 64, pooled: true }, { g: '2× RTX 4090 / 3090 (24GB → 48GB)', vram: 48, pooled: true } ] },
     { label: 'Datacenter (→ Server mode)', gpus: [
@@ -459,7 +499,7 @@
   ];
   var RAMS = [8, 16, 32, 64, 128];
 
-  // Same thresholds as distro-ai-detect-tier (GiB).
+  // Same thresholds as distro-ai-detect-tier's tier_for_vram (GiB).
   function tierFor(gb) {
     if (gb < 5) return 'cpu';
     if (gb < 11) return 'entry';
@@ -467,6 +507,46 @@
     if (gb < 30) return 'high';
     if (gb < 45) return 'max';
     return 'ultra';
+  }
+  // detect-tier's tier_for_igpu_ram: an Intel iGPU shares system RAM, so it is
+  // tiered by RAM less ~6GiB of OS/desktop headroom. The cpu floor matters — an
+  // iGPU adds no memory, so it must not tier a small box HIGHER than the same
+  // box without one. An iGPU never reaches high/max/ultra.
+  function tierForIgpuRam(usableGb) {
+    if (usableGb < 4) return 'cpu';
+    if (usableGb < 12) return 'entry';
+    return 'mid';
+  }
+
+  // Mirrors resolve_usecase_model() in distro-ai-model for the DEFAULT
+  // (balance/power) laptop profile: order the variants by tier, then take the
+  // first whose min_vram_gb fits the detected VRAM. Key order is the table's own
+  // insertion order, exactly as in the Python.
+  // NOT modelled here: PROFILE=efficiency, which makes distro-ai-model sort by
+  // min_vram_gb ascending (smallest-that-fits) instead of the tier order. This
+  // picker therefore shows the balance/power answer; an efficiency-profile
+  // laptop may load a smaller tag than what's previewed. Keeping the JS a
+  // faithful-but-partial mirror is deliberate — the alternative is duplicating
+  // the profile logic in a second place that can drift again.
+  function resolveModel(usecase, tier, vramMib) {
+    var uc = MODEL_TABLE[usecase];
+    var base = (tier === 'high' || tier === 'max' || tier === 'ultra') ? ['high', 'low', 'cpu']
+             : (tier === 'cpu') ? ['cpu', 'low', 'high']
+             : ['low', 'cpu', 'high'];
+    var order = base.concat(Object.keys(uc).filter(function (k) {
+      return k !== 'label' && k !== 'runtime' && base.indexOf(k) < 0;
+    }));
+    var cands = [];
+    order.forEach(function (k) { if (uc[k]) cands.push(uc[k]); });
+    function fits(tag) {
+      var mv = MIN_VRAM_GB[tag];
+      if (!mv || vramMib <= 0) return true;   // no requirement, or VRAM unknown -> allow
+      return mv * 1024 <= vramMib;
+    }
+    var i = 0;
+    for (; i < cands.length; i++) { if (fits(cands[i])) break; }
+    if (i >= cands.length) { i = 0; }         // nothing fits -> first, and the CLI warns
+    return { tag: cands[i], fellBack: i > 0 };
   }
   function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
 
@@ -497,51 +577,86 @@
       res.className = 'cfg-result cfg-server';
       res.innerHTML =
         '<div class="tier-head"><span class="tier-badge" style="border-color:var(--warn);color:var(--warn)">Server mode</span><span class="vram">' + esc(o.vram) + 'GB — datacenter GPU</span></div>' +
-        '<p style="margin:12px 0 0;color:var(--text-dim);font-size:0.92rem">Datacenter cards (H100 / H200 / B200 / MI300X…) are headless server silicon. Refract OS routes them to <strong>Server mode</strong> — a headless serving path (lms&nbsp;CLI / vLLM) — not the desktop LM&nbsp;Studio GUI. A desktop chat UI is the wrong shape for a rack card.</p>' +
+        '<p style="margin:12px 0 0;color:var(--text-dim);font-size:0.92rem">Datacenter cards (H100 / H200 / B200 / MI300X…) are headless server silicon. <code>distro-ai-detect-tier</code> stops on them and points at <strong>Server mode</strong>&rsquo;s headless serving path (Ollama&nbsp;/&nbsp;vLLM) rather than desktop AI mode — a desktop chat GUI is the wrong shape for a rack card. Override with <code>--tier ultra</code> or <code>REFRACT_ALLOW_DATACENTER=1</code>.</p>' +
         '<div class="cfg-cmd"><span class="prompt">$</span> distro-modectl switch server</div>';
       return;
     }
 
-    var t = tierFor(o.vram);
-    var models = {}; Object.keys(TIERS[t].models).forEach(function (k) { models[k] = TIERS[t].models[k]; });
     var notes = [];
+    var t, vramMib, vramTxt;
+    if (o.intel) {
+      // Intel is never tiered by VRAM — detect-tier records vram_mib=0 for it,
+      // which also disables distro-ai-model's fit gate entirely.
+      vramMib = 0;
+      if (o.intel === 'discrete') {
+        // No probe exists for a dGPU's VRAM, so detect-tier refuses to invent a
+        // figure: it floors any discrete Arc at 'entry' and tells you to set the
+        // real tier by hand.
+        t = 'entry';
+        vramTxt = 'VRAM not probeable';
+        notes.push(note('Intel dGPUs have <strong>no VRAM probe</strong> — <code>mem_info_vram_total</code> is amdgpu-only and i915/xe export no equivalent. detect-tier won&rsquo;t guess: it floors every discrete Arc at <strong>entry</strong> (they all ship ≥6GB) and asks you to set the real tier — for this card, <code>distro-ai-detect-tier --tier ' + esc(tierFor(o.vram)) + '</code>.'));
+      } else {
+        var usable = Math.max(ram - 6, 0);
+        t = tierForIgpuRam(usable);
+        vramTxt = 'no VRAM (shares RAM)';
+        notes.push(note('An Arc <strong>iGPU shares system RAM</strong>, so it&rsquo;s tiered by RAM, not VRAM: ' + ram + 'GB &minus; ~6GB OS headroom = ' + usable + 'GB &rarr; <strong>' + esc(t) + '</strong>. An iGPU never reaches high/max/ultra.'));
+      }
+      notes.push(note('Needs Ollama&rsquo;s Vulkan backend — detect-tier sets <code>OLLAMA_VULKAN=1</code> once <code>vulkaninfo</code> shows a real Arc device (not Mesa&rsquo;s llvmpipe). The Arc NPU is never used.'));
+    } else {
+      t = tierFor(o.vram);
+      vramMib = o.vram * 1024;
+      vramTxt = o.vram === 0 ? 'no dedicated VRAM' : (o.pooled ? '~' + o.vram + 'GB pooled' : o.vram + 'GB VRAM');
+    }
+
+    // The stock blurbs all talk about VRAM, which is exactly what Intel has no
+    // figure for — so say what's actually true on each Intel path instead.
+    var blurb = TIER_BLURB[t];
+    if (o.intel === 'discrete') {
+      blurb = 'Floored at entry — 7–8B models, until you set the card’s real tier by hand.';
+    } else if (o.intel) {
+      blurb = t === 'cpu' ? 'Too little RAM left to feed the iGPU — falls back to CPU inference, ≤4B models.'
+            : t === 'mid' ? '7–8B models (the same tags as entry), running out of shared system RAM.'
+            : '7–8B models, running out of shared system RAM.';
+    }
+
+    // Resolve each use-case the way distro-ai-model would on this box.
+    var rows = '', downgraded = [];
+    Object.keys(MODEL_TABLE).forEach(function (k) {
+      var r = resolveModel(k, t, vramMib);
+      if (r.fellBack) downgraded.push(MODEL_TABLE[k].label);
+      rows += '<li><span class="k">' + esc(MODEL_TABLE[k].label) + '</span><span class="v">' +
+              esc(MODEL_NAMES[r.tag] || r.tag) + '<span class="tag">' + esc(r.tag) + '</span></span></li>';
+    });
+    rows += '<li><span class="k">Image gen (ComfyUI)</span><span class="v">' + esc(IMAGE_FOR[t]) + '</span></li>';
 
     if (t === 'cpu') {
-      if (ram < 8) notes.push(note(ram + 'GB RAM is tight for CPU inference — 3B models want ~6GB free. 16GB+ recommended.'));
-      if (cpu === 'low') notes.push(note('Low-core CPU — expect slow generation (a few tok/s). Fine for short prompts; a GPU is far faster.'));
-      else if (cpu === 'mid') notes.push(note('Mainstream CPU — 3B models run at ~5–10 tok/s.', true));
+      if (ram <= 8) notes.push(note(ram + 'GB RAM is tight for CPU inference once the desktop has its share — 16GB+ is comfortable.'));
+      if (cpu === 'low') notes.push(note('Low-core CPU — expect slow generation (a few tok/s). Fine for short prompts; any GPU is far faster.'));
+      else if (cpu === 'mid') notes.push(note('Mainstream CPU — 3–4B models run at ~5–10 tok/s.', true));
       else notes.push(note('High-core CPU — best CPU-only speed, though any dGPU still wins big.', true));
-    } else if (t === 'max') {
-      // The 70B loads via partial CPU offload (--gpu 0.8), which spills to system
-      // RAM — so RAM decides how well it runs. distro-ai-model does NOT auto-swap
-      // the model by RAM; it just warns and you can pick a smaller one by hand.
-      if (ram < 48) {
-        notes.push(note('Llama-3.3-70B uses partial CPU offload (--gpu 0.8) and wants ~64GB RAM — with ' + ram + 'GB it will be slow or spill. For a snappy fit, pick a smaller model by hand: distro-ai-model use day-to-day balanced (Qwen2.5-14B).'));
-      } else {
-        notes.push(note('Llama-3.3-70B runs via partial CPU offload to your ' + ram + 'GB RAM (~6–12 tok/s).', true));
-      }
-    } else if (t === 'ultra') {
-      notes.push(note('70B fits entirely in VRAM (no offload) — RAM isn\'t the limiter here.', true));
-      if (o.vram >= 90) notes.push(note('96GB-class card: also runs 104B/123B dense models and gpt-oss-120B.', true));
-    } else {
-      // entry / mid / high: everything fits VRAM
-      notes.push(note('All models for this tier fit fully in VRAM.', true));
+    } else if (downgraded.length) {
+      notes.push(note('Not enough VRAM for this tier&rsquo;s first-choice ' + esc(downgraded.join(' / ')) + ' model — distro-ai-model falls back to the lighter tag shown.'));
+    } else if (!o.intel) {
+      notes.push(note('Every model above fits fully in VRAM.', true));
     }
-    if (ram < 16 && t !== 'cpu') notes.push(note('Only ' + ram + 'GB RAM — fine for VRAM-resident models, but low for a desktop running games/apps alongside.'));
+    // Honest gap: the big models exist in the tier catalogs but nothing loads them.
+    if (t === 'max' || t === 'ultra') {
+      notes.push(note('This tier&rsquo;s catalog also lists 70B+ models (Llama-3.3-70B; at 96GB also gpt-oss-120B / 123B / 104B), but they are <strong>not</strong> in distro-ai-model&rsquo;s table — <code>use</code> never loads them. Today they need an exact tag: <code>distro-ai-model load llama3.3:70b</code>.'));
+    }
+    if (ram < 16 && t !== 'cpu' && !o.intel) notes.push(note('Only ' + ram + 'GB RAM — fine for VRAM-resident models, but low for a desktop running games/apps alongside.'));
 
-    var rows = Object.keys(models).map(function (k) {
-      return '<li><span class="k">' + esc(k) + '</span><span class="v">' + esc(models[k]) + '</span></li>';
-    }).join('');
-    var vramTxt = o.vram === 0 ? 'no dedicated VRAM' : (o.pooled ? '~' + o.vram + 'GB pooled' : o.vram + 'GB VRAM');
+    var cmdNote = t === 'cpu'
+      ? '# installs Ollama, pulls one model (coding)'
+      : '# installs Ollama + ComfyUI, pulls one LLM (coding) + your image model';
 
     res.className = 'cfg-result';
     res.innerHTML =
       '<div class="tier-head"><span class="tier-badge">' + esc(t) + ' tier</span><span class="vram">' + esc(vramTxt) + ' · ' + esc(ram) + 'GB RAM</span></div>' +
-      '<p style="margin:8px 0 0;color:var(--text-dim);font-size:0.9rem">' + esc(TIERS[t].blurb) + '</p>' +
+      '<p style="margin:8px 0 0;color:var(--text-dim);font-size:0.9rem">' + esc(blurb) + '</p>' +
       '<ul class="cfg-models">' + rows + '</ul>' +
       (notes.length ? '<ul class="cfg-notes">' + notes.join('') + '</ul>' : '') +
-      '<div class="cfg-cmd"><span class="prompt">$</span> distro-ai-setup --install&nbsp;&nbsp;<span style="color:var(--text-faint)"># installs + preloads the ' + esc(t) + '-tier models</span></div>' +
-      '<div class="cfg-note">Auto-detected on first boot — or run it yourself. Full menu: <code>distro-ai-model list</code>.</div>';
+      '<div class="cfg-cmd"><span class="prompt">$</span> distro-ai-setup --install&nbsp;&nbsp;<span style="color:var(--text-faint)">' + esc(cmdNote) + '</span></div>' +
+      '<div class="cfg-note">Auto-detected on first boot — or run it yourself. The other use-cases (<code>cad</code>, <code>know-it-all</code>, <code>uncensored</code>, <code>assistant</code>) pull on demand: <code>distro-ai-model use &lt;case&gt;</code>. Full menu: <code>distro-ai-model list</code>.</div>';
   }
 
   gpuSel.addEventListener('change', render);

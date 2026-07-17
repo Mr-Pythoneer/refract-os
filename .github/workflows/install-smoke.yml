@@ -19,7 +19,11 @@ on:
   workflow_dispatch:
     inputs:
       build_run_id:
-        description: "build-iso run id (empty = latest successful)"
+        description: "build-iso run id (empty = latest successful FULL build)"
+        required: false
+        default: ""
+      artifact:
+        description: "ISO artifact name (empty = the run's full refract-os-<strain>)"
         required: false
         default: ""
       phase:
@@ -40,25 +44,54 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve build run id
+      - name: Resolve build run + artifact
         id: run
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_RUN: ${{ inputs.build_run_id }}
+          INPUT_ARTIFACT: ${{ inputs.artifact }}
         run: |
           set -euo pipefail
-          if [ -n "$INPUT_RUN" ]; then id="$INPUT_RUN"
-          else id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-iso.yml --status success --limit 1 --json databaseId -q '.[0].databaseId'); fi
-          [ -n "$id" ] || { echo "No successful build-iso run." >&2; exit 1; }
-          echo "id=$id" >> "$GITHUB_OUTPUT"
+          # Resolve the artifact by NAME, never a bare `refract-os-*` glob: a
+          # mode-omitted build uploads refract-os-<strain>-no<mode> and a testing
+          # build appends -DANGER-TESTING-NO-LOGIN. Both match refract-os-* and
+          # both would red-X this job for a phantom reason (an -noai image has no
+          # ai mode to install; a DANGER image has no login). A FULL build's
+          # artifact is exactly refract-os-<strain> — no -no*/-DANGER tail.
+          pick() {  # pick <run-id> -> wanted artifact name, empty if it has none
+            local list
+            list=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$1/artifacts" \
+                     --jq '.artifacts[] | select(.expired | not) | .name') || return 0
+            if [ -n "$INPUT_ARTIFACT" ]; then
+              printf '%s\n' "$list" | grep -xF -- "$INPUT_ARTIFACT" || true
+            else
+              printf '%s\n' "$list" | grep -E '^refract-os-[a-z0-9]+$' | head -n1 || true
+            fi
+          }
+          if [ -n "$INPUT_RUN" ]; then
+            id="$INPUT_RUN"; art=$(pick "$id")
+          else
+            # Newest-first, first run that STILL has the wanted artifact: a
+            # -noai/DANGER (or expired) build is skipped, not silently tested.
+            id=""; art=""
+            for cand in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-iso.yml \
+                            --status success --limit 20 --json databaseId -q '.[].databaseId'); do
+              art=$(pick "$cand")
+              if [ -n "$art" ]; then id="$cand"; break; fi
+            done
+          fi
+          [ -n "$id" ] && [ -n "$art" ] || {
+            echo "No build-iso run with a ${INPUT_ARTIFACT:-full refract-os-<strain>} artifact (mode-omitted/testing builds don't count — pass 'artifact' to force one)." >&2
+            exit 1; }
+          echo "using run $id, artifact $art"
+          { echo "id=$id"; echo "artifact=$art"; } >> "$GITHUB_OUTPUT"
 
       - name: Download ISO artifact
         uses: actions/download-artifact@v4
         with:
-          pattern: refract-os-*
+          name: ${{ steps.run.outputs.artifact }}
           run-id: ${{ steps.run.outputs.id }}
           github-token: ${{ github.token }}
-          merge-multiple: true
           path: iso-dl
 
       - name: Mount the live squashfs
@@ -96,23 +129,44 @@ jobs:
           echo "unpackfs source = $src"
           chk "unpackfs source is /cdrom/casper/filesystem.squashfs" '[ "$src" = "/cdrom/casper/filesystem.squashfs" ]'
 
-          # Every module named in the exec/show sequence that we ship a conf for
-          # must have that conf (builtin modules like mount/fstab/grubcfg don't).
-          python3 - <<'PY'
+          # Every conf we ship must actually be LOADED by the sequence — an
+          # orphaned conf is dead config (the rootfs/unpackfs instance bug).
+          # A bare sequence entry loads <module>.conf, but a NAMED INSTANCE
+          # ('<module>@<id>') loads the conf named by settings.conf's 'instances:'
+          # block instead, so packagechooser@modes is what makes
+          # packagechooser_modes.conf a used conf. Resolve through 'instances:'
+          # before comparing, or every instance-only conf looks orphaned.
+          if python3 - <<'PY'
           import yaml, os, sys
           s = yaml.safe_load(open('/mnt/sq/etc/calamares/settings.conf'))
           seq = []
           for phase in s['sequence']:
               for k, v in phase.items():
                   seq += v
+          # (module, id) -> conf filename. Calamares defaults an instance that
+          # omits 'config:' to <module>.conf, same as a bare entry.
+          inst = {(i['module'], i['id']): i.get('config', i['module'] + '.conf')
+                  for i in (s.get('instances') or [])}
+          used = set()
+          for entry in seq:
+              if '@' in entry:
+                  mod, iid = entry.split('@', 1)
+                  conf = inst.get((mod, iid), mod + '.conf')
+              else:
+                  conf = entry + '.conf'
+              used.add(conf[:-5])
           shipped = {f[:-5] for f in os.listdir('/mnt/sq/etc/calamares/modules') if f.endswith('.conf')}
-          missing = [m for m in shipped if m not in seq]
+          orphaned = sorted(shipped - used)
           print("sequence:", seq)
+          print("instances:", {f"{m}@{i}": c for (m, i), c in inst.items()})
           print("shipped module configs:", sorted(shipped))
-          # every shipped config should actually be referenced by the sequence
-          sys.exit(1 if missing else 0)
+          if orphaned:
+              print("ORPHANED (shipped but no sequence entry loads it):", orphaned)
+          sys.exit(1 if orphaned else 0)
           PY
-          chk "every shipped module conf is used by the sequence" 'true'
+          then echo "ok   every shipped module conf is used by the sequence"
+          else echo "FAIL every shipped module conf is used by the sequence"; fail=1
+          fi
 
           [ "$fail" -eq 0 ] || { echo "installer-assembly assertions FAILED" >&2; exit 1; }
 
@@ -155,25 +209,49 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve build run id
+      - name: Resolve build run + artifact
         id: run
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_RUN: ${{ inputs.build_run_id }}
+          INPUT_ARTIFACT: ${{ inputs.artifact }}
         run: |
           set -euo pipefail
-          if [ -n "$INPUT_RUN" ]; then id="$INPUT_RUN"
-          else id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-iso.yml --status success --limit 1 --json databaseId -q '.[0].databaseId'); fi
-          [ -n "$id" ] || { echo "No successful build-iso run to install-smoke." >&2; exit 1; }
-          echo "id=$id" >> "$GITHUB_OUTPUT"
+          # Same explicit-artifact resolution as the inspect job — see the comment
+          # there. A `refract-os-*` glob would happily hand this job a -noai or
+          # DANGER-TESTING-NO-LOGIN image and fail on a phantom defect.
+          pick() {  # pick <run-id> -> wanted artifact name, empty if it has none
+            local list
+            list=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$1/artifacts" \
+                     --jq '.artifacts[] | select(.expired | not) | .name') || return 0
+            if [ -n "$INPUT_ARTIFACT" ]; then
+              printf '%s\n' "$list" | grep -xF -- "$INPUT_ARTIFACT" || true
+            else
+              printf '%s\n' "$list" | grep -E '^refract-os-[a-z0-9]+$' | head -n1 || true
+            fi
+          }
+          if [ -n "$INPUT_RUN" ]; then
+            id="$INPUT_RUN"; art=$(pick "$id")
+          else
+            id=""; art=""
+            for cand in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-iso.yml \
+                            --status success --limit 20 --json databaseId -q '.[].databaseId'); do
+              art=$(pick "$cand")
+              if [ -n "$art" ]; then id="$cand"; break; fi
+            done
+          fi
+          [ -n "$id" ] && [ -n "$art" ] || {
+            echo "No build-iso run with a ${INPUT_ARTIFACT:-full refract-os-<strain>} artifact (mode-omitted/testing builds don't count — pass 'artifact' to force one)." >&2
+            exit 1; }
+          echo "using run $id, artifact $art"
+          { echo "id=$id"; echo "artifact=$art"; } >> "$GITHUB_OUTPUT"
 
       - name: Download ISO artifact
         uses: actions/download-artifact@v4
         with:
-          pattern: refract-os-*
+          name: ${{ steps.run.outputs.artifact }}
           run-id: ${{ steps.run.outputs.id }}
           github-token: ${{ github.token }}
-          merge-multiple: true
           path: iso-dl
 
       - name: Prepare QEMU + vncdotool

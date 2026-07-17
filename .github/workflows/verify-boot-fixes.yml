@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       build_run_id:
-        description: "build-iso run id to fetch the laptop ISO from"
+        description: "build-iso run id to fetch the ISO from (any strain)"
         required: true
 
 jobs:
@@ -23,11 +23,23 @@ jobs:
       actions: read
       contents: read
     steps:
-      - name: Download the built laptop ISO
+      - name: Download the built ISO
         run: |
           set -euo pipefail
-          gh run download "${{ inputs.build_run_id }}" --repo ${{ github.repository }} -n refract-os-laptop -D .
-          ls -lh refract-os-laptop.iso
+          # -p (glob), not -n (exact): the artifact is refract-os-<strain> only for
+          # a full build — a mode-omitted one is refract-os-<strain>-no<mode> and a
+          # testing one appends -DANGER-TESTING-NO-LOGIN, and `-n refract-os-laptop`
+          # hard-fails on every one of those. The run id is an explicit input, so
+          # whatever ISO that run produced is the ISO we were asked to verify.
+          gh run download "${{ inputs.build_run_id }}" --repo "${{ github.repository }}" \
+            -p 'refract-os-*' -D iso-dl
+          # Glob the ISO too: a testing build's file is renamed
+          # DANGER-DO-NOT-USE-TESTING-NO-LOGIN-refract-os-<strain>.iso, and `-p`
+          # extracts each artifact into its own iso-dl/<artifact-name>/ subdir.
+          iso=$(find iso-dl -name '*.iso' | head -n1)
+          [ -n "$iso" ] || { echo "No .iso in run ${{ inputs.build_run_id }}'s artifacts." >&2; exit 1; }
+          ls -lh "$iso"
+          echo "ISO=$PWD/$iso" >> "$GITHUB_ENV"
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -36,7 +48,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y squashfs-tools >/dev/null
           sudo mkdir -p /mnt/iso /mnt/sq
-          sudo mount -o loop,ro refract-os-laptop.iso /mnt/iso
+          sudo mount -o loop,ro "$ISO" /mnt/iso
           echo "ISO contents (casper):"; ls -la /mnt/iso/casper/ | grep -E "squashfs|vmlinuz|initrd|manifest" || true
           sudo mount -t squashfs -o loop,ro /mnt/iso/casper/filesystem.squashfs /mnt/sq
           echo "squashfs mounted."
@@ -50,7 +62,14 @@ jobs:
             if eval "$2" >/dev/null 2>&1; then echo "  PASS  $1"; else echo "  FAIL  $1"; fail=1; fi
           }
           echo "=== GDM forced to Xorg ==="
-          chk "WaylandEnable=false in /etc/gdm3/daemon.conf" \
+          # custom.conf is the file Ubuntu's gdm3 READS. This used to assert on
+          # daemon.conf (Debian's name) — the same file the hook wrote — so it
+          # passed while the setting was inert and the machine booted Wayland.
+          # Assert the real one; daemon.conf is checked too, but it is the inert
+          # belt-and-braces copy, not the thing that makes the fix work.
+          chk "WaylandEnable=false in /etc/gdm3/custom.conf (the file Ubuntu gdm3 reads)" \
+              "grep -q '^WaylandEnable=false' $SQ/etc/gdm3/custom.conf"
+          chk "WaylandEnable=false in /etc/gdm3/daemon.conf (inert Debian-name copy)" \
               "grep -q '^WaylandEnable=false' $SQ/etc/gdm3/daemon.conf"
           echo "=== Xorg session exists (so gdm has something to launch) ==="
           chk "ubuntu-xorg.desktop present" \

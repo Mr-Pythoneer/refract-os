@@ -128,7 +128,21 @@ tier = os.environ.get("TIER", "max")
 if tier in ("high", "max", "ultra"): base = ["high", "low", "cpu"]
 elif tier == "cpu":                  base = ["cpu", "low", "high"]
 else:                                base = ["low", "cpu", "high"]
-order = base + [k for k in uc if k not in skip and k not in base]
+# PROFILE then moves the pick WITHIN the tier, never above it: the tier is
+# derived from MEASURED VRAM, so no tag heavier than the tier tag would fit
+# anyway -- "power" (the best models the tier allows, i.e. same as a desktop)
+# and the "balance" default therefore both land on the tier order above, and a
+# 3-point profile cannot be 3-way distinct on the laptop tiers (entry/mid offer
+# only two rungs: "low" and "cpu"). Only "efficiency" moves the pick: it trades
+# quality for speed/battery by taking the LIGHTEST tag this use-case offers,
+# ranked by the table min_vram_gb. A tag carrying no min_vram_gb (the ComfyUI
+# pseudo-tag) ranks last so it is never mistaken for the lightest.
+profile = os.environ.get("PROFILE", "balance")
+if profile == "efficiency":
+    order = sorted((k for k in uc if k not in skip),
+                   key=lambda k: models.get(uc[k], {}).get("min_vram_gb") or 10 ** 6)
+else:
+    order = base + [k for k in uc if k not in skip and k not in base]
 cands = [uc[k] for k in order if k in uc]
 tag = next((c for c in cands if fits(c)), None)
 if tag is None:   # nothing fits -> first candidate, load_model will warn
@@ -216,7 +230,8 @@ case "${1:-}" in
         table_py '
 import json, os
 t = json.loads(os.environ["TABLE"])
-print("Use-cases (high = 32GB+ dGPU, low = laptop/shared VRAM; picked by tier):")
+print("Use-cases (high = 32GB+ dGPU, low = laptop/shared VRAM; picked by tier —")
+print("or the lightest tag that fits when profile=efficiency):")
 for name, uc in t["use_cases"].items():
     variants = ", ".join("{}={}".format(k, v) for k, v in uc.items() if k not in ("label", "runtime"))
     rt = " [ComfyUI]" if uc.get("runtime") == "comfyui" else ""

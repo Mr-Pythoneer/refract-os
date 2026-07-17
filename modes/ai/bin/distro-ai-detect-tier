@@ -9,10 +9,14 @@
 #           /sys/class/drm/card*/device/mem_info_vram_total. MULTI-GPU: sums
 #           VRAM across HOMOGENEOUS same-name cards (Ollama pools
 #           same-vendor cards via layer-split); mixed vendors are NOT pooled.
-#   iGPU  - Intel Arc (integrated) via lspci + vulkaninfo --summary, ONLY when no
-#           discrete GPU is found. An iGPU has no VRAM of its own (it shares LPDDR
-#           system RAM), so it's tiered by usable system RAM, not VRAM, and Ollama's
-#           Vulkan backend (OLLAMA_VULKAN=1) is turned on for it.
+#   Intel - Arc via lspci + vulkaninfo --summary, ONLY when the probes above found
+#           no VRAM; Ollama's Vulkan backend (OLLAMA_VULKAN=1) is turned on for it.
+#           An INTEGRATED Arc has no VRAM of its own (it shares LPDDR system RAM),
+#           so it's tiered by usable system RAM, not VRAM. A DISCRETE Arc (A770,
+#           B580, ...) is told apart by its PCI address (an iGPU is always 00:02.x)
+#           and gets a floored 'entry' tier: there is NO VRAM probe for Intel dGPUs
+#           (mem_info_vram_total is amdgpu-only), and this does not fake one — pass
+#           --tier for a bigger card.
 #   RAM   - /proc/meminfo MemTotal.
 #   form  - laptop vs desktop via DMI chassis_type + battery presence.
 #
@@ -24,9 +28,10 @@
 #   (A100/H100/H200/B200/MI300X/Gaudi/Grace) are NOT a desktop tier — this
 #   routes them to Server mode's headless serving path instead.
 #
-# PROFILE (which catalog variant distro-ai-model loads by default):
+# PROFILE (which model variant distro-ai-model loads by default):
 #   desktop -> power (best models). laptop -> you choose:
-#     efficiency (fast/small, least battery) | balance | power (== desktop).
+#     efficiency (the lightest model a use-case offers: fastest, least battery)
+#     | balance | power (== desktop: the best models the tier fits).
 #
 # IMAGE (which ComfyUI image model to preload): you pick from what the tier
 #   supports, or none.
@@ -139,9 +144,12 @@ classify_gpu() {
     echo consumer
 }
 
-# compute_vram: reads "<mib>\t<name>" lines on stdin, prints "<pooled>\t<single>\t<count>".
+# compute_vram: reads "<mib>\t<name>" lines on stdin, prints
+# "<pooled>\t<single>\t<count>\t<name>".
 # pooled = largest sum over a HOMOGENEOUS same-name group (Ollama pools those);
-# single = largest single card; count = number of GPUs in the winning group.
+# single = largest single card; count = number of GPUs in the winning group;
+# name = that winning group's name — the caller reports the GPU the tier actually
+# came from, which on an APU + dGPU box is NOT the first-probed card.
 # NOTE: uses `python3 -c` (not a heredoc) so the piped GPU list stays on stdin —
 # a `python3 - <<HEREDOC` would make the heredoc itself python's stdin.
 compute_vram() {
@@ -164,11 +172,12 @@ for line in sys.stdin:
     groups[name][1] += 1
     single = max(single, mib)
 if groups:
-    win = max(groups.values(), key=lambda v: v[0])
+    # max() keeps the first group on a tie, i.e. probe order (nvidia before amd).
+    name, win = max(groups.items(), key=lambda kv: kv[1][0])
     pooled, count = win
 else:
-    pooled, count = 0, 0
-print("%d\t%d\t%d" % (pooled, single, count))
+    name, pooled, count = "", 0, 0
+print("%d\t%d\t%d\t%s" % (pooled, single, count, name))
 '
 }
 
@@ -193,25 +202,61 @@ detect_ram_mb() {
     echo $(( kb / 1024 ))
 }
 
-# ---- Intel iGPU (Arc) detection — env-overridable, no root needed ------------
-# An Intel Arc integrated GPU has no dedicated VRAM: the nvidia/amd probes above
-# see nothing and would drop us to the cpu tier. Ollama can still drive an Arc via
-# its opt-in Vulkan backend, so detect one here with two injectable probes.
+# ---- Intel Arc detection — env-overridable, no root needed -------------------
+# Neither Intel Arc flavour is visible to the probes above: an INTEGRATED Arc has
+# no dedicated VRAM at all, and a DISCRETE one has VRAM that nothing exports
+# (mem_info_vram_total is amdgpu-only). Both would drop us to the cpu tier, yet
+# Ollama can drive either via its opt-in Vulkan backend — so detect them here with
+# injectable probes, and tell the two apart (they differ in how they are tiered).
 
-# intel_vga_present: does `lspci -nn` list an Intel VGA/Display/3D controller?
+# intel_vga_lines: the Intel VGA/Display/3D controller lines of `lspci -nn`
+# (empty when there are none, or when lspci is not installed).
 # (REFRACT_LSPCI injects the lspci output for hermetic tests.)
-intel_vga_present() {
-    local out hits
+intel_vga_lines() {
+    local out
     if [ -n "${REFRACT_LSPCI:-}" ]; then
         out="$REFRACT_LSPCI"
     else
-        command -v lspci >/dev/null 2>&1 || return 1
+        command -v lspci >/dev/null 2>&1 || return 0
         out="$(lspci -nn 2>/dev/null || true)"
     fi
-    hits="$(printf '%s\n' "$out" \
+    printf '%s\n' "$out" \
         | grep -iE 'VGA compatible controller|Display controller|3D controller' \
-        | grep -i 'intel' || true)"
-    [ -n "$hits" ]
+        | grep -i 'intel' || true
+}
+
+# intel_vga_present: does lspci list ANY Intel VGA/Display/3D controller?
+intel_vga_present() { [ -n "$(intel_vga_lines)" ]; }
+
+# intel_discrete_lines: those of the Intel controllers that are DISCRETE cards
+# rather than the on-package iGPU (empty if none). The PCI address is the
+# discriminator: Intel integrated graphics always sit at 00:02.x on the root
+# complex, while a discrete Arc sits behind a PCIe port on another bus. The
+# marketing name cannot decide this ("Arc" is equally the brand of the
+# Meteor/Lunar Lake iGPUs), and there is no size probe to fall back on —
+# mem_info_vram_total is amdgpu-only and neither i915 nor xe exports an
+# equivalent — so this reports PRESENCE only and the caller floors the tier
+# rather than inventing a VRAM figure.
+# (A GPU passed through to a VM can land at another address; --tier overrides it.)
+intel_discrete_lines() {
+    intel_vga_lines | grep -vE '^([0-9a-fA-F]{4}:)?00:02\.' || true
+}
+
+intel_discrete_present() { [ -n "$(intel_discrete_lines)" ]; }
+
+# intel_discrete_desc: name the discrete card from the lspci line that proved it
+# discrete, NOT from intel_vulkan_device: on an iGPU + discrete-Arc box vulkaninfo
+# lists both and the first Intel match is usually the iGPU, so the Vulkan name can
+# belong to the wrong device. Turns
+#   "03:00.0 VGA compatible controller [0300]: Intel Corporation DG2 [Arc A770] [8086:56a0] (rev 08)"
+# into "Intel Corporation DG2 [Arc A770]". Empty if there is no discrete line.
+intel_discrete_desc() {
+    local first d
+    first="$(intel_discrete_lines)"
+    first="${first%%$'\n'*}"     # first line, via expansion (a |head can SIGPIPE)
+    [ -n "$first" ] || return 0
+    d="${first#*: }"             # drop the "<bdf> <class> [class-id]: " prefix
+    printf '%s' "${d%% \[8086:*}"  # drop the trailing "[8086:dddd] (rev NN)"
 }
 
 # intel_vulkan_device: echoes the Vulkan deviceName and returns 0 iff
@@ -269,12 +314,18 @@ tier_for_vram() {  # <vram_mib> -> tier
 
 # tier_for_igpu_ram: an Intel iGPU has no VRAM — tier by how much system RAM is
 # usable for models after leaving ~6 GiB headroom for the OS/desktop.
-#   <8 GiB usable -> entry | 8-16 -> entry(<12)/mid(>=12) | >16 -> mid.
+#   <4 GiB usable -> cpu | 4-12 -> entry | >=12 -> mid.
+# The cpu floor is not cosmetic: a 4-8GB Intel laptop has <=2 GiB usable, which
+# cannot hold an entry-tier 7-8B model. Without the floor, having an iGPU tiered
+# such a box HIGHER ('entry') than the very same box without one (correctly
+# 'cpu' — the iGPU adds no memory, it shares the RAM we just measured).
 # A 16GB Arc laptop (~10 GiB usable) lands 'entry'; a 32GB one (~26 GiB) 'mid'.
 # An iGPU never reaches high/max/ultra — it's shared, bandwidth-limited memory.
-tier_for_igpu_ram() {  # <usable_mib> -> entry|mid
+tier_for_igpu_ram() {  # <usable_mib> -> cpu|entry|mid
     local u="$1"
-    if [ "$u" -lt 12288 ]; then echo entry; else echo mid; fi
+    if   [ "$u" -lt 4096 ];  then echo cpu
+    elif [ "$u" -lt 12288 ]; then echo entry
+    else echo mid; fi
 }
 
 # ---- catalog helpers ---------------------------------------------------------
@@ -322,11 +373,6 @@ cl() { printf '\033[%sm%s\033[0m\n' "$1" "$2"; }    # whole colored line
 
 # ---- enumerate GPUs + datacenter guard ---------------------------------------
 GPU_LINES="$(gather_gpus)"
-# First line's name field, via parameter expansion (no printf|head pipe, which
-# can SIGPIPE-abort under set -e/pipefail).
-_first_gpu="${GPU_LINES%%$'\n'*}"
-GPU_DESC="${_first_gpu#*$'\t'}"
-[ -n "$GPU_DESC" ] || GPU_DESC="no dedicated GPU (integrated / CPU)"
 
 # Datacenter/headless silicon is Server-mode territory, not a desktop AI tier.
 # Skip the guard if the user forced a tier or explicitly allowed datacenter.
@@ -357,9 +403,9 @@ if [ -z "${REFRACT_ALLOW_DATACENTER:-}" ] && [ -z "$FORCE_TIER" ] && [ -n "$GPU_
 fi
 
 # ---- effective VRAM (multi-GPU homogeneous pool) -----------------------------
-POOLED=0; SINGLE=0; GPU_COUNT=0
+POOLED=0; SINGLE=0; GPU_COUNT=0; GPU_NAME=""
 if [ -n "$GPU_LINES" ]; then
-    IFS=$'\t' read -r POOLED SINGLE GPU_COUNT <<< "$(printf '%s\n' "$GPU_LINES" | compute_vram)"
+    IFS=$'\t' read -r POOLED SINGLE GPU_COUNT GPU_NAME <<< "$(printf '%s\n' "$GPU_LINES" | compute_vram)"
 fi
 # Explicit override forces the VRAM figure used for tiering.
 if [ -n "${REFRACT_VRAM_MIB:-}" ]; then
@@ -367,24 +413,46 @@ if [ -n "${REFRACT_VRAM_MIB:-}" ]; then
     POOLED="$REFRACT_VRAM_MIB"; SINGLE="$REFRACT_VRAM_MIB"; GPU_COUNT=1
 fi
 VRAM_MIB="$POOLED"
+# Name the GPU after the group compute_vram actually POOLED, not the first card
+# probed: on an APU + dGPU box the first line is the iGPU carveout while the tier
+# comes from the dGPU's group, so a positional name printed the iGPU's name next
+# to the dGPU's VRAM.
+GPU_DESC="$GPU_NAME"
+[ -n "$GPU_DESC" ] || GPU_DESC="no dedicated GPU (integrated / CPU)"
 IS_LAPTOP="$(detect_is_laptop)"
 RAM_MB="$(detect_ram_mb)"
 VRAM_GIB="$(python3 -c "print(round($VRAM_MIB/1024, 1))")"
 RAM_GIB="$(python3 -c "print(round($RAM_MB/1024, 1))")"
 
-# ---- Intel Arc iGPU fallback (after nvidia/amd, before the cpu fallback) ------
-# The discrete-GPU probes found no usable VRAM (VRAM_MIB below the cpu cutoff).
-# Before settling for the cpu tier, look for an Intel Arc iGPU that Ollama could
-# drive over Vulkan. Skipped when a tier is forced or a real dGPU was found.
+# ---- Intel Arc fallback (after nvidia/amd, before the cpu fallback) -----------
+# The Nvidia/AMD probes found no usable VRAM (VRAM_MIB below the cpu cutoff).
+# Before settling for the cpu tier, look for an Intel Arc — integrated OR discrete
+# (neither is visible to those probes) — that Ollama could drive over Vulkan.
+# Skipped when a tier is forced or a real Nvidia/AMD dGPU was found.
 INTEL_ARC=""            # Vulkan device name once a real Arc is confirmed
-INTEL_TIER=""           # tier chosen from system RAM for that iGPU
+INTEL_TIER=""           # tier chosen for that Arc
+INTEL_DISCRETE=""       # 1 when that Arc is a discrete card, not the iGPU
 usable_mib=0
 if [ -z "$FORCE_TIER" ] && [ "$VRAM_MIB" -lt 5120 ] && intel_vga_present; then
     if INTEL_ARC="$(intel_vulkan_device)"; then
-        usable_mib=$(( RAM_MB - 6144 ))          # leave ~6 GiB for the OS/desktop
-        [ "$usable_mib" -lt 0 ] && usable_mib=0
-        INTEL_TIER="$(tier_for_igpu_ram "$usable_mib")"
-        GPU_DESC="$INTEL_ARC (Intel Arc iGPU — shares system RAM)"
+        if intel_discrete_present; then
+            # A discrete Arc has its OWN VRAM, so tiering it by system RAM the way
+            # an iGPU is tiered would read a number that has nothing to do with the
+            # card (a 64GB box with a 6GB A380 would land 'mid'). Nothing exports
+            # its size (see intel_discrete_present), so do not invent one: floor the
+            # tier at 'entry' — every discrete Arc ships >=6GB, which IS the entry
+            # band — and point at --tier for the bigger cards. Under-promises rather
+            # than guessing a VRAM figure we cannot measure.
+            INTEL_DISCRETE=1
+            INTEL_TIER="entry"
+            GPU_DESC="$(intel_discrete_desc)"
+            GPU_DESC="${GPU_DESC:-$INTEL_ARC} (discrete Intel GPU)"
+        else
+            usable_mib=$(( RAM_MB - 6144 ))      # leave ~6 GiB for the OS/desktop
+            [ "$usable_mib" -lt 0 ] && usable_mib=0
+            INTEL_TIER="$(tier_for_igpu_ram "$usable_mib")"
+            GPU_DESC="$INTEL_ARC (Intel Arc iGPU — shares system RAM)"
+        fi
     else
         INTEL_ARC=""
         cl 33 "WARNING: Intel graphics present, but Vulkan exposes no usable Arc device (only llvmpipe / software)."
@@ -396,7 +464,7 @@ fi
 if [ -n "$FORCE_TIER" ]; then
     TIER="$FORCE_TIER"
 elif [ -n "$INTEL_ARC" ]; then
-    TIER="$INTEL_TIER"                            # iGPU: tiered by shared RAM, not VRAM
+    TIER="$INTEL_TIER"        # iGPU: tiered by shared RAM; discrete Arc: entry floor
 else
     TIER="$(tier_for_vram "$VRAM_MIB")"
 fi
@@ -416,7 +484,9 @@ IMAGE="${FORCE_IMAGE:-$(default_image_token "$TIER")}"
 # ---- report ------------------------------------------------------------------
 cl 36 '== Refract AI hardware detection =='
 printf '  %-14s %s\n' "GPU:"    "$GPU_DESC"
-if [ -n "$INTEL_ARC" ]; then
+if [ -n "$INTEL_DISCRETE" ]; then
+    printf '  %-14s %s\n' "VRAM:" "not probeable on Intel dGPUs — tier floored at 'entry' (override: --tier)"
+elif [ -n "$INTEL_ARC" ]; then
     printf '  %-14s %s\n' "VRAM:" "n/a — integrated GPU shares system RAM"
     printf '  %-14s %s GiB usable for models (RAM - 6 GiB headroom)\n' \
         "Shared mem:" "$(python3 -c "print(round($usable_mib/1024, 1))")"
@@ -434,12 +504,24 @@ echo ""
 if [ "$RAM_MB" -gt 0 ] && [ "$RAM_MB" -lt 4096 ]; then
     cl 33 "WARNING: only ${RAM_GIB} GiB RAM — even cpu-tier 3B models want ~4GB+ free. Expect swapping."
 fi
-if [ -n "$INTEL_ARC" ]; then
+if [ -n "$INTEL_DISCRETE" ]; then
+    cl 33 "Discrete Intel GPU: usable via Ollama's Vulkan backend (OLLAMA_VULKAN=1), but its VRAM size cannot be"
+    echo "  probed (the sysfs VRAM node is amdgpu-only), so this tier is a conservative FLOOR, not a measurement."
+    echo "  Set it from the card's spec, e.g.:  distro-ai-detect-tier --tier mid   # A770 16GB / B580 12GB"
+elif [ -n "$INTEL_ARC" ]; then
     cl 32 "Intel Arc iGPU usable via Ollama's Vulkan backend (OLLAMA_VULKAN=1); tiered by shared RAM, not VRAM."
 fi
 if [ "$TIER" = "cpu" ]; then
-    cl 33 'No usable dedicated VRAM detected -> cpu tier (CPU inference, no image generation).'
-    echo "If you have a discrete GPU we missed, rerun with an explicit tier: distro-ai-detect-tier --tier entry|mid|high|max"
+    if [ -n "$INTEL_ARC" ]; then
+        # Reachable since tier_for_igpu_ram grew its cpu floor: the iGPU is real and
+        # still runs the model over Vulkan, there is just too little shared RAM to
+        # justify a bigger tier. Saying "no VRAM detected" here would be a lie.
+        cl 33 "Only $(python3 -c "print(round($usable_mib/1024, 1))") GiB of shared RAM is usable for models -> cpu tier (<=3B models)."
+        echo "The Arc iGPU is still used for them; more RAM raises this (or force it: distro-ai-detect-tier --tier entry)."
+    else
+        cl 33 'No usable dedicated VRAM detected -> cpu tier (CPU inference, no image generation).'
+        echo "If you have a discrete GPU we missed, rerun with an explicit tier: distro-ai-detect-tier --tier entry|mid|high|max"
+    fi
 fi
 if [ "$TIER" = "ultra" ]; then
     cl 32 "Ultra tier: 70B runs FULLY in VRAM (no CPU offload). 96GB+ also unlocks 104B/123B and gpt-oss-120B."
@@ -450,9 +532,10 @@ ask_profile() {
     [ "$IS_LAPTOP" = "1" ] || return 0          # desktops don't choose
     [ -n "$FORCE_PROFILE" ] && return 0
     cl 36 'Laptop power profile:'
-    echo "  1) efficiency  - fast/small models, least battery drain"
-    echo "  2) balance     - balanced models (default)"
-    echo "  3) power       - best models the tier allows (same as a desktop; heaviest)"
+    echo "  1) efficiency  - the lightest model each use-case offers: fastest, least battery drain"
+    echo "  2) balance     - the best models this tier fits (default)"
+    echo "  3) power       - the best models this tier fits, same as a desktop"
+    echo "                   (2 and 3 pick the same model: the tier already caps model size)"
     local ans
     read -r -p "Choose 1/2/3 [2]: " ans || ans=""
     case "$ans" in
@@ -506,6 +589,7 @@ if [ "$DO_WRITE" = "1" ]; then
         echo "profile=$PROFILE"
         echo "image=$IMAGE"
         echo "intel_arc=$INTEL_ARC"
+        echo "intel_discrete=$INTEL_DISCRETE"
     } > "$CONFIG_HOME/detected"
     echo ""
     cl 32 "Wrote $CONFIG_HOME/{tier,profile,image,vram_mib}."

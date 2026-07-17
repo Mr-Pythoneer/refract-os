@@ -138,7 +138,7 @@
 <span class="p">$</span> cat refract-os-workstation.iso.part* &gt; refract-os-workstation.iso
 <span class="c"># Windows (cmd): copy /b refract-os-workstation.iso.part00 + ...part01 refract-os-workstation.iso</span></pre>
         <p>Each release also ships a <code>.sha256</code> of the joined ISO — verify it if you like. Got the image? <strong>Skip step&nbsp;2</strong> and jump to flashing.</p>
-        <p><strong>No spare PC?</strong> Try it in a VM instead — see the <a href="utm-guide.md">UTM guide (macOS)</a>. It boots the same image; no USB needed.</p>
+        <p><strong>No spare PC?</strong> Try it in a VM instead — see the <a href="https://github.com/Mr-Pythoneer/refract-os/blob/main/docs/utm-guide.md">UTM guide (macOS)</a>. It boots the same image; no USB needed.</p>
       </div>
     </div>
 
@@ -176,7 +176,7 @@
         <h3>Boot from the USB</h3>
         <p>Reboot the target PC and open the one-time boot menu (usually <code>F12</code>, <code>F2</code>, <code>Del</code>, or <code>Esc</code> — it varies by vendor), then pick the USB stick.</p>
         <p><strong>Modern PC won't see the stick?</strong> The image is a hybrid BIOS + UEFI ISO, so a UEFI-only machine boots it natively — <em>don't</em> enable Legacy/CSM. If the stick doesn't appear, turn <strong>Secure Boot off</strong> first, and prefer the entry the boot menu labels <em>UEFI</em>. If it still doesn't show, the write itself is the usual culprit: re-flash and verify the stick's checksum against the ISO before blaming firmware.</p>
-        <p><strong>Secure Boot:</strong> on Nvidia Blackwell (RTX 50-series) and other recent GPUs you may need to turn Secure Boot off for the first boot. The driver installer (step 7) walks you through MOK signing so you can turn it back on afterwards — see <a href="blackwell-readiness.md">blackwell-readiness</a>.</p>
+        <p><strong>Secure Boot:</strong> on Nvidia Blackwell (RTX 50-series) and other recent GPUs you may need to turn Secure Boot off for the first boot. The driver installer (step 7) walks you through MOK signing so you can turn it back on afterwards — see <a href="https://github.com/Mr-Pythoneer/refract-os/blob/main/docs/blackwell-readiness.md">blackwell-readiness</a>.</p>
       </div>
     </div>
 

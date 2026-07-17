@@ -63,7 +63,7 @@ No `normal` item; no `packages:` keys (legacy). Missing screenshots fall back to
 dontChroot: false
 timeout: 60
 script:
-  - command: "/opt/distro/modes/modectl/distro-apply-mode-selection 'gs[packagechooser_modes]'"
+  - command: "/opt/distro/modes/modectl/distro-apply-mode-selection '${gs[packagechooser_modes]}'"
     timeout: 60
 ```
 `shellprocess` with `dontChroot: false` runs **inside the installed root** and supports `gs[key]` GlobalStorage substitution. `/opt/distro` is already unpacked by the time this runs (see sequencing below).
@@ -151,7 +151,7 @@ Net edit: 1 line replaced, ~16 added. Keeping the name `VALID_MODES` means both 
 
 **Must handle empty `$1` safely** (quote the expansion): with `optionalmultiple`, an empty selection is a legitimate "plain desktop" outcome that resolves to `normal` only. Do not let it word-split or error. Use `requiredmultiple` in the page conf if at least one non-Normal mode should be forced.
 
-**Substitution risk:** `gs[...]` in `shellprocess` is a relatively recent Calamares feature. If the shipped Calamares predates it, the helper receives the literal string `gs[packagechooser_modes]`. Mitigations: confirm the Calamares version at first real install, or fall back to `contextualprocess` keyed on `packagechooser_modes`. Test the substitution and the GS key name on the first VM run — the same first-real-install validation the rest of `iso/calamares/` is waiting on (`README.md:9-12,59-62`).
+**Substitution syntax (load-bearing):** upstream documents the KEY form as `gs[key]` but the COMMAND form as `${gs[key]}` (its own example: `${gs[branding.bootloader]}`). A bare `gs[key]` is NOT expanded — it passes through literally and silently discards the selection. If the shipped Calamares predates it, the helper receives the literal string `gs[packagechooser_modes]`. Mitigations: confirm the Calamares version at first real install, or fall back to `contextualprocess` keyed on `packagechooser_modes`. Test the substitution and the GS key name on the first VM run — the same first-real-install validation the rest of `iso/calamares/` is waiting on (`README.md:9-12,59-62`).
 
 ## 4. The Provably-Absent Build
 
@@ -271,7 +271,7 @@ Keep `ALL_MODES` (the immutable catalog of what modes *can* exist) and `/etc/ref
 
 **B. Installer page (SOFT selection at install time):**
 5. Add `iso/calamares/modules/packagechooser_modes.conf` (`optionalmultiple`, `method: legacy`, 4 items, no `normal`).
-6. Add `iso/calamares/modules/shellprocess_modes.conf` (`dontChroot: false`, calls the helper with `gs[packagechooser_modes]`).
+6. Add `iso/calamares/modules/shellprocess_modes.conf` (`dontChroot: false`, calls the helper with `${gs[packagechooser_modes]}` — the braces are load-bearing; a bare `gs[...]` is not expanded).
 7. Edit `iso/calamares/settings.conf`: `instances:` block + `packagechooser@modes` in `show:` (after `users`) + `shellprocess@modes` in `exec:` (after `unpackfs`, before `umount`).
 8. Add `modes/modectl/distro-apply-mode-selection` (writes `/etc/refract/enabled-modes` 0644; optional per-mode HARD `rm -rf`; handles empty `$1`). No `build.sh` change.
 9. Add 4 screenshot PNGs to `iso/calamares/branding/refractos/` (reuse per-mode wallpapers).

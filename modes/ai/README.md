@@ -38,7 +38,7 @@ distro-ai-detect-tier                 # writes ~/.config/refract-ai/{tier,profil
 
 # Text + vision LLMs (Ollama) — 02 auto-reads the detected tier
 sudo ./setup/01-install-ollama.sh     # pinned Ollama tarball; creates the 'ollama' system user + systemd unit
-./setup/02-preload-models.sh          # pull the *tier's* catalog (prints a size warning)
+./setup/02-preload-models.sh          # pull ONE model: the tier's coding model (prints a size warning)
 ./setup/05-install-opencode.sh        # optional: OpenCode coding agent on top of Ollama
 ./setup/06-install-alpaca.sh          # optional: Alpaca, a GNOME-native point-and-click Ollama chat GUI (Flatpak)
 
@@ -54,23 +54,35 @@ sudo systemctl restart ollama         # restart after a config/drop-in change
 ### Hardware tiers (so every machine preloads models that fit it)
 
 `distro-ai-detect-tier` reads VRAM (Nvidia via `nvidia-smi`, AMD/APU via sysfs),
-RAM, and laptop-vs-desktop, then maps VRAM → a tier. Each tier has its own
-`config/models.catalog.<tier>.json` of **quantized** GGUF models sized to fit:
+RAM, and laptop-vs-desktop, then maps VRAM → a tier. The tier is what picks which
+**quantized** model tags load:
 
-| Tier | VRAM (GiB) | Example cards | LLM ceiling | Image |
+| Tier | VRAM (GiB) | Example cards | LLM loaded | Image |
 |---|---|---|---|---|
-| `cpu` | none / iGPU | APUs, no dGPU | ≤3B (CPU) | none |
+| `cpu` | none / iGPU | APUs, no dGPU | ≤4B (CPU) | none |
 | `entry` | 5–11 | GTX 1660, RTX 3050/3060 | 7–8B | SDXL |
-| `mid` | 11–20 | RTX 3060 12G, 4060 Ti 16G, 4070 | 14B (+16B MoE) | SDXL / FLUX.1-schnell |
+| `mid` | 11–20 | RTX 3060 12G, 4060 Ti 16G, 4070 | 7–8B (same tags as `entry`) | SDXL / FLUX.1-schnell |
 | `high` | 20–30 | RTX 3090/4090, 7900 XTX | 32B | FLUX.1-dev |
-| `max` | 30–45 | RTX 5090 (32GB) | 70B (partial CPU offload) | FLUX.1-dev |
-| `ultra` | ≥45 | RTX PRO 6000 96G, RTX 6000 Ada 48G, W7900 48G, 2× pooled | 70B **fully in VRAM**; 96G → 104B/123B + gpt-oss-120B | FLUX.1-dev |
+| `max` | 30–45 | RTX 5090 (32GB) | 32B (same tags as `high`) | FLUX.1-dev |
+| `ultra` | ≥45 | RTX PRO 6000 96G, RTX 6000 Ada 48G, W7900 48G, 2× pooled | 32B (same tags as `high`) | FLUX.1-dev |
 
-On a **laptop** you also pick a power **profile** — `efficiency` (fast/small
-models, least battery) / `balance` / `power` (same as a desktop). The profile
-decides which variant `distro-ai-model use <case>` loads by default; desktops
-default to `power`. Override anything: `REFRACT_AI_TIER=mid`,
-`REFRACT_AI_PROFILE=efficiency`, or `distro-ai-detect-tier --tier high`.
+**The catalogs are not what selects an LLM.** `distro-ai-model`'s canonical table
+has only three classes — `cpu`/`low`/`high` — so `entry`+`mid` resolve to the same
+tags, as do `high`+`max`+`ultra`. The per-tier `config/models.catalog.<tier>.json`
+files *list* larger models (14B at `mid`, Llama-3.3-70B at `max`, gpt-oss-120B /
+Mistral-Large-123B / Command-R+ 104B at `ultra`), but **nothing reads those lists to
+pick an LLM** — only their `image` use_case is read, by `distro-ai-detect-tier`. A
+catalog-only model loads by exact tag: `distro-ai-model load llama3.3:70b`.
+
+On a **laptop** you also pick a power **profile** — `efficiency` / `balance` /
+`power` (same as a desktop); desktops default to `power`. The profile decides
+which variant `distro-ai-model use <case>` loads by default: `efficiency` takes
+the **lightest** tag the use-case offers (fast/small, least battery drain),
+while `balance` and `power` both take the best tag the **tier** fits. Those two
+deliberately coincide: the tier is measured from VRAM, so there is nothing
+heavier than it left to reach for — the profile can only trade *down*. Override
+anything: `REFRACT_AI_TIER=mid`, `REFRACT_AI_PROFILE=efficiency`, or
+`distro-ai-detect-tier --tier high`.
 
 **Intel Arc laptops (the X1 Carbon target):** when there's no discrete GPU,
 `distro-ai-detect-tier` looks for an Intel Arc **iGPU** via `vulkaninfo --summary`
@@ -78,15 +90,26 @@ default to `power`. Override anything: `REFRACT_AI_TIER=mid`,
 it enables **Ollama's Vulkan backend** (drops `Environment="OLLAMA_VULKAN=1"` into
 the `ollama` service) so the iGPU actually does the offload — this needs the
 Vulkan userspace the laptop strain ships (`mesa-vulkan-drivers` etc.). An iGPU has
-no dedicated VRAM, so it's tiered by system RAM (→ `entry`/`mid`). The Arc **NPU
+no dedicated VRAM, so it's tiered by usable system RAM (→ `cpu`/`entry`/`mid`) —
+under ~4 GiB usable it floors to `cpu`, since an iGPU adds no memory and must not
+tier a small box *higher* than the same box without one. The Arc **NPU
 is not usable** by Ollama and is never part of this path.
+
+**Discrete Intel (Arc A770/B580):** detected by PCI address (an iGPU is always at
+`00:02.x`) and given a floored **`entry`** tier. There is no VRAM probe for Intel
+dGPUs — the sysfs VRAM node is amdgpu-only — and rather than fake one, the report
+says so and asks you to set the real tier yourself: `distro-ai-detect-tier --tier
+mid` for a 16GB A770 / 12GB B580.
 
 **Multi-GPU:** `distro-ai-detect-tier` **sums** VRAM across *homogeneous
 same-model* cards (Ollama splits a model across them by layer), so 2×48GB → a
-96GB `ultra`. Mixed vendors are **not** pooled. The `ultra` tier's 96GB-class
-models (gpt-oss-120B, Mistral-Large-123B, Command-R+ 104B) carry a `min_vram_gb`,
-so on a 48GB card `use <case>` auto-falls-back to a fitting variant; an explicit
-`use <case> <variant>` that won't fit still loads but warns.
+96GB `ultra`. Mixed vendors are **not** pooled. Every tag in `distro-ai-model`'s
+table carries a `min_vram_gb`, so `use <case>` auto-falls-back to a fitting
+variant when the tier's first choice doesn't fit the *measured* VRAM (a 6GB card
+gets `moondream:1.8b` for `vision`, not `qwen2.5vl:7b`); an explicit
+`use <case> <variant>` that won't fit still loads, but warns. The catalog-only
+96GB models (gpt-oss-120B, Mistral-Large-123B, Command-R+ 104B) are outside that
+table — `load <tag>` reaches them, `use` does not.
 
 **Datacenter GPUs are Server-mode, not a desktop tier.** On an
 A100/H100/H200/B200/GB200/MI300X/Gaudi/Grace card, `distro-ai-detect-tier` stops
@@ -116,15 +139,16 @@ active tier's actual menu.
 |---|---|---|
 | `coding` | Qwen2.5-Coder-32B (`qwen2.5-coder:32b`) | Qwen2.5-Coder-7B (`qwen2.5-coder:7b`) |
 | `cad` | Qwen2.5-Coder-32B | Qwen2.5-Coder-7B |
-| `day-to-day` | Qwen3-32B | Qwen2.5-14B / Gemma3-4B / Llama-3.3-70B¹ |
-| `know-it-all` | DeepSeek-R1-32B | Qwen3-8B |
-| `uncensored` | Dolphin 2.9 Mixtral 8x7B | Dolphin3 8B |
-| `assistant` | Qwen3-30B-A3B | Llama-3.2-3B |
-| `vision` | Qwen2.5-VL-32B (`qwen2.5vl:32b`) | Qwen2.5-VL-7B (`qwen2.5vl:7b`)² |
-| `image` (ComfyUI) | FLUX.1-dev³ | SDXL |
+| `day-to-day` | Qwen3-32B | Llama-3.1-8B / Gemma3-4B |
+| `know-it-all` | DeepSeek-R1-32B | Qwen3-8B / DeepSeek-R1-8B |
+| `uncensored` | Dolphin 2.7 Mixtral 8x7B | Dolphin3 8B |
+| `assistant` | Qwen3-30B-A3B | Llama-3.1-8B |
+| `vision` | Qwen2.5-VL-32B (`qwen2.5vl:32b`) | Qwen2.5-VL-7B (`qwen2.5vl:7b`)¹ / Moondream2 |
+| `image` (ComfyUI) | FLUX.1-dev² | SDXL |
 
 Model ids are exact **ollama.com tags** (e.g. `qwen2.5-coder:7b`,
-`qwen2.5vl:7b`), pinned per tier in `config/models.catalog.<tier>.json`.
+`qwen2.5vl:7b`), pinned — never `:latest` — in the canonical table inside
+`bin/distro-ai-model` (and mirrored by `setup/02-preload-models.sh`).
 
 `distro-ai-model list | use <case> [variant] | load <ollama-tag> | server
 start|stop|status | status | unload`. It resolves the active tier from
@@ -132,18 +156,23 @@ start|stop|status | status | unload`. It resolves the active tier from
 from the profile. `distro-ai-model status` runs `ollama ps` to show what's loaded.
 
 **Verified caveats (the reason this was researched, not guessed):**
-- ¹ **Llama-3.3-70B** at Q4_K_M is ~43GB — it does NOT fit the 32GB 5090, so
-  Ollama offloads the overflow layers to the 64GB RAM. Realistic **~6–12 tok/s**
-  (the often-cited 15–20 needs a smaller quant). Everything else fits fully in VRAM.
-- ² **Vision runs on `qwen2.5vl` (Qwen2.5-VL), which Ollama supports natively** —
+- **Llama-3.3-70B is not in the table above** — `use` never loads it (it is a
+  catalog-only model); it needs `distro-ai-model load llama3.3:70b`. At Q4_K_M
+  it is ~43GB, so it does NOT fit the 32GB 5090: Ollama offloads the overflow
+  layers to the 64GB RAM. Realistic **~6–12 tok/s** (the often-cited 15–20 needs
+  a smaller quant). Everything in the table above fits fully in VRAM.
+- ¹ **Vision runs on `qwen2.5vl` (Qwen2.5-VL), which Ollama supports natively** —
   `vision` loads `qwen2.5vl:7b` by default and `qwen2.5vl:32b` on bigger tiers;
   Ollama pulls the model's vision projector for you, so there's no separate
   mmproj step.
-- ³ **FLUX.1-dev is gated** (HF license + token). The installer defaults to the
+- ² **FLUX.1-dev is gated** (HF license + token). The installer defaults to the
   Apache-2.0 **FLUX.1-schnell** (no token); pass `HF_TOKEN=… --flux-dev` for dev.
 - **Image generation runs in ComfyUI, not Ollama** (Ollama has no Linux
   diffusion). It has its own web UI/API on port 8188 — `distro-ai-image` launches it.
-- Full preload of everything (LLMs + image models) is **~190–210GB** on disk.
+- **Nothing downloads ~200GB.** `02-preload-models.sh` pulls exactly **one** model
+  (the tier's coding model: ~2GB on `cpu`, ~4.7GB on `entry`/`mid`, ~20GB on
+  `high`+); other use-cases pull on demand at first `use`. Only deliberately
+  fetching *every* model in every catalog reaches the ~190–210GB figure.
 
 ## Thin clients (unchanged — they hit :11434)
 
@@ -173,8 +202,8 @@ silent default.
 
 - [ ] `sudo setup/01-install-ollama.sh` installs the pinned Ollama tarball + the
       `ollama` system user/unit on the box
-- [ ] `02-preload-models.sh` pulls the catalog; each model loads with the right
-      GPU/CPU layer split (the 70B partially offloaded to RAM)
+- [ ] `02-preload-models.sh` pulls the tier's coding model; it loads with the
+      right GPU/CPU layer split
 - [ ] `distro-ai-model use <case>` pulls/loads + serves on :11434; thin clients answer
 - [ ] vision: `qwen2.5vl:32b` loads and accepts an image
 - [ ] ComfyUI: PyTorch sees the 5090 (`torch.cuda.is_available()`), FLUX/SDXL render

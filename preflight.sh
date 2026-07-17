@@ -113,6 +113,13 @@ url_ok() {  # url_ok "<label>" "<url>"
     if curl -fsSL --max-time 20 -o /dev/null "$2" 2>/dev/null; then ok "reachable: $1"
     else warn "unreachable (transient? or moved?): $1 -> $2"; fi
 }
+# HEAD-only variant for LARGE binaries. url_ok does a full GET and discards the
+# body, which is fine for a .sources file or a JSON API but would pull ~1.4 GB
+# per preflight for the Ollama tarball. -L follows the release's 302 to the CDN.
+url_head_ok() {  # url_head_ok "<label>" "<url>"
+    if curl -fsIL --max-time 20 -o /dev/null "$2" 2>/dev/null; then ok "reachable: $1"
+    else warn "unreachable (transient? or moved?): $1 -> $2"; fi
+}
 
 if have curl; then
     url_ok "WineHQ noble .sources"     "https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources"
@@ -128,7 +135,10 @@ if have curl; then
     url_ok "Flatpak: Kdenlive"         "https://flathub.org/api/v2/appstream/org.kde.kdenlive"
     url_ok "Flatpak: Bottles"          "https://flathub.org/api/v2/appstream/com.usebottles.bottles"
     # AI mode (Ollama + ComfyUI) deps
-    url_ok "Ollama release tarball"    "https://ollama.com/download/v0.32.0/ollama-linux-amd64.tar.zst"
+    # Must match 01-install-ollama.sh: the pinned tarball is on the GitHub
+    # release, NOT ollama.com/download/v<ver>/ (that path 404s). HEAD-only —
+    # this asset is ~1.4 GB.
+    url_head_ok "Ollama release tarball" "https://github.com/ollama/ollama/releases/download/v0.32.0/ollama-linux-amd64.tar.zst"
     url_ok "Ollama model: coder"       "https://ollama.com/library/qwen2.5-coder"
     url_ok "Ollama model: vision"      "https://ollama.com/library/qwen2.5vl"
     url_ok "ComfyUI repo"              "https://github.com/comfyanonymous/ComfyUI"

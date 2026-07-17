@@ -38,6 +38,13 @@ case "$TIER" in
     *) echo "Unknown tier '$TIER' (cpu entry mid high max ultra)." >&2; exit 1 ;;
 esac
 
+# Effective (pooled) VRAM in MiB — the SAME input distro-ai-model gates its tag
+# selection on (written by distro-ai-detect-tier; env overrides). We must read it
+# identically or we preload a tag `distro-ai-model use` would then reject and
+# re-download. 0/empty = unknown -> no gating, matching distro-ai-model.
+VRAM_MIB="${REFRACT_VRAM_MIB:-$(cat "$CONFIG_HOME/vram_mib" 2>/dev/null || echo 0)}"
+[[ "$VRAM_MIB" =~ ^[0-9]+$ ]] || VRAM_MIB=0
+
 # The use-case to preload (default: coding) — one positional arg after --tier.
 USECASE="${1:-coding}"
 case "$USECASE" in
@@ -61,49 +68,97 @@ if ! ollama list >/dev/null 2>&1; then
     exit 1
 fi
 
-# TIER -> download class. The canonical model table only distinguishes a 'low'
-# default (X1-class shared-memory laptop, 3B-8B) and a 'high' one (RTX 5090 /
-# 32GB): cpu gets the smallest option, and mid stays on 'low' because a 32B Q4
-# (~20GB) doesn't fit a 16GB box comfortably.
+# TIER -> ordered download classes, mirroring distro-ai-model's resolver: it
+# tries the tier's preferred class first and falls back to the next class whose
+# tag FITS the detected VRAM. The canonical model table only distinguishes a
+# 'low' default (X1-class shared-memory laptop, 3B-8B) and a 'high' one (RTX
+# 5090 / 32GB): cpu gets the smallest option, and mid stays on 'low' because a
+# 32B Q4 (~20GB) doesn't fit a 16GB box comfortably.
+#
+# The ORDER (not just the first entry) matters: each tier is a VRAM *range*, so
+# the preferred class does not always fit. This list is deliberately identical
+# to the `base` order in distro-ai-model's resolve_usecase_model.
 case "$TIER" in
-    cpu)            CLASS="cpu"  ;;
-    entry|mid)      CLASS="low"  ;;
-    high|max|ultra) CLASS="high" ;;
+    cpu)            CLASS_ORDER=(cpu low high) ;;
+    entry|mid)      CLASS_ORDER=(low cpu high) ;;
+    high|max|ultra) CLASS_ORDER=(high low cpu) ;;
 esac
 
-# (use-case, class) -> exact ollama.com tag + approx Q4 download size (GB), from
-# the canonical model table. Tags are pinned (never :latest) for reproducibility.
-# know-it-all/uncensored/assistant have no <=3B variant, so cpu reuses the 8B
-# 'low' tag (heavier on a CPU-only box, but there's no smaller one to offer).
-model_for() {  # <usecase> <class> -> prints "<tag>\t<approx_gb>"
+# (use-case, class) -> exact ollama.com tag + approx Q4 download size (GB) +
+# min_vram_gb, from the canonical model table. Tags are pinned (never :latest)
+# for reproducibility. know-it-all/uncensored/assistant have no <=3B variant, so
+# cpu reuses the 8B 'low' tag (heavier on a CPU-only box, but there's no smaller
+# one to offer).
+#
+# min_vram_gb MUST track distro-ai-model's "models" table: it is what that tool
+# gates on, so a stale value here re-opens the double-download bug below. It is
+# NOT the download size — a Q4 that downloads as 26GB wants 28GB resident.
+model_for() {  # <usecase> <class> -> prints "<tag>\t<approx_gb>\t<min_vram_gb>"
     case "$1:$2" in
-        coding:cpu|cad:cpu)   printf 'qwen2.5-coder:3b\t2'    ;;
-        coding:low|cad:low)   printf 'qwen2.5-coder:7b\t4.7'  ;;
-        coding:high|cad:high) printf 'qwen2.5-coder:32b\t20'  ;;
+        coding:cpu|cad:cpu)   printf 'qwen2.5-coder:3b\t2\t3'     ;;
+        coding:low|cad:low)   printf 'qwen2.5-coder:7b\t4.7\t6'   ;;
+        coding:high|cad:high) printf 'qwen2.5-coder:32b\t20\t20'  ;;
 
-        day-to-day:cpu)  printf 'gemma3:4b\t3.3'  ;;
-        day-to-day:low)  printf 'llama3.1:8b\t4.9' ;;
-        day-to-day:high) printf 'qwen3:32b\t20'   ;;
+        day-to-day:cpu)  printf 'gemma3:4b\t3.3\t4'   ;;
+        day-to-day:low)  printf 'llama3.1:8b\t4.9\t6' ;;
+        day-to-day:high) printf 'qwen3:32b\t20\t20'   ;;
 
-        know-it-all:cpu|know-it-all:low) printf 'qwen3:8b\t5.2'        ;;
-        know-it-all:high)                printf 'deepseek-r1:32b\t20'  ;;
+        know-it-all:cpu|know-it-all:low) printf 'qwen3:8b\t5.2\t6'         ;;
+        know-it-all:high)                printf 'deepseek-r1:32b\t20\t20'  ;;
 
-        uncensored:cpu|uncensored:low) printf 'dolphin3:8b\t4.9'          ;;
-        uncensored:high)               printf 'dolphin-mixtral:8x7b\t26'  ;;
+        uncensored:cpu|uncensored:low) printf 'dolphin3:8b\t4.9\t6'           ;;
+        uncensored:high)               printf 'dolphin-mixtral:8x7b\t26\t28'  ;;
 
-        assistant:cpu|assistant:low) printf 'llama3.1:8b\t4.9'             ;;
-        assistant:high)              printf 'qwen3:30b-a3b-instruct\t18'   ;;
+        assistant:cpu|assistant:low) printf 'llama3.1:8b\t4.9\t6'             ;;
+        assistant:high)              printf 'qwen3:30b-a3b-instruct\t18\t20'  ;;
 
-        vision:cpu)  printf 'moondream:1.8b\t1.1' ;;
-        vision:low)  printf 'qwen2.5vl:7b\t6'     ;;
-        vision:high) printf 'qwen2.5vl:32b\t21'   ;;
+        vision:cpu)  printf 'moondream:1.8b\t1.1\t2' ;;
+        vision:low)  printf 'qwen2.5vl:7b\t6\t7'     ;;
+        vision:high) printf 'qwen2.5vl:32b\t21\t21'  ;;
     esac
 }
 
-IFS=$'\t' read -r TAG SIZE_GB <<< "$(model_for "$USECASE" "$CLASS")"
+fits() {  # <min_vram_gb> -> true if it fits the detected VRAM (or VRAM unknown)
+    [ "$VRAM_MIB" -gt 0 ] || return 0          # unknown -> don't gate (back-compat)
+    # Drop any fractional part first: bash arithmetic is integer-only and would
+    # abort the script on a float, the way the size column next to it allows.
+    # distro-ai-model's load_model guards the same field the same way.
+    local minv="${1%%.*}"
+    [[ "$minv" =~ ^[0-9]+$ ]] || return 0      # unparseable -> don't gate
+    [ "$(( minv * 1024 ))" -le "$VRAM_MIB" ]
+}
+
+# Walk the tier's classes and preload the first tag that FITS — the same choice
+# `distro-ai-model use` will make later. Skipping this gate is what made a 24GB
+# 'high' box pull dolphin-mixtral:8x7b (~26GB, wants 28GB) only for
+# distro-ai-model to reject it as too big and pull dolphin3:8b as a SECOND
+# download. VRAM_MIB=0 (unknown) fits everything, so the tier's preferred class
+# still wins and behaviour is unchanged from before the gate.
+TAG=""; SIZE_GB=""; CLASS=""
+FIRST_TAG=""; FIRST_SIZE=""; FIRST_MINV=""
+for class in "${CLASS_ORDER[@]}"; do
+    IFS=$'\t' read -r tag size minv <<< "$(model_for "$USECASE" "$class")"
+    [ -n "${tag:-}" ] || continue              # this use-case has no tag for this class
+    # Remember the preferred (first mapped) tag as the last-resort fallback.
+    [ -n "$FIRST_TAG" ] || { FIRST_TAG="$tag"; FIRST_SIZE="$size"; FIRST_MINV="$minv"; }
+    if fits "$minv"; then TAG="$tag"; SIZE_GB="$size"; CLASS="$class"; break; fi
+done
+
+if [ -z "$TAG" ] && [ -n "$FIRST_TAG" ]; then
+    # Nothing fits (e.g. a cpu-tier box with a little VRAM). distro-ai-model
+    # falls back to its first candidate and warns rather than refusing to run —
+    # match that, or the two tools would again disagree on the tag.
+    TAG="$FIRST_TAG"; SIZE_GB="$FIRST_SIZE"
+    echo "WARNING: $TAG wants ~${FIRST_MINV}GB VRAM but only ~$(( VRAM_MIB / 1024 ))GB detected — Ollama will spill to system RAM (slow). No smaller variant exists for '$USECASE'." >&2
+fi
 [ -n "${TAG:-}" ] || { echo "No model mapped for use-case '$USECASE' at tier '$TIER'." >&2; exit 1; }
 
 echo -e "\033[36mTier: $TIER   use-case: $USECASE   ->  $TAG\033[0m"
+# Say so when the tier's preferred model was skipped, so the smaller download
+# isn't mistaken for the wrong model being picked.
+if [ -n "$CLASS" ] && [ "$CLASS" != "${CLASS_ORDER[0]}" ]; then
+    echo "(~$(( VRAM_MIB / 1024 ))GB VRAM detected: the '${CLASS_ORDER[0]}' model for this tier doesn't fit, using the '$CLASS' one — same choice distro-ai-model will make.)"
+fi
 # Honest Ollama sizing: a 7-8B Q4 is ~4-5GB and a 32B ~20GB — nowhere near the
 # "provision ~220GB" the old LM Studio 'pull everything' warning implied, because
 # only this ONE model is fetched.

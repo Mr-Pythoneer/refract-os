@@ -39,7 +39,9 @@ PROFILE_DIR="$(cd "$(dirname "$SELF")" && pwd)/profiles"
 # Modes root (.../modes) — used by `modes enable` to point a user at a mode's
 # setup scripts (/opt/distro/modes/<mode>/setup) on an installed system.
 MODES_DIR="$(cd "$(dirname "$SELF")/.." && pwd)"
-STATE_FILE="/run/distro-modectl/current-mode"
+# Overridable (mirrors GOV_AVAIL_FILE/ENABLED_MODES_FILE below) so the test suite
+# can point `status` at a fixture instead of the machine's real /run state.
+STATE_FILE="${STATE_FILE:-/run/distro-modectl/current-mode}"
 # ALL_MODES is the immutable catalog of modes that CAN exist. VALID_MODES is the
 # subset actually enabled on THIS install; it is populated by load_valid_modes()
 # from ENABLED_MODES_FILE (see docs/mode-selection-design.md §3.3). 'normal' is
@@ -145,6 +147,28 @@ run_as_user() {
     uid="$(id -u "$u" 2>/dev/null)" || return 1
     bus="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/${uid}/bus}"
     sudo -u "$u" DBUS_SESSION_BUS_ADDRESS="$bus" XDG_RUNTIME_DIR="/run/user/${uid}" "$@"
+}
+
+# The config dir a run_as_user'd command ACTUALLY sees — mirrors run_as_user's
+# two branches, so a guard on someone's per-user state tests the same path the
+# guarded command reads/writes. As a normal user the command inherits our env; as
+# root it goes through `sudo -u`, whose env_reset drops XDG_CONFIG_HOME and points
+# HOME at the target user's passwd home. Testing OUR $HOME in the root case would
+# test /root/.config — under the documented `sudo distro-modectl switch ...` that
+# is a path nothing ever creates. Empty output/non-zero => could not resolve.
+user_config_dir() {
+    if [ "$(id -u)" -ne 0 ]; then
+        printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}"
+        return 0
+    fi
+    # `|| var=""`: target_user/getent exit non-zero when there is no desktop user
+    # / no passwd entry, and a bare assignment would trip `set -e`.
+    local u="" home=""
+    u="$(target_user)" || u=""
+    [ -n "$u" ] || return 1
+    home="$(getent passwd "$u" 2>/dev/null | cut -d: -f6)" || home=""
+    [ -n "$home" ] || return 1
+    printf '%s\n' "$home/.config"
 }
 
 apply_cpu_governor() {
@@ -276,8 +300,20 @@ apply_ai_model() {
         # fit this box are what get loaded/preloaded. Failure-tolerant (the
         # datacenter guard exits non-zero to route server-class GPUs to Server
         # mode — that must not break the mode switch).
+        #
+        # The "first entry" test MUST read the tier file in the desktop user's
+        # config dir — the same context run_as_user runs detect-tier in — not
+        # ${XDG_CONFIG_HOME:-$HOME/.config} of THIS process: under `sudo
+        # distro-modectl switch ai` sudo's env_reset makes that /root/.config,
+        # which nothing ever writes, so the guard would always pass and
+        # detect-tier (--yes leaves DO_WRITE=1) would clobber a forced --tier and
+        # the user's image choice on EVERY ai switch. Unresolvable config dir =>
+        # skip: not auto-detecting is recoverable (distro-ai-detect-tier by hand),
+        # overwriting someone's explicit tier is not.
+        local cfg_dir=""
+        cfg_dir="$(user_config_dir)" || cfg_dir=""
         if command -v distro-ai-detect-tier >/dev/null 2>&1 \
-           && [ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/refract-ai/tier" ]; then
+           && [ -n "$cfg_dir" ] && [ ! -f "$cfg_dir/refract-ai/tier" ]; then
             run_as_user distro-ai-detect-tier --yes >/dev/null 2>&1 \
                 || echo "Note: AI hardware-tier auto-detect didn't complete (server-class GPU? run distro-ai-detect-tier). Using defaults." >&2
         fi
@@ -439,12 +475,32 @@ do_status() {
 # a HARD, mode-omitted build (design §2/§4), never a runtime toggle.
 # ---------------------------------------------------------------------------
 
+# The optional modes of THIS build: ALL_MODES minus the always-on 'normal'.
+# Derived at runtime and never spelled out in a message, because a HARD,
+# mode-omitted build rewrites the shipped copy's ALL_MODES=(...) (iso/build.sh):
+# a literal list would advertise modes whose files this image doesn't contain.
+optional_modes() {
+    local -n _out=$1
+    local m
+    _out=()
+    for m in "${ALL_MODES[@]}"; do
+        [ "$m" = "normal" ] || _out+=("$m")
+    done
+}
+
 # Validate an `enable`/`disable` target: must be a known OPTIONAL mode. 'normal'
 # is the always-on base and is rejected as a target; unknown tokens are rejected.
 require_optional_mode() {
     local mode="$1" verb="$2"
+    local -a opts=(); optional_modes opts
+    if [ "${#opts[@]}" -eq 0 ]; then
+        # An all-optional-modes-omitted build: nothing to enable or disable.
+        echo "This build ships no optional modes — 'normal' is the only mode." >&2
+        exit 1
+    fi
     if [ -z "$mode" ]; then
-        echo "Usage: $(basename "$0") modes $verb <gaming|ai|server|creative>" >&2
+        # Joined with IFS='|' in a subshell, like usage() — see the note there.
+        echo "Usage: $(basename "$0") modes $verb <$( IFS='|'; echo "${opts[*]}" )>" >&2
         exit 1
     fi
     if [ "$mode" = "normal" ]; then
@@ -452,21 +508,22 @@ require_optional_mode() {
         exit 1
     fi
     if [[ " ${ALL_MODES[*]} " != *" $mode "* ]]; then
-        echo "Unknown mode '$mode'. Optional modes are: gaming ai server creative." >&2
+        echo "Unknown mode '$mode'. Optional modes are: ${opts[*]}." >&2
         exit 1
     fi
 }
 
 # Rewrite ENABLED_MODES_FILE from the currently-enabled optional set with the
-# target added (op=enable) or removed (op=disable). Iterates ALL_MODES for a
-# stable, deduped order and NEVER writes 'normal' (the loader force-appends it).
+# target added (op=enable) or removed (op=disable). Iterates the optional modes in
+# catalog order for a stable, deduped result; 'normal' is never written (the
+# loader force-appends it).
 # World-readable (0644) is mandatory: load_valid_modes runs both pre- and
 # post-sudo, so a root-only file would make the two passes disagree (design §3.3).
 rewrite_registry() {
     local op="$1" target="$2" m
-    local -a keep=()
-    for m in "${ALL_MODES[@]}"; do
-        [ "$m" = "normal" ] && continue
+    local -a keep=() opts=()
+    optional_modes opts
+    for m in "${opts[@]}"; do
         if [ "$m" = "$target" ]; then
             [ "$op" = "enable" ] && keep+=("$m")
             continue
@@ -476,7 +533,7 @@ rewrite_registry() {
     mkdir -p "$(dirname "$ENABLED_MODES_FILE")"
     {
         echo "# Refract OS — enabled optional modes (managed by 'distro-modectl modes')."
-        echo "# One mode per line. Valid optional modes: gaming ai server creative."
+        echo "# One mode per line. Valid optional modes: ${opts[*]}."
         echo "# 'normal' is the always-on base desktop and is never listed here."
         if [ "${#keep[@]}" -gt 0 ]; then
             printf '%s\n' "${keep[@]}"
@@ -517,6 +574,17 @@ run_mode_setup() {
 modes_enable() {
     local mode="$1"
     require_optional_mode "$mode" enable
+    # ALL_MODES membership is not enough: a HARD per-install removal
+    # (distro-apply-mode-selection with APPLY_HARD_REMOVAL=1) deletes
+    # profiles/<mode>.conf but leaves ALL_MODES alone, so without this we would
+    # record the mode in the registry and report success for a mode `switch` can
+    # never resolve ("No profile found"). Checked before require_root_for so it
+    # fails without a sudo prompt.
+    if [ ! -f "$PROFILE_DIR/$mode.conf" ]; then
+        echo "Mode '$mode' cannot be enabled: its profile is missing ($PROFILE_DIR/$mode.conf)." >&2
+        echo "This install does not ship '$mode' — only a build that includes it can enable it." >&2
+        exit 1
+    fi
     # Writing under /etc needs root; the re-exec carries `modes enable <mode>`.
     require_root_for modes enable "$mode"
     # load_valid_modes already ran this pass, so VALID_MODES reflects the file.

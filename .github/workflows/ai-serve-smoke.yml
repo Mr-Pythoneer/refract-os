@@ -45,7 +45,9 @@ jobs:
             sudo apt-get update && sudo apt-get install -y zstd
           fi
           # x86_64 runner -> the amd64 tarball. Pinned URL, fail loudly on a 404.
-          url="https://ollama.com/download/v${OLLAMA_VERSION}/ollama-linux-amd64.tar.zst"
+          # Must match 01-install-ollama.sh: the pinned asset is on the GitHub
+          # release; ollama.com/download/v<ver>/<file> 404s (verified).
+          url="https://github.com/ollama/ollama/releases/download/v${OLLAMA_VERSION}/ollama-linux-amd64.tar.zst"
           echo "Fetching $url"
           curl -fsSL "$url" | sudo tar -x --use-compress-program=unzstd -C /usr \
             || { echo "FAIL: download/extract failed for $url"; exit 1; }

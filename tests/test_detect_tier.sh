@@ -128,6 +128,19 @@ gpu_case() {  # desc  gpu_list  ram_mb  expect_tier  expect_vram_mib
   rm -rf "$cfg"
 }
 gpu_case "single 48GB workstation -> ultra"      "49140:NVIDIA RTX 6000 Ada Generation" 131072 ultra 49140
+# The reported GPU name must be the group compute_vram actually POOLED, not the
+# first card probed: on an APU + dGPU box the iGPU carveout is probed first, so a
+# positional name printed the iGPU's name next to the dGPU's VRAM.
+cfg="$(new_stubdir)"
+XDG_CONFIG_HOME="$cfg" REFRACT_GPU_LIST="2048:AMD GPU 0x15bf;24560:AMD GPU 0x744c" \
+  REFRACT_IS_LAPTOP=0 REFRACT_RAM_MB=65536 NVIDIA_SMI=/nonexistent-smi SYS_DRM_ROOT="$empty" \
+  "$DET" --yes >/dev/null 2>&1
+assert_contains "APU+dGPU names the dGPU that set the tier" \
+  "$(grep '^gpu=' "$cfg/refract-ai/detected" 2>/dev/null || echo MISSING)" "0x744c"
+assert_not_contains "APU+dGPU does not name the iGPU carveout" \
+  "$(grep '^gpu=' "$cfg/refract-ai/detected" 2>/dev/null || echo MISSING)" "0x15bf"
+assert_eq "APU+dGPU tiers on the dGPU's VRAM" "high" "$(cat "$cfg/refract-ai/tier" 2>/dev/null || echo MISSING)"
+rm -rf "$cfg"
 gpu_case "2x48GB same model pooled -> 96GB ultra" "49140:NVIDIA RTX 6000 Ada Generation;49140:NVIDIA RTX 6000 Ada Generation" 262144 ultra 98280
 gpu_case "2x RTX 5090 pooled 64GB -> ultra"      "32607:NVIDIA GeForce RTX 5090;32607:NVIDIA GeForce RTX 5090" 131072 ultra 65214
 gpu_case "single RTX 5090 -> stays max"          "32607:NVIDIA GeForce RTX 5090" 65536 max 32607
@@ -180,6 +193,87 @@ assert_eq "H200 NVL allowed (exit 0)" "0" "$rc"
 assert_eq "H200 NVL -> ultra tier" "ultra" "$(cat "$cfg/refract-ai/tier" 2>/dev/null || echo MISSING)"
 assert_contains "H200 NVL warns about NVL" "$out" "NVL"
 rm -rf "$cfg"
+
+# --- Intel Arc: integrated (tiered by shared RAM, floored at cpu) vs discrete --
+# Both probes are injected: REFRACT_LSPCI (lspci -nn text) and
+# REFRACT_VULKAN_SUMMARY (vulkaninfo --summary text), so no Intel hardware, no
+# lspci and no Vulkan userspace are needed. NOTE both fixtures are branded "Arc" —
+# Meteor Lake's iGPU really is called "Intel Arc Graphics" — so the ONLY thing
+# separating them is the PCI address (an iGPU is always at 00:02.x). A name match
+# would call the iGPU discrete.
+LSPCI_IGPU='00:02.0 VGA compatible controller [0300]: Intel Corporation Meteor Lake-P [Intel Arc Graphics] [8086:7d55] (rev 08)'
+LSPCI_DGPU='00:02.0 VGA compatible controller [0300]: Intel Corporation Raptor Lake-S GT1 [UHD Graphics 770] [8086:a780] (rev 04)
+03:00.0 VGA compatible controller [0300]: Intel Corporation DG2 [Arc A770] [8086:56a0] (rev 08)'
+VK_ARC='	GPU0:
+		apiVersion         = 1.3.267
+		driverVersion      = 23.2.1
+		deviceType         = PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
+		deviceName         = Intel(R) Arc(tm) Graphics (MTL)'
+# The iGPU+dGPU box as vulkaninfo really shows it: the iGPU is listed FIRST, so
+# the Vulkan name is the wrong device to describe the discrete card with.
+VK_DGPU='	GPU0:
+		deviceType         = PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
+		deviceName         = Intel(R) UHD Graphics 770
+	GPU1:
+		deviceType         = PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
+		deviceName         = Intel(R) Arc(tm) A770 Graphics (DG2)'
+
+# arc_tier: desc  lspci_text  ram_mb  expected_tier
+arc_tier() {
+  local cfg; cfg="$(new_stubdir)"
+  XDG_CONFIG_HOME="$cfg" REFRACT_VRAM_MIB=0 REFRACT_IS_LAPTOP=1 REFRACT_RAM_MB="$3" \
+    REFRACT_LSPCI="$2" REFRACT_VULKAN_SUMMARY="$VK_ARC" det --yes >/dev/null 2>&1
+  assert_eq "$1" "$4" "$(cat "$cfg/refract-ai/tier" 2>/dev/null || echo MISSING)"
+  rm -rf "$cfg"
+}
+# usable = RAM - 6 GiB headroom. The cpu floor is the regression guard: without
+# it a 4-8GB Intel laptop tiered 'entry' (7-8B models) while the SAME box with no
+# iGPU correctly tiered 'cpu' — an iGPU shares that RAM, it does not add any.
+arc_tier "Arc iGPU, 4GB RAM (0 usable) -> cpu"    "$LSPCI_IGPU" 4096  cpu
+arc_tier "Arc iGPU, 8GB RAM (2 usable) -> cpu"    "$LSPCI_IGPU" 8192  cpu
+arc_tier "Arc iGPU, 12GB RAM (6 usable) -> entry" "$LSPCI_IGPU" 12288 entry
+arc_tier "Arc iGPU, 16GB RAM (10 usable) -> entry" "$LSPCI_IGPU" 16384 entry
+arc_tier "Arc iGPU, 32GB RAM (26 usable) -> mid"  "$LSPCI_IGPU" 32768 mid
+
+# A DISCRETE Arc must NOT be tiered by system RAM: it has its own VRAM, which
+# nothing can probe (mem_info_vram_total is amdgpu-only). 64GB of RAM would give
+# an iGPU 'mid'; the A770 must land on the honest 'entry' floor instead.
+arc_tier "discrete Arc, 64GB RAM -> entry floor (not RAM-tiered)" "$LSPCI_DGPU" 65536 entry
+arc_tier "discrete Arc, 8GB RAM -> entry floor (not RAM-tiered)"  "$LSPCI_DGPU" 8192  entry
+
+# ...and it must say so rather than reporting the iGPU story.
+out="$(XDG_CONFIG_HOME="$(new_stubdir)" REFRACT_VRAM_MIB=0 REFRACT_IS_LAPTOP=0 REFRACT_RAM_MB=65536 \
+  REFRACT_LSPCI="$LSPCI_DGPU" REFRACT_VULKAN_SUMMARY="$VK_DGPU" det --print 2>&1)"
+assert_contains "discrete Arc report calls it discrete" "$out" "discrete Intel GPU"
+assert_not_contains "discrete Arc is not reported as sharing system RAM" "$out" "shares system RAM"
+assert_contains "discrete Arc report admits VRAM is not probeable" "$out" "not probeable"
+assert_contains "discrete Arc report points at the --tier override" "$out" "--tier mid"
+# The card is named from the lspci line that proved it discrete. vulkaninfo lists
+# the iGPU first on this box, so naming it from there would describe the wrong
+# device — the same defect as reporting a pooled group by its first-probed card.
+assert_contains "discrete Arc names the discrete card" "$out" "Arc A770"
+assert_not_contains "discrete Arc does not name the iGPU beside it" "$out" "UHD Graphics 770"
+
+# The iGPU story is still told for a real iGPU.
+out="$(XDG_CONFIG_HOME="$(new_stubdir)" REFRACT_VRAM_MIB=0 REFRACT_IS_LAPTOP=1 REFRACT_RAM_MB=32768 \
+  REFRACT_LSPCI="$LSPCI_IGPU" REFRACT_VULKAN_SUMMARY="$VK_ARC" det --print 2>&1)"
+assert_contains "Arc iGPU reports shared system RAM" "$out" "shares system RAM"
+assert_not_contains "Arc iGPU is not called discrete" "$out" "discrete Intel GPU"
+
+# At the cpu floor the iGPU is still used, so the report must not claim there is
+# no usable GPU — the tier is a RAM verdict, not a "we found nothing" verdict.
+out="$(XDG_CONFIG_HOME="$(new_stubdir)" REFRACT_VRAM_MIB=0 REFRACT_IS_LAPTOP=1 REFRACT_RAM_MB=8192 \
+  REFRACT_LSPCI="$LSPCI_IGPU" REFRACT_VULKAN_SUMMARY="$VK_ARC" det --print 2>&1)"
+assert_contains "cpu-floored iGPU says the iGPU is still used" "$out" "The Arc iGPU is still used"
+assert_not_contains "cpu-floored iGPU does not claim no GPU was detected" "$out" "No usable dedicated VRAM detected"
+
+# Mesa's llvmpipe is a software rasterizer, not a usable Arc: still cpu, with a
+# warning — an Intel VGA line alone must never be enough.
+out="$(XDG_CONFIG_HOME="$(new_stubdir)" REFRACT_VRAM_MIB=0 REFRACT_IS_LAPTOP=1 REFRACT_RAM_MB=32768 \
+  REFRACT_LSPCI="$LSPCI_IGPU" REFRACT_VULKAN_SUMMARY='	GPU0:
+		deviceName         = llvmpipe (LLVM 15.0.7, 256 bits)' det --print 2>&1)"
+assert_contains "llvmpipe-only warns it is not a usable Arc" "$out" "WARNING"
+assert_not_contains "llvmpipe-only does not claim an Arc iGPU" "$out" "Arc iGPU"
 
 rm -rf "$empty"
 finish

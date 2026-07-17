@@ -11,6 +11,12 @@ fi
 # empty prompt is rejected without needing a server
 printf '' | "$ASK" "" >/dev/null 2>&1; assert_eq "empty prompt exits 1" "1" "$?"
 
+# REFRACT_AI_TIMEOUT goes straight to curl --max-time, so a non-numeric value is
+# rejected up front (with a message, not a curl usage error) — no server needed.
+out="$(REFRACT_AI_TIMEOUT=lots "$ASK" "hi" 2>&1)"; rc=$?
+assert_eq "non-numeric REFRACT_AI_TIMEOUT exits 1" "1" "$rc"
+assert_contains "non-numeric REFRACT_AI_TIMEOUT explains" "$out" "must be an integer"
+
 # unreachable server (nothing on 11434) -> clear failure. With no Ollama running,
 # the model probe (/api/ps then /api/tags) resolves nothing, so ask can't build a
 # request and exits 1. Only meaningful if 11434 is actually free; else skip.
@@ -29,7 +35,7 @@ fi
 # proves ask resolved the loaded model from /api/ps and put it in the request.
 srv="$(new_stubdir)/srv.py"
 cat > "$srv" <<'PY'
-import http.server, json, sys
+import http.server, json, sys, time
 MODE = sys.argv[1] if len(sys.argv) > 1 else "ok"
 MODEL = "qwen2.5-coder:7b"
 class H(http.server.BaseHTTPRequestHandler):
@@ -46,6 +52,10 @@ class H(http.server.BaseHTTPRequestHandler):
             self._send({})
     def do_POST(self):
         n = int(self.headers.get('Content-Length', 0)); body = json.loads(self.rfile.read(n))
+        if MODE == "slow":
+            # Stands in for a COLD model load, which happens inside this request.
+            # Longer than the REFRACT_AI_TIMEOUT the test passes, so curl aborts.
+            time.sleep(30)
         if MODE == "bad":
             self._send({"unexpected": "shape"}); return
         model = body.get("model", "")
@@ -74,6 +84,19 @@ if python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",11434)); s.
 
   start_srv bad
   "$ASK" "x" >/dev/null 2>&1; assert_eq "malformed response shape exits 1" "1" "$?"
+  stop_srv
+
+  # A slow answer must be reported as a TIMEOUT, not as a dead daemon. The chat
+  # request has to absorb a cold model load (Ollama evicts after ~5min idle, and
+  # a reboot leaves nothing resident), which is why the budget is REFRACT_AI_TIMEOUT
+  # (default 300s, matching distro-ai-model) instead of the old fixed 60s that made
+  # a healthy box print "is Ollama running?". REFRACT_AI_TIMEOUT=1 vs a 30s reply
+  # also proves the env var is actually plumbed into curl.
+  start_srv slow
+  out="$(REFRACT_AI_TIMEOUT=1 "$ASK" "x" 2>&1)"; rc=$?
+  assert_eq "reply slower than the timeout exits 1" "1" "$rc"
+  assert_contains "a timeout is reported as a timeout" "$out" "did not answer within 1s"
+  assert_not_contains "a timeout is not blamed on a dead daemon" "$out" "nothing is listening"
   stop_srv
 else
   note "could not bind 127.0.0.1:11434 — skipping live server checks"

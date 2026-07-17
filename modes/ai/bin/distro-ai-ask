@@ -13,6 +13,9 @@
 # reply to stdout. Exits non-zero (with a message on stderr) if Ollama isn't
 # reachable -- callers (overlay/Nautilus script) are expected to surface that to
 # the user rather than failing silently.
+#
+# REFRACT_AI_TIMEOUT (seconds, default 300) bounds the chat request; it has to
+# cover a cold model load, not just generation.
 
 set -euo pipefail
 
@@ -21,6 +24,11 @@ set -euo pipefail
 BASE="${OLLAMA_HOST:-127.0.0.1:11434}"
 case "$BASE" in http://*|https://*) ;; *) BASE="http://$BASE" ;; esac
 ENDPOINT="$BASE/v1/chat/completions"
+
+# Seconds allowed for the chat request. Must cover a cold model load plus
+# generation (see the curl call below); override for slow disks / huge models.
+TIMEOUT="${REFRACT_AI_TIMEOUT:-300}"
+[[ "$TIMEOUT" =~ ^[0-9]+$ ]] || { echo "distro-ai-ask: REFRACT_AI_TIMEOUT must be an integer (seconds), got '$TIMEOUT'" >&2; exit 1; }
 
 if [ -n "${1:-}" ]; then
     prompt="$1"
@@ -72,13 +80,29 @@ print(json.dumps({
 }))
 ')"
 
-response="$(curl -sS --max-time 60 -X POST "$ENDPOINT" \
+# This request can trigger a COLD model load: Ollama evicts a model after its
+# keep_alive (~5 min idle) expires, and after a reboot nothing is resident at all
+# -- the load then happens INSIDE this call, so the budget must cover load +
+# generation, not just generation. distro-ai-model gives the same load 300s; a
+# 60s budget here made a healthy box report "is Ollama running?". Connecting is
+# separate and fast, so a refused/dead daemon still fails in ~5s rather than
+# after the full budget.
+rc=0
+response="$(curl -sS --connect-timeout 5 --max-time "$TIMEOUT" -X POST "$ENDPOINT" \
     -H "Content-Type: application/json" \
-    -d "$payload" 2>&1)" || {
-    echo "distro-ai-ask: could not reach $ENDPOINT -- is Ollama running? Try: systemctl status ollama  (and: distro-ai-model status)" >&2
+    -d "$payload" 2>&1)" || rc=$?
+if [ "$rc" -ne 0 ]; then
+    # curl exit 7 = connection refused (nothing listening); 28 = timed out (either
+    # --connect-timeout or --max-time). They mean opposite things to the user, so
+    # do not report both as "is Ollama running?".
+    case "$rc" in
+        7)  echo "distro-ai-ask: nothing is listening on $ENDPOINT -- is Ollama running? Try: systemctl status ollama  (and: distro-ai-model status)" >&2 ;;
+        28) echo "distro-ai-ask: Ollama did not answer within ${TIMEOUT}s. A first/cold load of '$model' can take minutes; raise it with REFRACT_AI_TIMEOUT=600, or preload it: distro-ai-model load $model" >&2 ;;
+        *)  echo "distro-ai-ask: request to $ENDPOINT failed (curl exit $rc)" >&2 ;;
+    esac
     echo "$response" >&2
     exit 1
-}
+fi
 
 reply="$(RESPONSE="$response" python3 -c '
 import json, os, sys

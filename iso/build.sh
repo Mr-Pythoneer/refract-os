@@ -91,6 +91,35 @@ STRAIN_FILE="$REPO_ROOT/iso/strains/${STRAIN}.list.chroot"
 echo -e "\033[36mStrain: $STRAIN\033[0m"
 [ -f "$STRAIN_FILE" ] || { echo "Strain manifest not found: $STRAIN_FILE" >&2; exit 1; }
 
+# Repeat builds in ONE checkout. The non-GNOME/headless branch below deletes
+# GIT-TRACKED files out of config/package-lists and config/hooks, and nothing
+# puts them back — so `./build.sh lowspec && ./build.sh workstation` in the same
+# tree silently ships the second image with NO polish/macos-look layer and no
+# build-time error at all. CI never sees it (fresh checkout every run);
+# docs/first-hardware-runbook.md §6 chains strains in one tree and does. Restore
+# whatever a previous run stripped before we touch anything.
+#
+# The surgery has to happen in the tree itself: `lb build` only ever reads
+# ./config relative to the CWD, and build-iso.yml asserts the omitted-mode
+# guarantee against iso/config/includes.chroot BY PATH — building from a staged
+# copy elsewhere would make that assertion pass vacuously, which is worse than
+# the bug. So: restore, don't relocate.
+#
+# ONLY files git reports as DELETED are restored, never modified ones. A blanket
+# `git checkout -- iso/config/hooks` would also revert work-in-progress edits to
+# a hook, i.e. silently un-fix an uncommitted fix on someone's box.
+if git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    _gone=()
+    while IFS= read -r -d '' _f; do _gone+=("$_f"); done < <(
+        git -C "$REPO_ROOT" ls-files -z --deleted -- iso/config/package-lists iso/config/hooks)
+    if [ "${#_gone[@]}" -gt 0 ]; then
+        echo -e "\033[33mRestoring config sources a previous build removed: ${_gone[*]}\033[0m"
+        git -C "$REPO_ROOT" checkout -- "${_gone[@]}"
+    fi
+else
+    echo -e "\033[33mNot a git checkout — cannot restore config sources a previous build may have stripped. If a strain builds without its polish/macos-look layer, re-export the tree.\033[0m" >&2
+fi
+
 # Only base.list.chroot (universal CLI tools) plus the ONE selected strain's
 # packages go into config/package-lists/ — that directory is what live-build
 # actually reads, so any other strain's packages must NOT be present here at
@@ -132,8 +161,25 @@ HOOKS_DIR="$(dirname "${BASH_SOURCE[0]}")/config/hooks"
 # headless ones AND lowspec (which is LXQt/lubuntu-desktop, not GNOME).
 NON_GNOME_STRAINS=(server cloud lowspec)
 if [[ " ${NON_GNOME_STRAINS[*]} " == *" $STRAIN "* ]]; then
-    rm -f "$PACKAGE_LISTS/macos-look.list.chroot" "$HOOKS_DIR/0300-macos-look.chroot" \
-          "$PACKAGE_LISTS/polish.list.chroot" "$HOOKS_DIR/0400-polish.chroot" "$HOOKS_DIR/0410-keyd.chroot"
+    # These are GIT-TRACKED sources. The restore block near the top heals them,
+    # but only on the NEXT run — which leaves the tree sitting with 5 tracked
+    # files deleted once this build finishes. A `git add -A && commit` in that
+    # window (or an agent/editor doing it for you) removes them from the repo for
+    # real. Restore on EXIT instead, so the deletion never outlives this process
+    # even if the build fails or is interrupted.
+    _stripped=("$PACKAGE_LISTS/macos-look.list.chroot" "$HOOKS_DIR/0300-macos-look.chroot" \
+               "$PACKAGE_LISTS/polish.list.chroot" "$HOOKS_DIR/0400-polish.chroot" "$HOOKS_DIR/0410-keyd.chroot")
+    if git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        # shellcheck disable=SC2317  # invoked via trap, not called directly
+        _restore_stripped() {
+            local _d=()
+            while IFS= read -r -d '' _f; do _d+=("$_f"); done < <(
+                git -C "$REPO_ROOT" ls-files -z --deleted -- iso/config/package-lists iso/config/hooks)
+            [ "${#_d[@]}" -gt 0 ] && git -C "$REPO_ROOT" checkout -- "${_d[@]}" 2>/dev/null || true
+        }
+        trap _restore_stripped EXIT
+    fi
+    rm -f "${_stripped[@]}"
 fi
 if [[ ! " ${HEADLESS_STRAINS[*]} " == *" $STRAIN "* ]]; then
     echo -e "\033[36mWiring in Calamares (installer config, untested -- see iso/calamares/README.md)...\033[0m"
@@ -180,17 +226,30 @@ EOF
     chmod +x "$INCLUDES/usr/share/initramfs-tools/scripts/casper-bottom/25-refract-install-icon"
 fi
 
-# Strip the installer slideshow slide for any omitted mode, so a no-<mode> image
-# never advertises a mode it cannot install (design §4.1-K). Each per-mode Slide
-# in show.qml is wrapped with '// @slide:<mode>' / '// @endslide:<mode>' marker
-# comments; range-delete them from the build copy. Guarded by [ -f ] because the
-# headless strains (server/cloud) ship no Calamares tree at all. The intro slide
-# is deliberately mode-agnostic (no per-mode enumeration), so nothing there needs
-# stripping.
-_qml="$INCLUDES/etc/calamares/branding/refractos/show.qml"
-if [ -f "$_qml" ]; then
+# Strip every trace of an omitted mode from the staged Calamares tree, so a
+# no-<mode> image never advertises — or offers to install — a mode it does not
+# have (design §4.1-K). Three surfaces, each range-deleted from the $INCLUDES
+# copy by its own marker comments:
+#   1. show.qml's per-mode Slide      ('// @slide:<mode>' .. '// @endslide:<mode>')
+#   2. the "what is this machine for?" checkbox in packagechooser_modes.conf
+#      ('# @item:<mode>' .. '# @enditem:<mode>'). Without this a "provably
+#      AI-free" ISO still renders an AI checkbox that writes 'ai' into the
+#      registry, which load_valid_modes() then silently drops — a dead control
+#      that contradicts the whole guarantee.
+#   3. that item's screenshot (~245KB each), otherwise dead weight in the
+#      squashfs pointed at by an item that no longer exists.
+# Guarded by [ -d ] because the headless strains (server/cloud) ship no Calamares
+# tree at all (it is rm -rf'd above and only re-created for non-headless). The
+# intro slide is deliberately mode-agnostic (no per-mode enumeration), so nothing
+# there needs stripping.
+_cala="$INCLUDES/etc/calamares"
+if [ -d "$_cala" ]; then
     for m in "${OMITTED[@]}"; do
-        sed -i "/\/\/ @slide:$m$/,/\/\/ @endslide:$m$/d" "$_qml"
+        sed -i "/\/\/ @slide:$m$/,/\/\/ @endslide:$m$/d" \
+            "$_cala/branding/refractos/show.qml"
+        sed -i "/# @item:$m$/,/# @enditem:$m$/d" \
+            "$_cala/modules/packagechooser_modes.conf"
+        rm -f "$_cala/branding/refractos/$m.png"
     done
 fi
 
@@ -198,6 +257,12 @@ echo -e "\033[36mCopying repo scripts into the image (opt/distro/, /usr/local/bi
 # Copied fresh from the repo at build time rather than committed as a
 # duplicate in git — there is exactly one copy of these scripts to keep in
 # sync, the one under modes/ and drivers/ at the repo root.
+# usr/local/bin is rebuilt from scratch every run. Nothing else stages anything
+# into it, and the rsync --delete below does NOT cover it (that only cleans
+# inside opt/distro/{modes,drivers}) — so without this wipe the distro-ai-*
+# symlinks written by a PRIOR build in the same tree survive an omitted build as
+# dangling links: distro-ai-ask still on $PATH in a "provably AI-free" ISO.
+rm -rf "$INCLUDES/usr/local/bin"
 mkdir -p "$INCLUDES/opt/distro" "$INCLUDES/usr/local/bin"
 rsync -a --delete "$REPO_ROOT/modes" "$REPO_ROOT/drivers" "$INCLUDES/opt/distro/"
 
@@ -220,12 +285,22 @@ if [ "${#OMITTED[@]}" -gt 0 ]; then
     # distro-modectl's ALL_MODES=(...) catalog (the switcher now derives
     # VALID_MODES from ALL_MODES + /etc/refract/enabled-modes). Rewrite keeps
     # the canonical mode order and always retains 'normal'. sed the COPY only.
-    kept=()
+    kept=(); apply_kept=()
     for cm in gaming ai server creative normal; do
-        [[ " ${OMITTED[*]} " == *" $cm "* ]] || kept+=("$cm")
+        [[ " ${OMITTED[*]} " == *" $cm "* ]] && continue
+        kept+=("$cm")
+        # distro-apply-mode-selection's OPTIONAL_MODES lists only the modes the
+        # installer page can offer, so 'normal' is deliberately absent from it.
+        [ "$cm" = normal ] || apply_kept+=("$cm")
     done
     sed -i "s/^ALL_MODES=(.*/ALL_MODES=(${kept[*]})/" \
         "$INCLUDES/opt/distro/modes/modectl/distro-modectl"
+    # Same treatment for the installer helper's own catalog. OPTIONAL_MODES is
+    # both the whitelist it filters the Calamares selection through and the list
+    # APPLY_HARD_REMOVAL iterates — leave an omitted mode in it and a selection
+    # naming that mode gets written straight into the fresh install's registry.
+    sed -i "s/^OPTIONAL_MODES=(.*/OPTIONAL_MODES=(${apply_kept[*]})/" \
+        "$INCLUDES/opt/distro/modes/modectl/distro-apply-mode-selection"
 fi
 # Ship a default, world-readable /etc/refract/enabled-modes for the live (and
 # freshly-installed) session listing the optional modes this build actually
@@ -498,8 +573,13 @@ lb build
 # ESP so it's still USB-writable. OVMF-verified (uefi-remaster.yml lineage).
 # Failure-tolerant: if the tools/paths are missing it logs and ships BIOS-only.
 # ---------------------------------------------------------------------------
+# Args: <iso> <volume-id> <application-id>. The ids are passed in rather than
+# hardcoded because this repack is the LAST thing to touch the ISO — whatever it
+# writes is what a tester actually sees, so baking in a friendly "REFRACTOS"
+# here would quietly overwrite the DANGER-TEST label a REFRACT_TESTING build
+# promises, on the one image where the label matters most.
 remaster_uefi() {
-    local iso="$1" work isohdpfx mb
+    local iso="$1" vol="$2" app="$3" work isohdpfx mb
     command -v xorriso >/dev/null 2>&1 && command -v grub-mkstandalone >/dev/null 2>&1 \
         && command -v mkfs.vfat >/dev/null 2>&1 && command -v mcopy >/dev/null 2>&1 \
         || { echo "UEFI: tools missing (need xorriso, grub-efi-amd64-bin, dosfstools, mtools) — shipping BIOS-only." >&2; return 1; }
@@ -550,7 +630,7 @@ GRUB
     mcopy -i "$work/efiboot.img" "$work/bootx64.efi" ::/EFI/BOOT/BOOTX64.EFI >/dev/null 2>&1
     mkdir -p "$work/tree/EFI/boot"; cp "$work/efiboot.img" "$work/tree/EFI/boot/efiboot.img"
     rm -f "$work/tree/isolinux/boot.cat"
-    if ! xorriso -as mkisofs -iso-level 3 -V REFRACTOS -r -J -joliet-long \
+    if ! xorriso -as mkisofs -iso-level 3 -V "$vol" -A "$app" -r -J -joliet-long \
         -isohybrid-mbr "$isohdpfx" \
         -c isolinux/boot.cat \
         -b isolinux/isolinux.bin -no-emul-boot -boot-load-size 4 -boot-info-table \
@@ -572,7 +652,8 @@ for cand in binary.hybrid.iso live-image-amd64.hybrid.iso binary.iso; do
 done
 if [ -n "$OUT" ]; then
     mv "$OUT" "$RENAMED"
-    remaster_uefi "$RENAMED" || echo -e "\033[33mUEFI remaster skipped/failed — the ISO is BIOS/CSM-boot only.\033[0m" >&2
+    remaster_uefi "$RENAMED" "$ISO_VOLUME" "$ISO_APPLICATION" \
+        || echo -e "\033[33mUEFI remaster skipped/failed — the ISO is BIOS/CSM-boot only.\033[0m" >&2
     echo -e "\033[32mDone — $RENAMED ($(du -h "$RENAMED" | cut -f1))\033[0m"
 else
     echo -e "\033[33mlb build finished but no known output ISO name was found — check the build log above.\033[0m" >&2
