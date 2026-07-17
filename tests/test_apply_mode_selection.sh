@@ -13,7 +13,12 @@ run_apply() {  # run_apply "<selection arg>" [extra env...]
     local d; d="$(new_stubdir)"
     ( ENABLED_MODES_FILE="$d/enabled-modes" "$@" "$APPLY" "$sel" >/dev/null 2>&1 )
     cat "$d/enabled-modes" 2>/dev/null
-    printf '\n__PERM__%s\n' "$(stat -f '%Lp' "$d/enabled-modes" 2>/dev/null || stat -c '%a' "$d/enabled-modes" 2>/dev/null)"
+    # GNU stat (Linux/CI, the authoritative env) FIRST, BSD stat (macOS) fallback.
+    # Order matters: GNU `stat -f` means "filesystem status" and exits 0 with junk
+    # rather than erroring, so a BSD-first `stat -f '%Lp' || stat -c '%a'` never
+    # reaches the fallback on Linux and prints garbage — which is exactly how this
+    # test passed on macOS but failed in CI.
+    printf '\n__PERM__%s\n' "$(stat -c '%a' "$d/enabled-modes" 2>/dev/null || stat -f '%Lp' "$d/enabled-modes" 2>/dev/null)"
     rm -rf "$d"
 }
 
