@@ -36,19 +36,59 @@ set -euo pipefail
 # installed system (build.sh symlinks this script into PATH).
 SELF="${BASH_SOURCE[0]}"; [ -L "$SELF" ] && SELF="$(readlink "$SELF")"
 PROFILE_DIR="$(cd "$(dirname "$SELF")" && pwd)/profiles"
+# Modes root (.../modes) — used by `modes enable` to point a user at a mode's
+# setup scripts (/opt/distro/modes/<mode>/setup) on an installed system.
+MODES_DIR="$(cd "$(dirname "$SELF")/.." && pwd)"
 STATE_FILE="/run/distro-modectl/current-mode"
-VALID_MODES=(gaming ai server creative normal)
+# ALL_MODES is the immutable catalog of modes that CAN exist. VALID_MODES is the
+# subset actually enabled on THIS install; it is populated by load_valid_modes()
+# from ENABLED_MODES_FILE (see docs/mode-selection-design.md §3.3). 'normal' is
+# the always-on base desktop, force-appended by the loader — it is never listed
+# in the registry file and is never a selectable/deselectable item.
+ALL_MODES=(gaming ai server creative normal)
+# Overridable (mirrors GOV_AVAIL_FILE below) so the test suite can point the
+# loader at a fixture instead of the real /etc registry.
+ENABLED_MODES_FILE="${ENABLED_MODES_FILE:-/etc/refract/enabled-modes}"
+VALID_MODES=()
 ASSUME_YES=false
 # Overridable so the test suite can point apply_cpu_governor at a fixture instead
 # of the real sysfs node (see tests/test_modectl.sh).
 GOV_AVAIL_FILE="${GOV_AVAIL_FILE:-/sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors}"
+
+# Populate VALID_MODES from the registry file. Contract (design §3.2/§3.3):
+#   - file absent/unreadable -> ALL_MODES (back-compat: pre-feature + existing
+#     installs behave exactly as before, all modes valid).
+#   - file present -> only the modes it lists are valid; '#' comments, blank
+#     lines and unknown tokens are ignored, and 'normal' is ALWAYS force-appended
+#     (so a present-but-empty file yields a provably-minimal 'normal'-only system,
+#     NOT a silent re-enable of everything).
+# Runs BOTH before dispatch AND at source time (tests source with
+# DISTRO_MODECTL_SOURCE=1) — safe either way because the absent-file fallback
+# needs no /etc access.
+load_valid_modes() {
+    if [ ! -r "$ENABLED_MODES_FILE" ]; then
+        VALID_MODES=("${ALL_MODES[@]}")   # file absent -> keep all five (back-compat)
+        return
+    fi
+    VALID_MODES=()
+    local line tok
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%%#*}"
+        for tok in $line; do
+            [[ " ${ALL_MODES[*]} " == *" $tok "* ]] || continue    # drop unknown tokens
+            [[ " ${VALID_MODES[*]} " == *" $tok "* ]] && continue   # dedupe
+            VALID_MODES+=("$tok")
+        done
+    done < "$ENABLED_MODES_FILE"
+    [[ " ${VALID_MODES[*]} " == *" normal "* ]] || VALID_MODES+=(normal)   # base always on
+}
 
 usage() {
     # Join with IFS='|' in a subshell so the alternatives render as
     # gaming|ai|... — a per-element ${arr[*]// /|} substitution does NOT do
     # this (it only replaces spaces *inside* each element, then joins on the
     # IFS space), so the array must actually be joined with '|'.
-    ( IFS='|'; echo "Usage: $(basename "$0") switch <${VALID_MODES[*]}> [--yes] | status" >&2 )
+    ( IFS='|'; echo "Usage: $(basename "$0") switch <${VALID_MODES[*]}> [--yes] | status | modes <list|status|enable|disable> [mode]" >&2 )
     exit 1
 }
 
@@ -320,7 +360,18 @@ confirm_or_abort() {
 
 do_switch() {
     local mode="$1"
-    [[ " ${VALID_MODES[*]} " == *" $mode "* ]] || usage
+    # Membership guard against the now-dynamic VALID_MODES. A mode that is a
+    # KNOWN mode but simply not enabled on this install gets a targeted pointer
+    # at `modes enable <mode>` (design §5) instead of the bare usage; a genuinely
+    # unknown token still falls through to usage().
+    if [[ " ${VALID_MODES[*]} " != *" $mode "* ]]; then
+        if [[ " ${ALL_MODES[*]} " == *" $mode "* ]]; then
+            echo "Mode '$mode' is not enabled on this system." >&2
+            echo "Enable it with:  $(basename "$0") modes enable $mode" >&2
+            exit 1
+        fi
+        usage
+    fi
 
     local profile_file="$PROFILE_DIR/${mode}.conf"
     [ -f "$profile_file" ] || { echo "No profile found at $profile_file" >&2; exit 1; }
@@ -379,6 +430,159 @@ do_status() {
     return 0
 }
 
+# ---------------------------------------------------------------------------
+# `modes` subcommand — inspect and mutate the enabled-mode registry at runtime.
+# There is no post-install first-boot wizard (gnome-initial-setup is purged and
+# masked), so this is the runtime lever for the install-time "what is this
+# machine for?" choice (design §5). SOFT level only: disabling a mode hides it
+# from the switcher but leaves its files under /opt/distro — provable absence is
+# a HARD, mode-omitted build (design §2/§4), never a runtime toggle.
+# ---------------------------------------------------------------------------
+
+# Validate an `enable`/`disable` target: must be a known OPTIONAL mode. 'normal'
+# is the always-on base and is rejected as a target; unknown tokens are rejected.
+require_optional_mode() {
+    local mode="$1" verb="$2"
+    if [ -z "$mode" ]; then
+        echo "Usage: $(basename "$0") modes $verb <gaming|ai|server|creative>" >&2
+        exit 1
+    fi
+    if [ "$mode" = "normal" ]; then
+        echo "'normal' is the always-on base desktop — it is never enabled or disabled." >&2
+        exit 1
+    fi
+    if [[ " ${ALL_MODES[*]} " != *" $mode "* ]]; then
+        echo "Unknown mode '$mode'. Optional modes are: gaming ai server creative." >&2
+        exit 1
+    fi
+}
+
+# Rewrite ENABLED_MODES_FILE from the currently-enabled optional set with the
+# target added (op=enable) or removed (op=disable). Iterates ALL_MODES for a
+# stable, deduped order and NEVER writes 'normal' (the loader force-appends it).
+# World-readable (0644) is mandatory: load_valid_modes runs both pre- and
+# post-sudo, so a root-only file would make the two passes disagree (design §3.3).
+rewrite_registry() {
+    local op="$1" target="$2" m
+    local -a keep=()
+    for m in "${ALL_MODES[@]}"; do
+        [ "$m" = "normal" ] && continue
+        if [ "$m" = "$target" ]; then
+            [ "$op" = "enable" ] && keep+=("$m")
+            continue
+        fi
+        [[ " ${VALID_MODES[*]} " == *" $m "* ]] && keep+=("$m")
+    done
+    mkdir -p "$(dirname "$ENABLED_MODES_FILE")"
+    {
+        echo "# Refract OS — enabled optional modes (managed by 'distro-modectl modes')."
+        echo "# One mode per line. Valid optional modes: gaming ai server creative."
+        echo "# 'normal' is the always-on base desktop and is never listed here."
+        if [ "${#keep[@]}" -gt 0 ]; then
+            printf '%s\n' "${keep[@]}"
+        fi
+    } > "$ENABLED_MODES_FILE"
+    chmod 0644 "$ENABLED_MODES_FILE" 2>/dev/null || true
+}
+
+# Run a mode's on-demand setup after enabling it. AI has a dedicated entrypoint
+# (distro-ai-setup) which REFUSES root and keeps per-user state, so it runs as
+# the desktop user via run_as_user with --install --yes (non-interactive so a
+# non-TTY caller never hangs). Modes without a single CLI entrypoint print how
+# to run their numbered setup scripts instead of auto-installing heavy payloads.
+run_mode_setup() {
+    local mode="$1"
+    case "$mode" in
+        ai)
+            if command -v distro-ai-setup >/dev/null 2>&1; then
+                echo "Running AI setup as the desktop user (distro-ai-setup refuses root)..."
+                run_as_user distro-ai-setup --install --yes \
+                    || echo "WARNING: distro-ai-setup did not complete — 'ai' is enabled in the registry; re-run it as your desktop user: distro-ai-setup --install" >&2
+            else
+                echo "'ai' enabled. Install the local AI stack as your desktop user: distro-ai-setup --install"
+            fi
+            ;;
+        *)
+            local setup_dir="$MODES_DIR/$mode/setup"
+            echo "'$mode' enabled. Install its apps by running its setup scripts as root, in order:"
+            if [ -d "$setup_dir" ]; then
+                echo "  for s in \"$setup_dir\"/[0-9]*.sh; do sudo bash \"\$s\"; done"
+            else
+                echo "  for s in /opt/distro/modes/$mode/setup/[0-9]*.sh; do sudo bash \"\$s\"; done"
+            fi
+            ;;
+    esac
+}
+
+modes_enable() {
+    local mode="$1"
+    require_optional_mode "$mode" enable
+    # Writing under /etc needs root; the re-exec carries `modes enable <mode>`.
+    require_root_for modes enable "$mode"
+    # load_valid_modes already ran this pass, so VALID_MODES reflects the file.
+    local already=no
+    [[ " ${VALID_MODES[*]} " == *" $mode "* ]] && already=yes
+    rewrite_registry enable "$mode"
+    if [ "$already" = "yes" ]; then
+        echo "Mode '$mode' was already enabled in $ENABLED_MODES_FILE."
+    else
+        echo "Enabled '$mode' (recorded in $ENABLED_MODES_FILE)."
+    fi
+    run_mode_setup "$mode"
+}
+
+modes_disable() {
+    local mode="$1"
+    require_optional_mode "$mode" disable
+    require_root_for modes disable "$mode"
+    if [[ " ${VALID_MODES[*]} " != *" $mode "* ]]; then
+        echo "Mode '$mode' is not currently enabled — nothing to do."
+        return 0
+    fi
+    rewrite_registry disable "$mode"
+    echo "Disabled '$mode'. This is a SOFT hide: its files remain under /opt/distro/modes/$mode."
+    echo "Provable absence requires a HARD, mode-omitted build (see docs/mode-selection-design.md §2/§4)."
+}
+
+do_modes_status() {
+    echo "Enabled modes:   ${VALID_MODES[*]}"
+    echo "Available modes: ${ALL_MODES[*]}"
+    local m
+    for m in "${ALL_MODES[@]}"; do
+        [ "$m" = "normal" ] && continue
+        if [[ " ${VALID_MODES[*]} " == *" $m "* ]]; then
+            echo "  [x] $m"
+        else
+            echo "  [ ] $m  (enable: $(basename "$0") modes enable $m)"
+        fi
+    done
+    echo "  [x] normal  (always-on base desktop)"
+    if [ -r "$ENABLED_MODES_FILE" ]; then
+        echo "Registry: $ENABLED_MODES_FILE"
+    else
+        echo "Registry: $ENABLED_MODES_FILE (absent — all modes enabled by default)"
+    fi
+}
+
+do_modes() {
+    local verb="${1:-list}"
+    case "$verb" in
+        list|status) do_modes_status ;;
+        enable)      modes_enable "${2:-}" ;;
+        disable)     modes_disable "${2:-}" ;;
+        *)
+            echo "Usage: $(basename "$0") modes <list|status|enable <mode>|disable <mode>>" >&2
+            exit 1
+            ;;
+    esac
+}
+
+# Populate VALID_MODES from the registry before anything dispatches (and at
+# source time for the unit tests) — both real consumers, usage() and do_switch(),
+# read the array by name, so repopulating it here gives soft-hide + enforcement
+# for free.
+load_valid_modes
+
 # Dispatch — skipped when the script is SOURCED for unit tests. The suite sets
 # DISTRO_MODECTL_SOURCE=1 to load the functions (e.g. apply_cpu_governor) and
 # exercise them directly without triggering a real mode switch.
@@ -394,6 +598,10 @@ case "${1:-}" in
         do_switch "$mode"
         ;;
     status) do_status ;;
+    modes)
+        shift
+        do_modes "$@"
+        ;;
     *) usage ;;
 esac
 fi

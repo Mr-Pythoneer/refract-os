@@ -55,26 +55,34 @@ Presentation
             width: presentation.width * 0.7
             horizontalAlignment: Text.Center
             wrapMode: Text.WordWrap
-            text: qsTr("One install, five switchable modes -- Gaming, AI, Server, Creative, and Normal -- plus broad Windows app/game compatibility and local-first AI, no cloud assistant required.")
+            text: qsTr("One install, switchable modes tuned to whatever this machine is for -- plus broad, practical Windows app and game compatibility.")
             color: "#cccccc"
         }
     }
 
+    // @slide:gaming
     Slide {
         centeredText: qsTr("Gaming mode: Proton-GE, Wine-staging, Bottles, GameMode, and MangoHud preinstalled and tuned -- broad practical compatibility, not an unrealistic promise of 100%.")
     }
+    // @endslide:gaming
 
+    // @slide:ai
     Slide {
         centeredText: qsTr("AI mode: a local-first AI layer built on Ollama (chat + coding models on your own GPU, OpenAI-compatible server) and ComfyUI for image generation -- sized to your hardware, no API keys, no cloud, no telemetry by default.")
     }
+    // @endslide:ai
 
+    // @slide:server
     Slide {
         centeredText: qsTr("Server mode: SSH hardening, Docker, and Netdata monitoring -- fully usable with no display attached at all.")
     }
+    // @endslide:server
 
+    // @slide:creative
     Slide {
         centeredText: qsTr("Creative mode: FreeCAD, Blender, DaVinci Resolve, and Kdenlive -- native Linux apps with real GPU acceleration, not a fragile Wine workaround.")
     }
+    // @endslide:creative
 
     Slide {
         centeredText: qsTr("Normal mode: a polished, macOS-style desktop -- dock, top bar, and a clean default theme for everyday use.")

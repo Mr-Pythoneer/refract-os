@@ -50,13 +50,53 @@ package ever needs a third-party repo, this is the real, now-confirmed
 mechanism to reach for — using the same strain-conditional copy-in/cleanup
 pattern `build.sh` already uses for Calamares and the casper-bottom hook.
 
+## Choosing modes at build time: `REFRACT_OMIT_MODES` (provable absence)
+
+The five runtime modes (`gaming`/`ai`/`server`/`creative` + always-on
+`normal`) are install-on-demand, so hiding one from the switcher is cheap —
+but "hidden" is not "absent": the setup scripts that *could* fetch it still
+ship in the ISO. For the audience that wants a mode to be **provably absent**
+(auditable with `apt`/`ls`), build with it omitted entirely:
+
+```bash
+REFRACT_OMIT_MODES="ai" sudo -E ./build.sh workstation      # a no-AI image
+REFRACT_OMIT_MODES="ai server" sudo -E ./build.sh laptop    # omit several
+```
+
+`normal` can never be omitted (it is the base desktop); anything outside
+`gaming|ai|server|creative` is rejected. For each omitted `<mode>`, `build.sh`
+removes its entire footprint from the staged image — mirroring the
+`REFRACT_TESTING` "always remove, then conditionally keep" pattern — so the
+installed system has nothing of it:
+
+- its `modes/<mode>/` tree (bins, setup scripts, systemd units, configs) and
+  its `modes/modectl/profiles/<mode>.conf` switcher profile are deleted;
+- its `/usr/local/bin/distro-<mode>-*` PATH symlinks are never created;
+- its per-mode wallpaper is dropped;
+- its mode-exclusive strain packages (lines tagged with a trailing
+  `#@omit-if-no:<mode>` sentinel in `strains/*.list.chroot`) are stripped —
+  dual-use packages such as the Vulkan userspace are deliberately **not**
+  tagged and always survive;
+- it is removed from the shipped `distro-modectl`'s `ALL_MODES=(...)` catalog
+  and from the default `/etc/refract/enabled-modes` registry, so the switcher
+  never advertises or accepts it;
+- its Calamares install-slideshow slide is deleted from `show.qml`.
+
+The CI workflow (`build-iso.yml`) exposes this as four `include_gaming` /
+`include_ai` / `include_server` / `include_creative` checkboxes (checked =
+included); leaving a box unchecked omits that mode, suffixes the artifact name
+(e.g. `-noai`), and runs a post-build step that asserts the omitted mode's
+directories, symlinks, catalog entry, and registry line are all gone. See
+`docs/mode-selection-design.md` §4 for the full rationale (SOFT vs HARD levels).
+
 ## What's in here
 
 - `build.sh` — copies `modes/` and `drivers/` from the repo root into
   `config/includes.chroot/opt/distro/` (symlinking `distro-modectl` and
-  the `distro-ai-*` CLIs into `/usr/local/bin/` — as symlinks, not copies,
-  since `distro-modectl` looks up its `profiles/` directory relative to
-  its own location), then runs `lb config` + `lb build`.
+  the per-mode `distro-*` CLIs into `/usr/local/bin/` — as symlinks, not
+  copies, since `distro-modectl` looks up its `profiles/` directory relative
+  to its own location; a `REFRACT_OMIT_MODES` build skips the symlinks for
+  any omitted mode, see below), then runs `lb config` + `lb build`.
 - `config/package-lists/base.list.chroot` — universal CLI tools every
   strain needs regardless of DE/headless (curl, jq, git, build-essential,
   cmake, power-profiles-daemon, mokutil, ffmpeg, openssh-server)

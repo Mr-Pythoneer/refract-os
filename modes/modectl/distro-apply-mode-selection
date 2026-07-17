@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+#
+# distro-apply-mode-selection — persist the Calamares "what is this machine
+# for?" selection into the installed system's mode registry.
+# See docs/mode-selection-design.md §3.4.
+#
+# Invoked by iso/calamares/modules/shellprocess_modes.conf as:
+#     distro-apply-mode-selection 'gs[packagechooser_modes]'
+# where Calamares expands gs[packagechooser_modes] to the comma-separated list
+# of selected mode ids (e.g. "gaming,ai" — empty string if nothing was ticked).
+# shellprocess runs with dontChroot:false, so this executes INSIDE the target
+# root: every path below is target-native and /opt/distro is already unpacked.
+#
+# SOFT level (always): write /etc/refract/enabled-modes — the registry that
+# distro-modectl's load_valid_modes() reads. It MUST be world-readable (0644):
+# require_root_for() re-execs the switcher so load_valid_modes runs both as the
+# desktop user and as root, and the two passes must agree (design §3.3). One
+# optional mode per line; 'normal' is the always-on base and is NEVER written
+# (the loader force-appends it), so an empty selection is a legitimate
+# "plain desktop = normal only" outcome, not an error.
+#
+# HARD level (optional, OFF by default): physically delete every non-selected
+# optional mode's files from the target — see APPLY_HARD_REMOVAL below.
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+# Overridable like GOV_AVAIL_FILE in distro-modectl, so a test can point at a
+# fixture instead of the real /etc path.
+ENABLED_MODES_FILE="${ENABLED_MODES_FILE:-/etc/refract/enabled-modes}"
+DISTRO_ROOT="${DISTRO_ROOT:-/opt/distro}"
+
+# The optional modes selectable on the installer page. 'normal' is the always-on
+# base and is deliberately absent — never selectable, never written, never
+# removable here.
+OPTIONAL_MODES=(gaming ai server creative)
+
+# HARD per-install removal — LEFT OFF (0) BY DEFAULT ON PURPOSE.
+#
+# Deleting a mode's files here makes THIS install's `ls /opt/distro/modes/<m>`
+# come up empty, but it does NOT deliver the provable-absence guarantee the
+# anti-AI audience needs: the shipped ISO still contains every mode's tree and
+# setup scripts, so a skeptic auditing the image (squashfs / live session)
+# still finds them, and the scripts could be re-fetched. The real, auditable
+# guarantee is a build that NEVER ships the components — the REFRACT_OMIT_MODES
+# build-omit flag in iso/build.sh (design §4), not per-install deletion. Keep
+# this at 0 unless you have a specific reason to scrub an already-unpacked
+# target, and even then prefer the build flag. Opt in via the environment:
+#     APPLY_HARD_REMOVAL=1 distro-apply-mode-selection "gaming"
+APPLY_HARD_REMOVAL="${APPLY_HARD_REMOVAL:-0}"
+
+# ---------------------------------------------------------------------------
+# Parse the selection ($1): comma-separated ids, possibly empty or spaced.
+# ---------------------------------------------------------------------------
+selection="${1:-}"
+
+# Defensive: if gs[] substitution did not happen (a Calamares older than the
+# gs[] feature), $1 is the literal "gs[packagechooser_modes]". Treat that as an
+# empty selection rather than persisting a bogus token (design §3.4).
+if [ "$selection" = "gs[packagechooser_modes]" ]; then
+    selection=""
+fi
+
+# Normalise commas to spaces, then split on whitespace into an array (no
+# globbing, unlike a bare `for tok in $selection`).
+selection="${selection//,/ }"
+read -r -a tokens <<< "$selection"
+
+# Whitelist + dedupe against OPTIONAL_MODES. Unknown tokens (and a stray
+# 'normal') are dropped — mirrors load_valid_modes() in distro-modectl.
+enabled=()
+for tok in "${tokens[@]}"; do
+    [[ " ${OPTIONAL_MODES[*]} " == *" $tok "* ]] || continue   # drop unknown/normal
+    [[ " ${enabled[*]} " == *" $tok "* ]] && continue          # dedupe
+    enabled+=("$tok")
+done
+
+# ---------------------------------------------------------------------------
+# SOFT: write the registry (always). 'normal' is implicit, so an empty
+# `enabled` array yields a header-only file and the loader resolves normal-only.
+# ---------------------------------------------------------------------------
+mkdir -p "$(dirname "$ENABLED_MODES_FILE")"
+{
+    echo "# Refract OS enabled modes — written by the installer (distro-apply-mode-selection)."
+    echo "# One optional mode per line. 'normal' is always enabled and is never listed here."
+    echo "# Change later with: distro-modectl modes enable|disable <mode>."
+    if [ "${#enabled[@]}" -gt 0 ]; then
+        printf '%s\n' "${enabled[@]}"
+    fi
+} > "$ENABLED_MODES_FILE"
+# World-readable is MANDATORY (design §3.3) — see header.
+chmod 0644 "$ENABLED_MODES_FILE"
+
+# ---------------------------------------------------------------------------
+# HARD (optional, guarded): physically remove every non-selected optional mode.
+# Approximates provable absence for one install only — NOT the real guarantee
+# (that is the build-omit flag, design §4). See APPLY_HARD_REMOVAL above.
+# ---------------------------------------------------------------------------
+if [ "$APPLY_HARD_REMOVAL" = "1" ]; then
+    for m in "${OPTIONAL_MODES[@]}"; do
+        [[ " ${enabled[*]} " == *" $m "* ]] && continue        # keep selected modes
+        # ${DISTRO_ROOT:?} guards against an empty var turning this into rm -rf /modes.
+        rm -rf "${DISTRO_ROOT:?}/modes/$m"
+        rm -f  "${DISTRO_ROOT:?}/modes/modectl/profiles/$m.conf"
+        rm -f  "/usr/local/bin/distro-$m-"*
+        rm -f  "/usr/share/backgrounds/refract/$m.png"
+    done
+fi
+
+exit 0

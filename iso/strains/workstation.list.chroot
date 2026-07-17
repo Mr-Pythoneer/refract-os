@@ -4,6 +4,11 @@ ubuntu-desktop-minimal
 flatpak
 gnome-shell-extensions
 gnome-tweaks
-gamemode
-mangohud
-winetricks
+## gamemode/mangohud/winetricks are Gaming-mode-exclusive light packages (the
+## heavy Gaming payload -- Steam/Proton/Lutris/Bottles -- installs on demand via
+## modes/gaming/setup/*.sh). The trailing omit-sentinel on each line lets a
+## REFRACT_OMIT_MODES=gaming build strip them; build.sh removes the sentinel on
+## kept builds so apt only ever sees the bare package name (see iso/build.sh).
+gamemode  #@omit-if-no:gaming
+mangohud  #@omit-if-no:gaming
+winetricks  #@omit-if-no:gaming

@@ -35,6 +35,30 @@ on:
         required: false
         default: false
         type: boolean
+      # "What is this machine for?" — checked = the mode ships; UNCHECKED = the
+      # mode is OMITTED ENTIRELY (provably absent, not merely hidden). 'normal'
+      # is the always-on base desktop and is deliberately not a toggle. The
+      # unchecked boxes are folded into REFRACT_OMIT_MODES below.
+      include_gaming:
+        description: "Include Gaming mode (Steam/Proton, Lutris, gamemode). Uncheck to omit it entirely."
+        required: false
+        default: true
+        type: boolean
+      include_ai:
+        description: "Include AI mode (local Ollama LLMs, ComfyUI). Uncheck for a provably AI-free image."
+        required: false
+        default: true
+        type: boolean
+      include_server:
+        description: "Include Server mode (SSH, Docker, Netdata). Uncheck to omit it entirely."
+        required: false
+        default: true
+        type: boolean
+      include_creative:
+        description: "Include Creative mode (Blender, Kdenlive, FreeCAD). Uncheck to omit it entirely."
+        required: false
+        default: true
+        type: boolean
 
 jobs:
   build:
@@ -64,13 +88,73 @@ jobs:
           # Tools for build.sh's UEFI hybrid-remaster step (fold-in of uefi-remaster).
           sudo apt-get install -y xorriso grub-efi-amd64-bin grub-common mtools dosfstools isolinux
 
+      # Fold the four include_* checkboxes into REFRACT_OMIT_MODES: an UNCHECKED
+      # box means "omit this mode entirely". Also derive an artifact-name suffix
+      # (e.g. -noai) so a mode-omitted build is distinguishable at a glance and
+      # never overwrites a full build's artifact/release.
+      - name: Compute mode omission
+        id: modes
+        run: |
+          set -euo pipefail
+          omit=""
+          [ "${{ inputs.include_gaming }}" = "true" ]   || omit="$omit gaming"
+          [ "${{ inputs.include_ai }}" = "true" ]       || omit="$omit ai"
+          [ "${{ inputs.include_server }}" = "true" ]   || omit="$omit server"
+          [ "${{ inputs.include_creative }}" = "true" ] || omit="$omit creative"
+          omit="$(echo "$omit" | xargs || true)"   # collapse/trim whitespace
+          suffix=""
+          for m in $omit; do suffix="${suffix}-no${m}"; done
+          {
+            echo "omit=$omit"
+            echo "suffix=$suffix"
+          } >> "$GITHUB_OUTPUT"
+          echo "REFRACT_OMIT_MODES='${omit:-<none>}'  artifact suffix='${suffix:-<none>}'"
+
       - name: Build ISO
         working-directory: iso
         env:
           REFRACT_TESTING: ${{ inputs.testing_no_login && '1' || '0' }}
+          # sudo -E forwards this into build.sh, exactly like REFRACT_TESTING.
+          REFRACT_OMIT_MODES: ${{ steps.modes.outputs.omit }}
         run: |
           set -euo pipefail
           sudo -E ./build.sh "${{ inputs.strain }}"
+
+      # Prove the HARD guarantee: for every omitted mode, assert its footprint is
+      # gone from the staged image (config/includes.chroot is what gets squashed
+      # into the ISO). FAIL the build if anything leaked, so a "no-AI" image can
+      # never silently ship AI. sudo because build.sh wrote these paths as root.
+      - name: Assert omitted modes are provably absent
+        if: ${{ success() && steps.modes.outputs.omit != '' }}
+        working-directory: iso
+        run: |
+          set -uo pipefail
+          inc=config/includes.chroot
+          modectl="$inc/opt/distro/modes/modectl/distro-modectl"
+          reg="$inc/etc/refract/enabled-modes"
+          fail=0
+          for m in ${{ steps.modes.outputs.omit }}; do
+            echo "== asserting mode '$m' is absent =="
+            for p in "$inc/opt/distro/modes/$m" \
+                     "$inc/opt/distro/modes/modectl/profiles/$m.conf" \
+                     "$inc/usr/share/backgrounds/refract/$m.png"; do
+              if sudo test -e "$p"; then echo "  LEAK: $p still present" >&2; fail=1; fi
+            done
+            if sudo ls "$inc/usr/local/bin/distro-$m-"* >/dev/null 2>&1; then
+              echo "  LEAK: distro-$m-* symlink(s) still in PATH" >&2; fail=1
+            fi
+            if sudo grep -E '^ALL_MODES=' "$modectl" | grep -qw "$m"; then
+              echo "  LEAK: '$m' still in distro-modectl ALL_MODES" >&2; fail=1
+            fi
+            if sudo grep -qw "$m" "$reg" 2>/dev/null; then
+              echo "  LEAK: '$m' still in default /etc/refract/enabled-modes" >&2; fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "Absence assertion FAILED — an omitted mode leaked into the image." >&2
+            exit 1
+          fi
+          echo "All omitted modes are provably absent from the staged image."
 
       # Rename the file itself so the DANGER is visible in the browser's
       # download list, the Downloads folder, and Rufus/Etcher's file picker —
@@ -96,7 +180,10 @@ jobs:
           # "Failed to open refract.iso". The ISO FILE inside is still named
           # DANGER-DO-NOT-USE-TESTING-NO-LOGIN-*.iso, which is what a human
           # actually sees when they download and flash it.
-          name: ${{ inputs.testing_no_login && format('refract-os-{0}-DANGER-TESTING-NO-LOGIN', inputs.strain) || format('refract-os-{0}', inputs.strain) }}
+          # {1} is the -no<mode> omission suffix (empty for a full build); it
+          # keeps the refract-os-* prefix so downstream `pattern: refract-os-*`
+          # jobs still match, while distinguishing e.g. refract-os-laptop-noai.
+          name: ${{ inputs.testing_no_login && format('refract-os-{0}{1}-DANGER-TESTING-NO-LOGIN', inputs.strain, steps.modes.outputs.suffix) || format('refract-os-{0}{1}', inputs.strain, steps.modes.outputs.suffix) }}
           # Glob, not a fixed filename: if build.sh's rename step doesn't
           # run (build failed before producing output), this still uploads
           # whatever live-build did produce for debugging instead of the
@@ -115,20 +202,24 @@ jobs:
           ISO=$(ls iso/*.iso | head -n1)
           [ -n "$ISO" ] || { echo "no ISO produced — nothing to publish" >&2; exit 0; }
           base=$(basename "$ISO"); strain="${{ inputs.strain }}"
+          # A mode-omitted build gets its OWN tag (e.g. latest-laptop-noai) so it
+          # never overwrites the full latest-${strain} that most users download.
+          suffix="${{ steps.modes.outputs.suffix }}"
+          omit="${{ steps.modes.outputs.omit }}"
           # A testing image MUST NOT land on the tag real users download. It gets
           # its own tag, its own title, and its own notes; latest-${strain} stays
           # whatever the last real build published.
           if [ "${{ inputs.testing_no_login }}" = "true" ]; then
-            tag="DANGER-testing-no-login-${strain}"
+            tag="DANGER-testing-no-login-${strain}${suffix}"
           else
-            tag="latest-${strain}"
+            tag="latest-${strain}${suffix}"
           fi
           sha=$(sha256sum "$ISO" | cut -d' ' -f1)
-          echo "$sha  $base" > "iso/${strain}.sha256"
+          echo "$sha  $base" > "iso/${strain}${suffix}.sha256"
           # GitHub release assets are capped at 2 GiB. Split larger ISOs into
           # < 2 GiB parts (users rejoin them) and upload the parts instead.
           limit=$((1900*1024*1024)); sz=$(stat -c%s "$ISO")
-          assets=("iso/${strain}.sha256")
+          assets=("iso/${strain}${suffix}.sha256")
           if [ "$sz" -le "$limit" ]; then
             assets+=("$ISO")
             reasm="It's a single file — just flash it."
@@ -184,8 +275,10 @@ jobs:
 
           # ☠☠☠ DANGER — NO LOGIN — DO NOT USE ☠☠☠"
           else
-            title="Refract OS — latest ${strain}"
-            notes="Rolling latest **${strain}** build of Refract OS.
+            omitnote=""
+            [ -n "$omit" ] && omitnote=" (modes provably omitted: ${omit})"
+            title="Refract OS — latest ${strain}${suffix}"
+            notes="Rolling latest **${strain}** build of Refract OS${omitnote}.
 
           **Flash it — Windows, macOS, or Linux:** balenaEtcher (any OS) or Rufus (Windows, *DD Image* mode). No Linux needed to install.
 

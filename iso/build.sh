@@ -38,6 +38,36 @@ if [ "$REFRACT_TESTING" = "1" ]; then
 WARN
 fi
 
+# REFRACT_OMIT_MODES: space- or comma-separated list of OPTIONAL modes to leave
+# out of this build ENTIRELY (gaming/ai/server/creative). Mirrors the
+# REFRACT_TESTING flag above: a workflow_dispatch input forwarded via
+# `sudo -E ./build.sh`, "always remove, then conditionally keep". Unlike the
+# SOFT runtime hide (/etc/refract/enabled-modes), an omitted mode is PROVABLY
+# ABSENT from the installed system — its modes/<mode>/ tree, switcher profile,
+# PATH symlinks, wallpaper, mode-exclusive strain packages and installer slide
+# are all stripped here, so nothing that could ever install it ships in the ISO
+# (design doc §4). 'normal' is the always-on base desktop and can NEVER be
+# omitted; anything outside gaming|ai|server|creative is rejected.
+REFRACT_OMIT_MODES="${REFRACT_OMIT_MODES:-}"
+REFRACT_OMIT_MODES="${REFRACT_OMIT_MODES//,/ }"
+read -ra _omit_req <<< "$REFRACT_OMIT_MODES"
+OMITTED=()
+for _m in "${_omit_req[@]}"; do
+    case "$_m" in
+        normal)
+            echo "REFRACT_OMIT_MODES: 'normal' is the always-on base desktop and cannot be omitted." >&2
+            exit 1 ;;
+        gaming|ai|server|creative) ;;
+        *)
+            echo "REFRACT_OMIT_MODES: unknown mode '$_m' (valid: gaming ai server creative)." >&2
+            exit 1 ;;
+    esac
+    [[ " ${OMITTED[*]} " == *" $_m "* ]] || OMITTED+=("$_m")
+done
+if [ "${#OMITTED[@]}" -gt 0 ]; then
+    echo -e "\033[33mOmitting modes entirely from this build (provably absent): ${OMITTED[*]}\033[0m"
+fi
+
 if [ "$(uname)" != "Linux" ]; then
     echo "live-build only runs on Linux. Run this on the actual Ubuntu build host, not here." >&2
     exit 1
@@ -67,6 +97,21 @@ echo -e "\033[36mStrain: $STRAIN\033[0m"
 # build time, or every strain would get every strain's packages.
 find "$PACKAGE_LISTS" -maxdepth 1 -name "strain-*.list.chroot" -delete
 cp "$STRAIN_FILE" "$PACKAGE_LISTS/strain-${STRAIN}.list.chroot"
+
+# Mode-exclusive strain packages (REFRACT_OMIT_MODES). Lines that belong to
+# exactly ONE optional mode are tagged with a trailing '#@omit-if-no:<mode>'
+# sentinel in iso/strains/*.list.chroot (dual-use packages like the Vulkan
+# userspace shared by ai/gaming/creative — design §4.1-J — are deliberately
+# NOT tagged and always survive). For each omitted mode, delete its tagged
+# lines from the build copy; then strip the sentinel comment off every
+# surviving line so the bare package name reaches live-build/apt clean and the
+# sentinel is a pure build-time annotation that never ships. Operates on the
+# copy under config/package-lists/, never the repo source in iso/strains/.
+_strain_copy="$PACKAGE_LISTS/strain-${STRAIN}.list.chroot"
+for m in "${OMITTED[@]}"; do
+    sed -i "/#@omit-if-no:$m\b/d" "$_strain_copy"
+done
+sed -i 's/[[:space:]]*#@omit-if-no:[a-zA-Z]\{1,\}[[:space:]]*$//' "$_strain_copy"
 
 # Calamares only makes sense for strains that ship a DE -- server/cloud are
 # headless and would use cloud-init/preseed instead of an interactive
@@ -135,12 +180,70 @@ EOF
     chmod +x "$INCLUDES/usr/share/initramfs-tools/scripts/casper-bottom/25-refract-install-icon"
 fi
 
+# Strip the installer slideshow slide for any omitted mode, so a no-<mode> image
+# never advertises a mode it cannot install (design §4.1-K). Each per-mode Slide
+# in show.qml is wrapped with '// @slide:<mode>' / '// @endslide:<mode>' marker
+# comments; range-delete them from the build copy. Guarded by [ -f ] because the
+# headless strains (server/cloud) ship no Calamares tree at all. The intro slide
+# is deliberately mode-agnostic (no per-mode enumeration), so nothing there needs
+# stripping.
+_qml="$INCLUDES/etc/calamares/branding/refractos/show.qml"
+if [ -f "$_qml" ]; then
+    for m in "${OMITTED[@]}"; do
+        sed -i "/\/\/ @slide:$m$/,/\/\/ @endslide:$m$/d" "$_qml"
+    done
+fi
+
 echo -e "\033[36mCopying repo scripts into the image (opt/distro/, /usr/local/bin)...\033[0m"
 # Copied fresh from the repo at build time rather than committed as a
 # duplicate in git — there is exactly one copy of these scripts to keep in
 # sync, the one under modes/ and drivers/ at the repo root.
 mkdir -p "$INCLUDES/opt/distro" "$INCLUDES/usr/local/bin"
 rsync -a --delete "$REPO_ROOT/modes" "$REPO_ROOT/drivers" "$INCLUDES/opt/distro/"
+
+# --- HARD mode omission (REFRACT_OMIT_MODES) --------------------------------
+# Physically remove each omitted mode's footprint from the staged image so the
+# installed system has PROVABLY nothing of it (design §4). systemd units and the
+# legacy-crucible12 sub-tree live under modes/<mode>/, so the rm -rf covers them;
+# the wallpaper is dropped later (after the wallpaper cp) and the PATH symlinks
+# are skipped in the loop below. All edits target the copy under $INCLUDES —
+# never the repo source under modes/.
+for m in "${OMITTED[@]}"; do
+    rm -rf "$INCLUDES/opt/distro/modes/$m"
+    # The switcher profile is NOT under modes/<mode>/ (it is modes/modectl/
+    # profiles/<mode>.conf), so it needs a separate delete or `switch <mode>`
+    # would still resolve a profile for a mode whose files are gone.
+    rm -f "$INCLUDES/opt/distro/modes/modectl/profiles/$m.conf"
+done
+if [ "${#OMITTED[@]}" -gt 0 ]; then
+    # Hard-disable the switcher: drop the omitted modes from the shipped
+    # distro-modectl's ALL_MODES=(...) catalog (the switcher now derives
+    # VALID_MODES from ALL_MODES + /etc/refract/enabled-modes). Rewrite keeps
+    # the canonical mode order and always retains 'normal'. sed the COPY only.
+    kept=()
+    for cm in gaming ai server creative normal; do
+        [[ " ${OMITTED[*]} " == *" $cm "* ]] || kept+=("$cm")
+    done
+    sed -i "s/^ALL_MODES=(.*/ALL_MODES=(${kept[*]})/" \
+        "$INCLUDES/opt/distro/modes/modectl/distro-modectl"
+fi
+# Ship a default, world-readable /etc/refract/enabled-modes for the live (and
+# freshly-installed) session listing the optional modes this build actually
+# ships — omitted modes are absent from it, so the switcher never advertises a
+# mode whose files were stripped. 'normal' is always-on and never listed (the
+# loader force-appends it). Written here because config/includes.chroot/etc/ is
+# gitignored: build.sh is the only place that knows the omit set.
+mkdir -p "$INCLUDES/etc/refract"
+{
+    echo "# Refract OS — enabled optional modes (one per line; '#' comments ok)."
+    echo "# 'normal' is the always-on base desktop and is never listed here."
+    echo "# Managed at runtime via: distro-modectl modes enable|disable <mode>"
+    for cm in gaming ai server creative; do
+        [[ " ${OMITTED[*]} " == *" $cm "* ]] || echo "$cm"
+    done
+} > "$INCLUDES/etc/refract/enabled-modes"
+chmod 0644 "$INCLUDES/etc/refract/enabled-modes"
+
 # Symlinks, not copies: distro-modectl looks up profiles/ relative to its
 # own location (see modes/modectl/distro-modectl's PROFILE_DIR), so it must
 # stay next to that directory rather than be flattened into /usr/local/bin.
@@ -157,6 +260,11 @@ declare -A DISTRO_BINS=(
     [distro-creative-scratch]=modes/creative/bin [distro-creative-color]=modes/creative/bin
 )
 for bin in "${!DISTRO_BINS[@]}"; do
+    # DISTRO_BINS[$bin] is 'modes/<mode>/bin' — extract <mode> and skip the
+    # symlink when that mode was omitted, so we never leave a dangling link to
+    # a bin the rm -rf above just deleted.
+    binmode="${DISTRO_BINS[$bin]#modes/}"; binmode="${binmode%%/*}"
+    [[ " ${OMITTED[*]} " == *" $binmode "* ]] && continue
     ln -sf "/opt/distro/${DISTRO_BINS[$bin]}/$bin" "$INCLUDES/usr/local/bin/$bin"
 done
 find "$INCLUDES/opt/distro" -type f \( -name "*.sh" -o -name "distro-*" \) -exec chmod +x {} +
@@ -204,12 +312,21 @@ printf 'Refract OS %s\n' "$VERSION_NUM" > "$INCLUDES/etc/issue.net"
 # Default hostname + matching hosts entry.
 echo "refract" > "$INCLUDES/etc/hostname"
 printf '127.0.0.1\tlocalhost\n127.0.1.1\trefract\n' > "$INCLUDES/etc/hosts"
+# NOTE: the default /etc/refract/enabled-modes registry is staged earlier
+# (right after the REFRACT_OMIT_MODES switcher rewrite) so it can list only the
+# optional modes this build actually ships — see that block for the rationale.
 
 # Wallpaper + logos into the image.
 mkdir -p "$INCLUDES/usr/share/backgrounds/refract" "$INCLUDES/usr/share/refract"
 # The full per-mode wallpaper set (base/gaming/ai/server/creative/normal) —
 # distro-modectl swaps between them on `switch <mode>`.
 cp "$REPO_ROOT"/branding/out/wallpapers/*.png "$INCLUDES/usr/share/backgrounds/refract/"
+# Drop each omitted mode's wallpaper (the glob above copies the full set). Only
+# per-mode files are removed; base.png/normal.png always survive ('normal' can
+# never be omitted).
+for m in "${OMITTED[@]}"; do
+    rm -f "$INCLUDES/usr/share/backgrounds/refract/$m.png"
+done
 cp "$REPO_ROOT/branding/out/wallpapers/base.png" "$INCLUDES/usr/share/backgrounds/refract-os.png"  # GNOME default (login/base)
 cp "$REPO_ROOT/branding/out/logo-clean.png" "$INCLUDES/usr/share/refract/logo.png"
 cp "$REPO_ROOT/branding/out/logo-small.png" "$INCLUDES/usr/share/refract/logo-small.png"

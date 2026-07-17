@@ -31,8 +31,22 @@ for m in 00-header 10-help-text 50-motd-news 88-esm-announce \
 done
 cat > /etc/update-motd.d/00-refract <<'M'
 #!/bin/sh
-printf '\n  Refract OS 1.0 (Forge)  —  one install, five modes, local-first AI\n'
-printf '  switch look+behaviour:  distro-modectl switch gaming|ai|server|creative|normal\n\n'
+# The switch hint lists the modes this install ACTUALLY ships: read the enabled
+# optional modes from the registry (build.sh writes it; a REFRACT_OMIT_MODES
+# build omits the modes it stripped) and always append the always-on 'normal'.
+# Falls back to the full optional set if the registry is absent (e.g. a live
+# session predating the file). This keeps the MOTD honest — a no-AI build never
+# advertises 'ai'.
+_reg=/etc/refract/enabled-modes
+if [ -r "$_reg" ]; then
+    _m=$(sed 's/#.*//' "$_reg" | tr '\n' ' ')
+else
+    _m="gaming ai server creative"
+fi
+case " $_m " in *" normal "*) : ;; *) _m="$_m normal" ;; esac
+_hint=$(printf '%s' "$_m" | tr -s ' \t' ' ' | sed 's/^ //; s/ $//' | tr ' ' '|')
+printf '\n  Refract OS 1.0 (Forge)  —  one install, switchable modes for whatever this machine is for\n'
+printf '  switch look+behaviour:  distro-modectl switch %s\n\n' "$_hint"
 M
 chmod +x /etc/update-motd.d/00-refract 2>/dev/null || true
 

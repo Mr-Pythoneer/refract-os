@@ -8,9 +8,12 @@ ubuntu-desktop-minimal
 flatpak
 gnome-shell-extensions
 gnome-tweaks
-gamemode
-mangohud
-winetricks
+## gamemode/mangohud/winetricks are Gaming-mode-exclusive light packages; the
+## trailing omit-sentinel lets a REFRACT_OMIT_MODES=gaming build strip them
+## (build.sh drops the sentinel on kept builds). See iso/build.sh.
+gamemode  #@omit-if-no:gaming
+mangohud  #@omit-if-no:gaming
+winetricks  #@omit-if-no:gaming
 fwupd
 laptop-detect
 ## Intel-laptop essentials (first real flash target is an Intel ThinkPad X1
