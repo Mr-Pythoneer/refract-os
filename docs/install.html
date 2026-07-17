@@ -7,6 +7,10 @@
 <meta name="description" content="How to build the Refract OS ISO from source, write it to a USB, install it, and set up local AI sized to your GPU.">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/3.35.0/tabler-icons.min.css">
+<!-- Inter + Fira Code: the exact fonts Refract OS ships (see index.html). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #0a0b0d; --bg-card: #14161a; --bg-card2: #1a1d22;
@@ -23,11 +27,12 @@
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
-  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; font-size: 16px; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: "Inter", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; font-size: 16px;
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-feature-settings: "cv11", "ss01"; }
   .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
-  code { background: var(--bg-card2); padding: 2px 7px; border-radius: 5px; font-size: 0.88em; font-family: "SF Mono", Menlo, Consolas, monospace; }
+  code { background: var(--bg-card2); padding: 2px 7px; border-radius: 5px; font-size: 0.88em; font-family: "Fira Code", "SF Mono", Menlo, Consolas, monospace; }
 
   nav { position: sticky; top: 0; z-index: 10; background: rgba(10,11,13,0.85); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
   nav .wrap { max-width: 1040px; display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; }
@@ -66,7 +71,7 @@
   .step ul { margin: 0 0 12px; padding-left: 18px; color: var(--text-dim); font-size: 0.93rem; }
   .step li { margin-bottom: 6px; }
 
-  pre.code { background: var(--bg-card); border: 1px solid var(--border); border-radius: 9px; padding: 14px 16px; overflow-x: auto; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.85rem; color: var(--text); margin: 0 0 12px; line-height: 1.55; }
+  pre.code { background: var(--bg-card); border: 1px solid var(--border); border-radius: 9px; padding: 14px 16px; overflow-x: auto; font-family: "Fira Code", "SF Mono", Menlo, Consolas, monospace; font-size: 0.85rem; color: var(--text); margin: 0 0 12px; line-height: 1.55; }
   pre.code .c { color: var(--text-faint); }
   pre.code .p { color: var(--ok); }
   .warn-inline { color: var(--warn); }

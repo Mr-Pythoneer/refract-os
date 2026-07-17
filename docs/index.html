@@ -7,6 +7,13 @@
 <meta name="description" content="An Ubuntu-based Linux distro that switches its whole personality on command — Gaming, AI, Server, Creative, or a polished Normal mode — built around local-first AI.">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/3.35.0/tabler-icons.min.css">
+<!-- Inter + Fira Code are the EXACT fonts Refract OS itself ships (see
+     iso/config/package-lists/polish.list.chroot: fonts-inter, fonts-firacode,
+     and the dconf default font-name='Inter 11' / monospace 'Fira Code 11').
+     Using them here means the site renders in the same type as the product. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #0a0b0d;
@@ -45,14 +52,21 @@
     margin: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    /* Inter = the OS's own UI font (see the <head> note). */
+    font-family: "Inter", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     line-height: 1.6;
     font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* cv11 = the single-storey 'a'/'g' Inter tunes for UI; ss01 = tighter
+       punctuation. tnum keeps the spec numbers (VRAM/GB) column-aligned. */
+    font-feature-settings: "cv11", "ss01";
+    text-rendering: optimizeLegibility;
   }
   .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
-  code { background: var(--bg-card2); padding: 2px 7px; border-radius: 5px; font-size: 0.88em; font-family: "SF Mono", Menlo, Consolas, monospace; }
+  code { background: var(--bg-card2); padding: 2px 7px; border-radius: 5px; font-size: 0.88em; font-family: "Fira Code", "SF Mono", Menlo, Consolas, monospace; }
 
   nav {
     position: sticky; top: 0; z-index: 10;
@@ -78,14 +92,22 @@
   }
   header .wrap { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; text-align: center; }
   .hero-logo { width: 78px; height: 78px; margin-bottom: 26px; filter: drop-shadow(0 6px 28px rgba(201,165,255,0.28)); }
+  /* Status pill, not a warning label: neutral chrome + a small amber status dot.
+     Same honest message, but it reads as a build-status chip rather than a
+     caution sign shouting at the top of the page. */
   .badge {
-    display: inline-flex; align-items: center; gap: 8px;
-    background: var(--bg-card2); border: 1px solid var(--warn);
-    color: var(--warn); font-size: 0.82rem; font-weight: 600;
-    padding: 6px 14px; border-radius: 999px; margin-bottom: 28px;
+    display: inline-flex; align-items: center; gap: 9px;
+    background: var(--bg-card); border: 1px solid var(--border-hi);
+    color: var(--text-dim); font-size: 0.8rem; font-weight: 500;
+    padding: 6px 15px 6px 12px; border-radius: 999px; margin-bottom: 28px;
   }
-  .badge i { font-size: 0.95em; }
-  h1 { font-size: 3.25rem; margin: 0 0 16px; letter-spacing: -0.03em; line-height: 1.05; }
+  .badge::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%; flex: none;
+    background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
+  }
+  .badge i { display: none; }   /* the dot replaces the icon */
+  .badge strong { color: var(--text); font-weight: 600; }
+  h1 { font-size: 3.4rem; font-weight: 800; margin: 0 0 18px; letter-spacing: -0.038em; line-height: 1.03; }
   h1 span { color: var(--accent); }
   .tagline { color: var(--text-dim); font-size: 1.18rem; max-width: 620px; margin: 0 auto 32px; }
   /* the five modes, as the spectrum the prism throws — decorative brand rule */
@@ -102,7 +124,7 @@
   .terminal {
     background: var(--bg-card); border: 1px solid var(--border-hi); border-radius: 12px;
     max-width: 580px; width: 100%; margin: 52px auto 0; text-align: left; overflow: hidden;
-    font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.86rem;
+    font-family: "Fira Code", "SF Mono", Menlo, Consolas, monospace; font-size: 0.86rem;
     box-shadow: 0 24px 60px -20px rgba(0,0,0,0.7);
   }
   .terminal .bar { display: flex; gap: 7px; padding: 11px 14px; border-bottom: 1px solid var(--border); background: var(--bg-card2); }
@@ -112,10 +134,10 @@
   .terminal .out { color: var(--text); margin: 4px 0 14px 0; }
   .terminal .out:last-child { margin-bottom: 0; }
 
-  section { padding: 60px 0; border-bottom: 1px solid var(--border); }
+  section { padding: 72px 0; border-bottom: 1px solid var(--border); }
   section:last-of-type { border-bottom: none; }
-  h2 { font-size: 1.65rem; margin: 0 0 10px; letter-spacing: -0.01em; }
-  .sub { color: var(--text-dim); margin: 0 0 30px; max-width: 700px; }
+  h2 { font-size: 1.8rem; font-weight: 700; margin: 0 0 12px; letter-spacing: -0.025em; }
+  .sub { color: var(--text-dim); margin: 0 0 34px; max-width: 680px; font-size: 1.02rem; }
 
   .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
   .mode-card {
@@ -189,7 +211,7 @@
   .cfg-models li:last-child { border-bottom: none; }
   .cfg-models .k { color: var(--text-dim); white-space: nowrap; }
   .cfg-models .v { color: var(--text); font-weight: 600; text-align: right; }
-  .cfg-cmd { margin-top: 16px; background: var(--bg-card2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.82rem; color: var(--text); overflow-x: auto; }
+  .cfg-cmd { margin-top: 16px; background: var(--bg-card2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-family: "Fira Code", "SF Mono", Menlo, Consolas, monospace; font-size: 0.82rem; color: var(--text); overflow-x: auto; }
   .cfg-cmd .prompt { color: var(--ok); }
   .cfg-note { color: var(--text-faint); font-size: 0.8rem; margin-top: 14px; }
   .cfg-notes { margin: 14px 0 0; padding: 0; list-style: none; }
@@ -298,7 +320,10 @@
 <section id="download">
   <div class="wrap">
     <h2>Download</h2>
-    <p class="sub">One ISO — but it tailors its local-AI payload to your machine. Tell it your hardware and it previews the exact models your build will preload (auto-detected on first boot, or run <code>distro-ai-setup&nbsp;--install</code> yourself). <strong>No prebuilt ISO yet</strong> — build it from source today, or watch for releases.</p>
+    <!-- This said "No prebuilt ISO yet — build it from source" long after the
+         laptop ISO was actually published to Releases with a public, no-login
+         download + sha256. Keep this in step with what's really on Releases. -->
+    <p class="sub">One ISO — but it tailors its local-AI payload to your machine. Tell it your hardware and it previews the exact models your build will preload (auto-detected on first boot, or run <code>distro-ai-setup&nbsp;--install</code> yourself). <strong>Prebuilt images are on the Releases page</strong> — public, no login, checksum-verified.</p>
     <div class="cfg">
       <div class="cfg-controls">
         <label for="gpu">GPU</label>
@@ -312,8 +337,8 @@
       <div class="cfg-result" id="cfg-result" aria-live="polite"></div>
     </div>
     <div class="dl-row">
-      <a class="btn btn-primary" href="install.html">Download &amp; install guide</a>
-      <a class="btn btn-secondary" href="https://github.com/Mr-Pythoneer/refract-os/releases">Watch for releases</a>
+      <a class="btn btn-primary" href="https://github.com/Mr-Pythoneer/refract-os/releases/latest">Download the ISO</a>
+      <a class="btn btn-secondary" href="install.html">Install guide</a>
     </div>
     <p class="dl-fine">The build is one image; the hardware picker only tailors which local models preload — the OS itself is identical across machines.</p>
   </div>
@@ -364,7 +389,8 @@
   <div class="wrap">
     <h2>Status</h2>
     <div class="status-box">
-      <p style="margin:0 0 12px;">Said plainly, not buried: <strong>the first ISO built AND booted to a full GNOME desktop on 2026-07-02</strong> — built in CI (workstation strain, 2.45&nbsp;GB, six decade-old live-build bugs fixed), then boot-verified the same day in QEMU/KVM on a CI runner: SeaBIOS &rarr; isolinux &rarr; kernel &rarr; live desktop, with casper/systemd assertions on a serial console and screenshots as artifacts. Still true: <strong>no real hardware yet</strong>, and the Calamares installer has never run. The full framework — driver scripts, all 5 mode bundles, 6 hardware strains, the build pipeline, CI — exists and is execution-tested where possible. Known limitation: the ISO is BIOS/CSM-boot only for now (Ubuntu's live-build fork has no EFI support).</p>
+      <p style="margin:0 0 12px;">Said plainly, not buried. <strong>2026-07-02:</strong> the first ISO built in CI and boot-verified in QEMU/KVM — SeaBIOS &rarr; isolinux &rarr; kernel &rarr; live GNOME desktop, with casper/systemd assertions on a serial console and screenshots as artifacts. <strong>2026-07-16:</strong> it <strong>booted on real hardware for the first time</strong> — a UEFI-only ThinkPad X1 Carbon Gen 13 (Intel Core Ultra 7, Arc 140V), reaching the login screen. The image is a <strong>hybrid BIOS + UEFI</strong> ISO (OVMF-verified), so no CSM fiddling; leave Secure Boot off for now.</p>
+      <p style="margin:0 0 12px;">Still honestly missing: <strong>the Calamares installer has never completed an install on a real disk</strong> — that's the next milestone, and it's why nothing here should be pointed at a drive you care about without a backup. The full framework — driver scripts, all 5 mode bundles, 6 hardware strains, the build pipeline, CI — exists and is execution-tested wherever it can be without the hardware.</p>
       <p style="margin:0; color: var(--text-dim);">The <a href="https://github.com/Mr-Pythoneer/refract-os/blob/main/TODO.md">TODO.md</a> in the repo is the live, itemized source of truth — check there before believing anything here is further along than it is.</p>
     </div>
   </div>
