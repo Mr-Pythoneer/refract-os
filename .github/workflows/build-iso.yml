@@ -234,38 +234,16 @@ jobs:
             reasm=$'This ISO is split into '"${#parts[@]}"' parts (GitHub caps assets at 2 GiB) — download every `.part*`, rejoin, then flash:\n- **Linux/macOS:** `cat '"${base}"'.part* > '"${base}"'`\n- **Windows (cmd):** `copy /b '"$win"' '"${base}"'`'
           fi
           if [ "${{ inputs.testing_no_login }}" = "true" ]; then
-            title="☠☠☠ DANGER — TESTING BUILD (${strain}) — NO LOGIN — DO NOT USE ☠☠☠"
-            notes="# ☠☠☠ DANGER — DO NOT DOWNLOAD THIS ☠☠☠
-          # ☠☠☠ THIS IS NOT REFRACT OS ☠☠☠
-          # ☠☠☠ DEVELOPER TESTING BUILD ONLY ☠☠☠
+            title="⚠️ Testing build (${strain}) — no login, developer use only"
+            notes="> **⚠️ This is not Refract OS.** It's a no-login developer testing image.
+          > For the real thing, go to [**latest-${strain}**](https://github.com/${GITHUB_REPOSITORY}/releases/tag/latest-${strain}).
 
-          ## ⛔ STOP. If you are looking for Refract OS, you want [**latest-${strain}**](https://github.com/${GITHUB_REPOSITORY}/releases/tag/latest-${strain}) instead. Go there. Not here.
+          ## What makes it dangerous
+          It boots straight to a desktop with **no username, no password, and full \`sudo\`** — so anyone who touches the machine has complete control. It exists only so a developer can boot a test image without typing anything; it is not secure and not meant for real use.
 
-          ---
+          **Do not install it on a machine you care about, and do not hand it to anyone.**
 
-          ## What this build does that a normal OS does NOT:
-
-          | ☠ | |
-          |---|---|
-          | **NO LOGIN** | It boots straight to a desktop. No username. No password. |
-          | **NO PASSWORD** | The user account has an **empty password** and full \`sudo\`. |
-          | **NO SECURITY** | **Anyone** who picks up the machine has complete control of it. |
-          | **NO SPLASH** | Raw kernel output instead of a boot screen. |
-
-          **If you install this on a real computer, that computer is wide open to anyone who touches it.**
-
-          ## Why it exists
-          Purely so a developer can boot a test image and land on a desktop without typing anything. It is a debugging tool, not an operating system. It is **not** supported, **not** secure, and **not** for humans.
-
-          ## ⛔ DO NOT
-          - ⛔ **DO NOT** install this on any real machine
-          - ⛔ **DO NOT** give it to anyone
-          - ⛔ **DO NOT** use it for anything but throwaway testing
-          - ⛔ **DO NOT** mistake it for Refract OS — **it is not**
-
-          ---
-
-          Even the image screams it: the volume label is \`DANGER-TEST\`, the filename is \`DANGER-DO-NOT-USE-TESTING-NO-LOGIN-*\`, \`/etc/os-release\` says **DANGER: TESTING BUILD**, and \`/etc/refract-TESTING-BUILD-DO-NOT-USE\` exists on the filesystem.
+          The image also identifies itself: volume label \`DANGER-TEST\`, filename \`DANGER-DO-NOT-USE-TESTING-NO-LOGIN-*\`, \`/etc/os-release\` reads *DANGER: TESTING BUILD*, and \`/etc/refract-TESTING-BUILD-DO-NOT-USE\` exists on the filesystem.
 
           ${reasm}
 
