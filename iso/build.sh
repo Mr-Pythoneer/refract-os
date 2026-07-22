@@ -150,6 +150,11 @@ rm -f "$PACKAGE_LISTS/calamares.list.chroot"
 rm -rf "$INCLUDES/etc/calamares"
 rm -f "$INCLUDES/usr/share/applications/install-refract-os.desktop"
 rm -rf "$INCLUDES/usr/share/initramfs-tools/scripts/casper-bottom"
+# Unconditionally purge the installer polkit rule from the persistent (gitignored)
+# includes tree. It is now written live-only by the casper-bottom hook, never into
+# the squashfs; this guarantees a stale copy from an OLD build (which did bake it
+# in) can never survive into any image, including a headless server/cloud ISO.
+rm -f "$INCLUDES/etc/polkit-1/rules.d/49-refract-installer.rules"
 
 # The macOS look (WhiteSur theme + dock + liquid-glass) is a DESKTOP feature.
 # Strip its package list + build hook from headless strains so server/cloud
@@ -196,23 +201,17 @@ Icon=system-software-install
 Terminal=false
 Categories=System;
 EOF
-    # Without this, launching the installer pops an "Authenticate to manage disks"
-    # polkit prompt (whose default button is Cancel) and the install never starts.
-    # Real live ISOs grant the local live session passwordless access to the disk /
-    # installer / reboot actions. Scoped to a live session (no persistence, so it's
-    # gone on an installed system) by only matching the active local subject.
-    mkdir -p "$INCLUDES/etc/polkit-1/rules.d"
-    cat > "$INCLUDES/etc/polkit-1/rules.d/49-refract-installer.rules" <<'EOF'
-polkit.addRule(function(action, subject) {
-    if (subject.local && subject.active &&
-        (action.id.indexOf("org.freedesktop.udisks2.") === 0 ||
-         action.id.indexOf("com.github.calamares.") === 0 ||
-         action.id === "org.freedesktop.policykit.exec" ||
-         action.id.indexOf("org.freedesktop.login1.") === 0)) {
-        return polkit.Result.YES;
-    }
-});
-EOF
+    # The installer needs a passwordless polkit grant (the launcher is
+    # `pkexec calamares`, and the live user has no password). That grant is NOT
+    # written here anymore: baking it into config/includes.chroot put it in the
+    # squashfs, so it ALSO shipped onto every INSTALLED system, where any local
+    # desktop user could `pkexec bash` into a passwordless root shell (the
+    # "subject.local && active" scope matches the installed user, and nothing
+    # removed it). It is now written from the casper-bottom hook below into the
+    # LIVE overlay only — an installed system never runs that hook, so it cannot
+    # persist. Defensively purge any stale copy a PRIOR build left in the
+    # (gitignored, persistent) includes tree so no build ever ships it.
+    rm -f "$INCLUDES/etc/polkit-1/rules.d/49-refract-installer.rules"
     # Live-session autostart: a casper-bottom hook (see
     # iso/casper-hooks/casper-bottom/README.md) drops the desktop entry above
     # onto the live user's Desktop during boot -- the same documented
@@ -251,6 +250,17 @@ if [ -d "$_cala" ]; then
             "$_cala/modules/packagechooser_modes.conf"
         rm -f "$_cala/branding/refractos/$m.png"
     done
+    # Empty-packagechooser edge: if EVERY optional mode was omitted (a normal-only
+    # "provably nothing but the base desktop" build), the items: list is now empty.
+    # Calamares would still render the "what is this machine for?" page with zero
+    # checkboxes — a dead, confusing step. Drop the page from the show sequence
+    # when nothing is left to choose. shellprocess@modes stays: with no chooser,
+    # ${gs[packagechooser_modes]} resolves empty and distro-apply-mode-selection ''
+    # correctly applies the normal-only base (the intended result of omitting all).
+    if ! grep -qE '^[[:space:]]*- id: ' "$_cala/modules/packagechooser_modes.conf" 2>/dev/null; then
+        echo -e "\033[33mAll optional modes omitted — dropping the now-empty packagechooser page from the installer sequence.\033[0m"
+        sed -i '/^[[:space:]]*- packagechooser@modes[[:space:]]*$/d' "$_cala/settings.conf"
+    fi
 fi
 
 echo -e "\033[36mCopying repo scripts into the image (opt/distro/, /usr/local/bin)...\033[0m"
@@ -528,7 +538,11 @@ echo -e "\033[36mConfiguring live-build...\033[0m"
 # live-build (2023xxxx+) is the opposite: it wants 'none'. Pick by version so
 # the same script works on either build host.
 DI_OFF="none"
-case "$(lb --version 2>/dev/null)" in 3.0*) DI_OFF="false" ;; esac
+# Match 3.0 anywhere in the version string, not just as a prefix: a future/forked
+# `lb --version` that prints e.g. "live-build 3.0~a57" would miss a bare '3.0*'
+# glob, leaving DI_OFF=none, which the Ubuntu fork rejects at the binary stage —
+# the exact failure this line exists to avoid.
+case "$(lb --version 2>/dev/null)" in *3.0*) DI_OFF="false" ;; esac
 # --syslinux-theme live-build: the fork's DEFAULT theme is 'ubuntu-oneiric'
 # (syslinux-themes-ubuntu-oneiric + gfxboot-theme-ubuntu — packages dead since
 # ~12.04; run 28565364184 failed there). 'live-build' makes it prefer our
@@ -619,6 +633,18 @@ menuentry "Refract OS (SOFTWARE GRAPHICS -- bypass the GPU, slow but works)" {
     initrd /casper/initrd.img
 }
 GRUB
+    # A REFRACT_TESTING image promises "NO SPLASH" everywhere — its whole point is
+    # a visible, unattended developer boot. The DANGER autologin and the INSTALLED
+    # grub already get nosplash (the /etc/default/grub sed above), but the LIVE
+    # default menu entry still said "quiet splash", so a testing ISO booted live
+    # showed the exact splash it promised to drop. Flip ONLY the live entry here:
+    # it is the only entry carrying "quiet splash" (verbose/recovery/softgfx are
+    # already nosplash), and this mirrors the installed-grub cmdline. This is the
+    # UEFI path (the X1's boot path); the BIOS/isolinux live menu is left as-is.
+    if [ "$REFRACT_TESTING" = "1" ]; then
+        sed -i 's/boot=casper quiet splash/boot=casper nosplash systemd.show_status=true/' \
+            "$work/grub-embed.cfg"
+    fi
     if ! grub-mkstandalone -O x86_64-efi -o "$work/bootx64.efi" \
         --modules="part_gpt part_msdos fat iso9660 normal linux search configfile echo all_video gfxterm test" \
         "boot/grub/grub.cfg=$work/grub-embed.cfg" >/dev/null 2>&1; then

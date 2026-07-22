@@ -559,7 +559,24 @@ run_mode_setup() {
                 echo "'ai' enabled. Install the local AI stack as your desktop user: distro-ai-setup --install"
             fi
             ;;
+        gaming|creative)
+            # Gaming/Creative setup scripts are USER scripts: they call `sudo`
+            # internally for the privileged steps and add the DESKTOP user to
+            # groups via "$USER" (e.g. gaming's 06 runs `sudo usermod -aG gamemode
+            # "$USER"`). Run them with BARE `bash` as your normal user — under
+            # `sudo bash` $USER resolves to root, so the group-add would target
+            # root instead of the desktop user.
+            local setup_dir="$MODES_DIR/$mode/setup"
+            echo "'$mode' enabled. Install its apps by running its setup scripts as your normal user, in order:"
+            if [ -d "$setup_dir" ]; then
+                echo "  for s in \"$setup_dir\"/[0-9]*.sh; do bash \"\$s\"; done"
+            else
+                echo "  for s in /opt/distro/modes/$mode/setup/[0-9]*.sh; do bash \"\$s\"; done"
+            fi
+            ;;
         *)
+            # Server (and any future system-daemon mode): setup scripts install
+            # system services, so run them as root via sudo.
             local setup_dir="$MODES_DIR/$mode/setup"
             echo "'$mode' enabled. Install its apps by running its setup scripts as root, in order:"
             if [ -d "$setup_dir" ]; then

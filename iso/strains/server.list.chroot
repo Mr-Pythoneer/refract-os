@@ -1,7 +1,10 @@
 ## Server/headless strain: no desktop environment package at all.
-## base.list.chroot already covers openssh-server; Docker/Netdata are
-## intentionally left to modes/server/setup/*.sh, not baked in here --
+## openssh-server lives here (and in cloud.list.chroot), NOT base.list.chroot:
+## a headless server wants sshd on first boot, but the desktop strains
+## (laptop/workstation/handheld/lowspec) never asked for an open :22, so it
+## must not ship universally. Runtime hardening (key-only auth, no root login)
+## is still applied by modes/server/setup/01-install-ssh.sh on
+## `distro-modectl switch server`; baking the package in just means sshd exists
+## before that runs. Docker/Netdata stay out, left to modes/server/setup/*.sh --
 ## same lean-image philosophy as iso/README.md's main scope decision.
-## (No packages of its own right now -- this file exists so build.sh has
-## something to copy in and the strain selection mechanism stays uniform
-## across all 6 strains rather than special-casing "none".)
+openssh-server

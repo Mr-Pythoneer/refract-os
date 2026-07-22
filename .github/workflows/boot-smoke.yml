@@ -169,15 +169,25 @@ jobs:
           ok_casper=""; ok_systemd=""
           for i in $(seq 1 96); do
             sleep 5
-            grep -q -m1 -i "casper" serial.log 2>/dev/null && ok_casper=1
-            grep -q -m1 -iE "reached target|started .*session|gnome|gdm" serial.log 2>/dev/null && ok_systemd=1
+            # casper: match a line proving casper actually RAN and mounted the live
+            # squashfs, NOT the kernel's cmdline echo. The -append above literally
+            # contains "boot=casper", so the kernel prints "Command line: ...
+            # boot=casper ..." within the first second — a bare -i "casper" would
+            # green-light that echo even if the initramfs never found the squashfs.
+            # casper-md5check / filesystem.squashfs / the /scripts/casper initramfs
+            # stage only appear once casper is genuinely handling the live medium.
+            grep -q -m1 -iE "casper-md5check|filesystem\.squashfs|/scripts/casper" serial.log 2>/dev/null && ok_casper=1
+            # systemd: require a LATE target, not a bare "reached target" (which
+            # fires for Swap / Local File Systems / Basic System on any half-boot).
+            # graphical.target + gdm + a login prompt are proof userspace is up.
+            grep -q -m1 -iE "reached target graphical|graphical\.target|started gnome display manager|\bgdm3?\b|login:" serial.log 2>/dev/null && ok_systemd=1
             [ -n "$ok_casper" ] && [ -n "$ok_systemd" ] && break
           done
           kill "$(cat qemu-b.pid)" 2>/dev/null || true
           echo "=== serial.log tail ==="; tail -40 serial.log || true
-          [ -n "$ok_casper" ]  || { echo "FAIL: no casper marker in serial log — initramfs never found/mounted the live squashfs." >&2; exit 1; }
-          [ -n "$ok_systemd" ] || { echo "FAIL: casper ran but systemd never reached userspace targets." >&2; exit 1; }
-          echo "PASS: kernel booted, casper mounted the live system, systemd reached userspace."
+          [ -n "$ok_casper" ]  || { echo "FAIL: no casper runtime marker in serial log — initramfs never found/mounted the live squashfs (a boot=casper cmdline echo alone no longer counts)." >&2; exit 1; }
+          [ -n "$ok_systemd" ] || { echo "FAIL: casper ran but systemd never reached the graphical target / a display manager / login prompt." >&2; exit 1; }
+          echo "PASS: kernel booted, casper mounted the live system, systemd reached the graphical userspace target."
 
       - name: Upload boot evidence
         if: always()

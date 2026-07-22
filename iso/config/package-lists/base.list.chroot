@@ -21,7 +21,11 @@ linux-tools-generic-hwe-24.04
 power-profiles-daemon
 mokutil
 ffmpeg
-openssh-server
+## openssh-server is deliberately NOT in this universal base list -- it would
+## expose an sshd on :22 on every desktop install (laptop/workstation/handheld/
+## lowspec) that never asked for one. It now ships only in the strains that want
+## it: iso/strains/server.list.chroot and iso/strains/cloud.list.chroot. Don't
+## re-add it here.
 ## Explicit device firmware (WiFi/GPU/Bluetooth blobs). Almost always pulled in
 ## transitively by the HWE kernel + ubuntu-desktop-minimal, but pinned here so a
 ## first flash never boots with a dead Intel iwlwifi radio just because a

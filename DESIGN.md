@@ -115,7 +115,7 @@ Key verified facts that shaped the build (researched, not guessed):
 - **Hardware tiers (2026-07-01):** every build preloads local models sized to
   its hardware. `distro-ai-detect-tier` auto-detects VRAM (Nvidia `nvidia-smi`,
   AMD/APU sysfs), RAM, and laptop-vs-desktop, and maps VRAM → one of six tiers
-  — `cpu` (≤3B, CPU-only) / `entry` (5–11GB) / `mid` (11–20GB) / `high`
+  — `cpu` (≤4B, CPU-only) / `entry` (5–11GB) / `mid` (11–20GB) / `high`
   (20–30GB) / `max` (30–45GB, the 5090) / `ultra` (≥45GB). Each has its own
   quantized-GGUF catalog `config/models.catalog.<tier>.json`. On laptops the
   user also picks a power profile (efficiency/balance/power) selecting which
@@ -145,6 +145,13 @@ Key verified facts that shaped the build (researched, not guessed):
 
 The original rationale for a local-first coding stack (below) still applies; it
 just runs on Ollama's engine now instead of a hand-built llama.cpp service.
+
+**HISTORICAL — superseded, kept for the porting rationale only.** The plan
+below (`llama-server` run as a systemd `crucible12-server.service`, a
+`distro-ai-preset` switcher, hand-built llama.cpp) was the *original* port
+design. **What actually shipped is the Ollama + ComfyUI build described above**
+— read the rest of this section as the historical reasoning for why AI mode
+exists, not as the current implementation.
 
 Currently Crucible12 is Windows-11/PowerShell-native (`01-install-llamacpp.ps1`, `02-download-models.ps1`, `run-refract.ps1`, etc., targeting CUDA + `nvidia-smi`). Porting work for AI mode:
 
@@ -242,8 +249,8 @@ project than a desktop/server distro with a Calamares installer.
 
 - ~~Distro name~~ — resolved: Refract OS.
 - ~~AI gateway Claude-only vs. local-first?~~ — resolved: local-first
-  (Crucible12), Claude-cloud is an explicit opt-in toggle only, never
-  silently substituted in.
+  (Ollama + ComfyUI, Crucible12-derived), Claude-cloud is an explicit
+  opt-in toggle only, never silently substituted in.
 - Target hardware scope — resolved by your own answer into the Tier 1/2/3
   breakdown in §5b: Tier 1 (x86_64, 6 strains) is the real buildable scope;
   Tier 2 (different CPU architecture)/Tier 3 (embedded) explicitly deferred.

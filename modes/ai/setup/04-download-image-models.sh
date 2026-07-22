@@ -93,7 +93,7 @@ fi
 if [ "$WANT_DEV" = true ]; then
     if [ -z "${HF_TOKEN:-}" ]; then
         # No token: fall back to the token-free Comfy-Org/flux1-dev fp8 mirror
-        # (the catalog markes flux1-dev "gated": false precisely because of this
+        # (the catalog marks flux1-dev "gated": false precisely because of this
         # mirror). This keeps the non-interactive `distro-ai-setup --install --yes`
         # path working on high/max/ultra tiers instead of exit 1'ing. fp8 all-in-
         # one goes in checkpoints, same as the schnell mirror above.

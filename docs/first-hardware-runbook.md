@@ -143,7 +143,7 @@ Ollama installs as a system service; run distro-ai-setup as your normal user (co
 ```bash
 cd ../modes/ai
 sudo ./setup/01-install-ollama.sh     # Ollama runtime + system service
-./setup/02-preload-models.sh coding   # start with just the coding models (or omit arg for ALL ~150GB)
+./setup/02-preload-models.sh coding   # pulls ONE model — the arg is the use-case (omitting it defaults to 'coding'; it does NOT pull everything)
 distro-ai-model use coding            # loads qwen2.5-coder:32b, server on :11434
 distro-ai-ask "write a bubble sort in rust"   # confirm the thin client answers
 ```

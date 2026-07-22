@@ -597,7 +597,7 @@ if [ "$DO_WRITE" = "1" ]; then
         enable_ollama_vulkan
     fi
     echo "Next: preload the models for this tier ->"
-    echo "  modes/ai/setup/02-preload-models.sh          # all $TIER-tier LLMs"
+    echo "  modes/ai/setup/02-preload-models.sh          # pulls the tier's coding model (one model)"
     if [ "$IMAGE" != "none" ]; then
         echo "  modes/ai/setup/04-download-image-models.sh --from-config   # $IMAGE image model"
     fi

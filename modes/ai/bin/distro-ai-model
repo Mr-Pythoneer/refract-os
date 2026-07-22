@@ -26,11 +26,25 @@
 
 set -euo pipefail
 
+# Resolve through the /usr/local/bin symlink (build.sh installs these as
+# symlinks) so --help can print this header from the real script file.
+SELF="${BASH_SOURCE[0]}"; [ -L "$SELF" ] && SELF="$(readlink "$SELF")"
+
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}/refract-ai"
 # Active AI-model tier (cpu/entry/mid/high/max/ultra) and laptop power profile
 # (efficiency/balance/power). distro-ai-detect-tier writes these into
-# $CONFIG_HOME; override via env. Default tier=max (the 5090 build), balance.
-TIER="${REFRACT_AI_TIER:-$(cat "$CONFIG_HOME/tier" 2>/dev/null || echo max)}"
+# $CONFIG_HOME; override via env. With NEITHER an env value nor a recorded tier
+# we must NOT assume the 32GB 'max' build — defaulting to 'max' made a fresh box
+# try to pull the ~20GB 32b model. Fall back to the conservative 'entry' tier and
+# nudge the user to run distro-ai-detect-tier so the pick matches real hardware.
+if [ -n "${REFRACT_AI_TIER:-}" ]; then
+    TIER="$REFRACT_AI_TIER"
+elif TIER="$(cat "$CONFIG_HOME/tier" 2>/dev/null)" && [ -n "$TIER" ]; then
+    :   # used the recorded tier
+else
+    TIER="entry"
+    echo "distro-ai-model: no tier recorded — assuming '$TIER'. Run 'distro-ai-detect-tier' to match your hardware." >&2
+fi
 PROFILE="${REFRACT_AI_PROFILE:-$(cat "$CONFIG_HOME/profile" 2>/dev/null || echo balance)}"
 # Effective (pooled) VRAM in MiB, written by distro-ai-detect-tier. Used to warn
 # when a tag wants more VRAM than this box has, and to skip a too-big default

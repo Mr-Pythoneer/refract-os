@@ -19,8 +19,13 @@ PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/refract-comfyui.pid"
 
 is_running() {
     if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then return 0; fi
-    # also detect a ComfyUI already serving on the port
-    curl -fsS --max-time 2 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null
+    # Also detect a ComfyUI already serving on the port — but probe a
+    # ComfyUI-SPECIFIC route (/system_stats, its own system-info JSON endpoint),
+    # NOT "/". Any unrelated listener on :8188 would answer "/" and make us
+    # falsely report "running" (and refuse to start / claim status). /system_stats
+    # is served only by ComfyUI, so a 404/refusal from some other service fails
+    # the check as it should.
+    curl -fsS --max-time 2 -o /dev/null "http://127.0.0.1:$PORT/system_stats" 2>/dev/null
 }
 
 open_ui() {

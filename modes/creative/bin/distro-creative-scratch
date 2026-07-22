@@ -86,6 +86,17 @@ case "${1:-}" in
         detect_best_mount
         ;;
     setup)
+        # setup does root-only work (mkdir/chmod on a mount root, writing
+        # $PROFILE_D_FILE under /etc). Guard up front so an unprivileged run
+        # fails with a clear message instead of dying mid-way on a raw
+        # 'permission denied' under set -e. 'detect' is unprivileged by design
+        # and intentionally has NO such guard.
+        if [ "$(id -u)" -ne 0 ]; then
+            echo "distro-creative-scratch setup: must be run as root (creates a system scratch dir and writes $PROFILE_D_FILE)." >&2
+            echo "Re-run with: sudo $(basename "$0") setup" >&2
+            exit 1
+        fi
+
         best="$(detect_best_mount)"
         scratch_dir="$best/$SCRATCH_DIRNAME"
 

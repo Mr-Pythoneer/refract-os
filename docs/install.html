@@ -164,9 +164,13 @@
           <li><strong>Windows:</strong> <a href="https://rufus.ie/">Rufus</a> — select the ISO and write in <em>DD Image</em> mode.</li>
           <li><strong>macOS:</strong> Etcher, or the Terminal (see below). Note: an Apple-Silicon Mac can make the stick but can't boot it — install onto a PC.</li>
         </ul>
-        <p>Comfortable in a terminal (Linux/macOS)? Find the device with <code>lsblk</code> (Linux) or <code>diskutil list</code> (macOS), then:</p>
+        <p>Comfortable in a terminal? The command differs by OS — the macOS <code>dd</code> is BSD, not GNU, so <code>status=progress</code> / <code>oflag=</code> don't exist there and the flags are lowercase.</p>
+        <p><strong>Linux</strong> — find the device with <code>lsblk</code>, then:</p>
         <pre class="code"><span class="p">$</span> sudo dd if=refract-os-workstation.iso of=/dev/sdX bs=4M status=progress oflag=sync</pre>
-        <p><span class="warn-inline">⚠ Replace <code>/dev/sdX</code> with your actual USB device</span> — the wrong device overwrites the wrong disk.</p>
+        <p><strong>macOS</strong> — find the device with <code>diskutil list</code>, unmount it, then write to the raw <code>rdisk</code> node:</p>
+        <pre class="code"><span class="p">$</span> diskutil unmountDisk /dev/diskN
+<span class="p">$</span> sudo dd if=refract-os-workstation.iso of=/dev/rdiskN bs=1m</pre>
+        <p><span class="warn-inline">⚠ Replace <code>/dev/sdX</code> (Linux) or <code>/dev/diskN</code> (macOS) with your actual USB device</span> — the wrong device overwrites the wrong disk. On macOS, <code>dd</code> prints nothing until it finishes; press <kbd>Ctrl-T</kbd> to see progress.</p>
       </div>
     </div>
 

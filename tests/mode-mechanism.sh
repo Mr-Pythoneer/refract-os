@@ -292,7 +292,10 @@ assert_no_pin server
 log_has server systemctl "enable --now ssh" "systemctl enable --now ssh"
 log_has server systemctl "enable --now docker" "systemctl enable --now docker"
 log_has server systemctl "enable --now netdata" "systemctl enable --now netdata"
-log_has server systemctl "disable --now gdm" "systemctl disable --now gdm"
+# Display managers get a DEFERRED disable (plain `disable`, NOT --now) so the
+# ACTIVE graphical session survives; the effect lands next boot.
+log_has server systemctl "disable gdm" "systemctl disable gdm (deferred, no --now)"
+log_lacks server systemctl "disable --now gdm" "gdm disable is deferred — no --now (keeps the live session)"
 log_has  server distro-ai-model "unload" "distro-ai-model unload (STOP_AI_MODEL=true)"
 log_lacks server distro-ai-model "use" "distro-ai-model 'use' NOT called (no autostart use-case)"
 

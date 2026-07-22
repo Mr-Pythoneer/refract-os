@@ -45,6 +45,14 @@ esac
 VRAM_MIB="${REFRACT_VRAM_MIB:-$(cat "$CONFIG_HOME/vram_mib" 2>/dev/null || echo 0)}"
 [[ "$VRAM_MIB" =~ ^[0-9]+$ ]] || VRAM_MIB=0
 
+# Laptop power PROFILE — the SAME source distro-ai-model reads. Only 'efficiency'
+# changes the pick: distro-ai-model then loads the LIGHTEST model the use-case
+# offers (ranked by min_vram_gb), not the tier's default class. If we ignore it
+# here, an efficiency laptop preloads the heavier tier tag and re-downloads on the
+# first `distro-ai-model use` — so mirror it below. balance/power keep the tier
+# order (see distro-ai-model's resolver: profile moves the pick WITHIN the tier).
+PROFILE="${REFRACT_AI_PROFILE:-$(cat "$CONFIG_HOME/profile" 2>/dev/null || echo balance)}"
+
 # The use-case to preload (default: coding) — one positional arg after --tier.
 USECASE="${1:-coding}"
 case "$USECASE" in
@@ -127,6 +135,24 @@ fits() {  # <min_vram_gb> -> true if it fits the detected VRAM (or VRAM unknown)
     [[ "$minv" =~ ^[0-9]+$ ]] || return 0      # unparseable -> don't gate
     [ "$(( minv * 1024 ))" -le "$VRAM_MIB" ]
 }
+
+# profile=efficiency mirrors distro-ai-model exactly: it ignores the tier's class
+# order and ranks the use-case's tags by the table's min_vram_gb (ascending),
+# then loads the lightest that fits. Every use-case here maps cpu/low/high with
+# cpu<=low<=high, so re-sorting CLASS_ORDER by each class's min_vram_gb yields the
+# same lightest-first order distro-ai-model's resolver computes. (balance/power
+# leave CLASS_ORDER as the tier order above — no reorder.)
+if [ "$PROFILE" = "efficiency" ]; then
+    _ranked=()
+    while IFS= read -r _c; do [ -n "$_c" ] && _ranked+=("$_c"); done < <(
+        for class in "${CLASS_ORDER[@]}"; do
+            # model_for prints "tag<TAB>size<TAB>min_vram_gb"; rank on min_vram_gb.
+            IFS=$'\t' read -r _t _ _mv <<< "$(model_for "$USECASE" "$class")"
+            [ -n "${_t:-}" ] && printf '%s\t%s\n' "${_mv%%.*}" "$class"
+        done | sort -n -s -k1,1 | cut -f2
+    )
+    [ "${#_ranked[@]}" -gt 0 ] && CLASS_ORDER=("${_ranked[@]}")
+fi
 
 # Walk the tier's classes and preload the first tag that FITS — the same choice
 # `distro-ai-model use` will make later. Skipping this gate is what made a 24GB

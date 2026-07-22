@@ -104,6 +104,39 @@ for f in /etc/gdm3/custom.conf /etc/gdm3/daemon.conf; do
         sed -i '/^\[daemon\]/a WaylandEnable=false' "$f"
     fi
 done
+# SCOPE THE DISABLE TO INTEL AT RUNTIME. The line above forces Xorg on EVERY
+# machine, but the hang it works around is an Intel iGPU-modeset problem — an
+# AMD/NVIDIA box would lose Wayland's fractional scaling / VRR / gestures for
+# no reason. We can't detect the GPU at build time (no target hardware in the
+# chroot), so ship a oneshot that runs BEFORE the display manager and
+# RE-ENABLES Wayland only when a non-Intel GPU is present. The default stays
+# "Xorg forced" and the failure mode is always safe: anything uncertain leaves
+# Xorg on (the config the X1 needs), never Wayland on a machine that hangs.
+install -D -m 0755 /dev/stdin /usr/libexec/refract-gdm-wayland-scope <<'SCOPE'
+#!/bin/sh
+# Re-enable Wayland on non-Intel GPUs; leave the Xorg default otherwise.
+gpus=$(lspci -nn 2>/dev/null | grep -Ei 'VGA compatible|3D controller|Display controller' || true)
+if printf '%s\n' "$gpus" | grep -qiE 'NVIDIA|\[10de:|Advanced Micro Devices|\[1002:'; then
+    for f in /etc/gdm3/custom.conf /etc/gdm3/daemon.conf; do
+        [ -f "$f" ] && sed -i 's/^WaylandEnable=false/#WaylandEnable=false  # re-enabled: non-Intel GPU/' "$f" || true
+    done
+fi
+SCOPE
+cat > /etc/systemd/system/refract-gdm-wayland-scope.service <<'UNIT'
+[Unit]
+Description=Refract: re-enable Wayland on non-Intel GPUs (Xorg forced by default)
+DefaultDependencies=no
+After=local-fs.target
+Before=display-manager.service gdm.service gdm3.service
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/refract-gdm-wayland-scope
+[Install]
+WantedBy=graphical.target
+UNIT
+systemctl enable refract-gdm-wayland-scope.service >/dev/null 2>&1 \
+    || ln -sf /etc/systemd/system/refract-gdm-wayland-scope.service \
+        /etc/systemd/system/graphical.target.wants/refract-gdm-wayland-scope.service 2>/dev/null || true
 # Because we now force Xorg (above), the Xorg DDX driver matters. The legacy
 # 'intel' DDX (xserver-xorg-video-intel) gets pulled in transitively and, if
 # present, Xorg auto-selects it over the kernel 'modesetting' driver for Intel

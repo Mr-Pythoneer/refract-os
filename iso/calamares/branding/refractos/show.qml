@@ -80,7 +80,7 @@ Presentation
 
     // @slide:creative
     Slide {
-        centeredText: qsTr("Creative mode: FreeCAD, Blender, DaVinci Resolve, and Kdenlive -- native Linux apps with real GPU acceleration, not a fragile Wine workaround.")
+        centeredText: qsTr("Creative mode: FreeCAD, Blender, Kdenlive, DaVinci Resolve, and ffmpeg (NVENC) -- native Linux apps with real GPU acceleration, not a fragile Wine workaround.")
     }
     // @endslide:creative
 

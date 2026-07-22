@@ -1,8 +1,20 @@
 # Refract OS "Choose Your Modes" — Design Doc
 
+> **Status: SHIPPED** (commit `8cd2a3c`, "choose your modes"; pending
+> first-real-install validation of the Calamares installer page). The registry +
+> switcher (`ALL_MODES` / `VALID_MODES` / `load_valid_modes()` in
+> `modes/modectl/distro-modectl`), the `REFRACT_OMIT_MODES` provably-absent build
+> path (`iso/build.sh` + `iso/README.md`), and the `distro-modectl modes`
+> runtime re-enable subcommand are all implemented and CI-tested
+> (`tests/test_apply_mode_selection.sh`, `tests/test_modectl.sh`). **The inline
+> `distro-modectl:NN` line numbers below are from the pre-implementation design
+> and drifted when the code landed** (e.g. `ALL_MODES` is now ~`:50`, not `:40`;
+> `load_valid_modes()` ~`:65`; the `do_switch` guard ~`:403`) — treat every such
+> citation as approximate.
+
 ## 1. Motivation
 
-Refract OS ships five runtime modes — `gaming`, `ai`, `server`, `creative`, `normal` — switched by `distro-modectl` (`modes/modectl/distro-modectl:40`). The heavy per-mode payloads (Ollama, ComfyUI, models, Steam, Blender, Docker) are **already not baked into the ISO**; they install on demand via `modes/<mode>/setup/*.sh` (e.g. `modes/ai/setup/01-install-ollama.sh`). Only lightweight bits (gamemode/mangohud/winetricks, Vulkan userspace) live in the strain package lists.
+Refract OS ships five runtime modes — `gaming`, `ai`, `server`, `creative`, `normal` — switched by `distro-modectl` (`modes/modectl/distro-modectl`). The heavy per-mode payloads (Ollama, ComfyUI, models, Steam, Blender, Docker) are **already not baked into the ISO**; they install on demand via `modes/<mode>/setup/*.sh` (e.g. `modes/ai/setup/01-install-ollama.sh`). Only lightweight bits (gamemode/mangohud/winetricks, Vulkan userspace) live in the strain package lists.
 
 This feature asks one question at install time — **"what is this machine for?"** — and lets the user check any of Gaming / AI / Server / Creative. Normal is always on as the base desktop and is never an item.
 

@@ -2,7 +2,7 @@
 
 **[Landing page →](https://mr-pythoneer.github.io/refract-os/)**
 
-An Ubuntu-based Linux distro that switches its whole personality on command — Gaming, AI, Server, Creative, or a polished macOS-style Normal mode — built around local-first AI (via [Crucible12](https://github.com/Mr-Pythoneer/Crucible12)), not a cloud assistant bolted onto a browser.
+An Ubuntu-based Linux distro that switches its whole personality on command — Gaming, AI, Server, Creative, or a polished macOS-style Normal mode — built around a local-first AI stack (Ollama + ComfyUI, [Crucible12](https://github.com/Mr-Pythoneer/Crucible12)-derived; the original port is preserved under `modes/ai/legacy-crucible12/`), not a cloud assistant bolted onto a browser.
 
 **Status: scaffolded, audited, awaiting first hardware.** Every piece below has a first implementation and every external dependency has been web-verified, but nothing has run on real target hardware yet. The first real test is imminent: an OVH server (CPU build host) now, and the **RTX 5090 + 9950X3D build ~early August 2026**. See [TODO.md](TODO.md) for the live build checklist, [DESIGN.md](DESIGN.md) for the architecture (including what's deliberately *not* promised — no distro runs "every Windows app"), [`docs/first-hardware-runbook.md`](docs/first-hardware-runbook.md) for the ordered test plan, and [`docs/blackwell-readiness.md`](docs/blackwell-readiness.md) for the 5090-specific pre-flight. Run [`./preflight.sh`](preflight.sh) on any build host first.
 
@@ -13,7 +13,7 @@ DESIGN.md          full architecture plan
 TODO.md             live build checklist — the actual source of truth on progress
 drivers/             Nvidia + AMD driver/microcode install scripts
 modes/
-  ai/                Crucible12 ported to Linux/systemd (local LLM coding agent)
+  ai/                Ollama + ComfyUI local-AI stack (Crucible12-derived; legacy port under legacy-crucible12/)
   modectl/           the 5-mode switcher (distro-modectl)
   gaming/            Steam, Lutris, Proton-GE, Bottles, GameMode, MangoHud
   server/            SSH, Docker, Netdata

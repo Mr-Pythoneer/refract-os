@@ -7,7 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       build_run_id:
-        description: "build-iso run id (empty = latest successful)"
+        description: "build-iso run id (empty = latest successful FULL build)"
+        required: false
+        default: ""
+      artifact:
+        description: "ISO artifact name (empty = the run's full refract-os-<strain>)"
         required: false
         default: ""
 
@@ -19,24 +23,54 @@ jobs:
       actions: read
       contents: read
     steps:
-      - name: Resolve build run id
+      - name: Resolve build run + artifact
         id: run
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_RUN: ${{ inputs.build_run_id }}
+          INPUT_ARTIFACT: ${{ inputs.artifact }}
         run: |
           set -euo pipefail
-          if [ -n "$INPUT_RUN" ]; then id="$INPUT_RUN"
-          else id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-iso.yml --status success --limit 1 --json databaseId -q '.[0].databaseId'); fi
-          [ -n "$id" ] || { echo "no successful build" >&2; exit 1; }
-          echo "id=$id" >> "$GITHUB_OUTPUT"
+          # Resolve the artifact by NAME with the SAME strict resolver as the boot-
+          # smoke / install-smoke siblings — never a bare `refract-os-*` glob. A
+          # mode-omitted build uploads refract-os-<strain>-no<mode> and a testing
+          # build appends -DANGER-TESTING-NO-LOGIN; both match refract-os-* and the
+          # old `pattern: refract-os-*` download would silently boot a -noai or
+          # DANGER image under UEFI and red-X on a phantom defect. A FULL build's
+          # artifact is exactly refract-os-<strain> — no -no*/-DANGER tail.
+          pick() {  # pick <run-id> -> wanted artifact name, empty if it has none
+            local list
+            list=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$1/artifacts" \
+                     --jq '.artifacts[] | select(.expired | not) | .name') || return 0
+            if [ -n "$INPUT_ARTIFACT" ]; then
+              printf '%s\n' "$list" | grep -xF -- "$INPUT_ARTIFACT" || true
+            else
+              printf '%s\n' "$list" | grep -E '^refract-os-[a-z0-9]+$' | head -n1 || true
+            fi
+          }
+          if [ -n "$INPUT_RUN" ]; then
+            id="$INPUT_RUN"; art=$(pick "$id")
+          else
+            # Newest-first, first run that STILL has the wanted artifact: a
+            # -noai/DANGER (or expired) build is skipped, not silently booted.
+            id=""; art=""
+            for cand in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-iso.yml \
+                            --status success --limit 20 --json databaseId -q '.[].databaseId'); do
+              art=$(pick "$cand")
+              if [ -n "$art" ]; then id="$cand"; break; fi
+            done
+          fi
+          [ -n "$id" ] && [ -n "$art" ] || {
+            echo "No build-iso run with a ${INPUT_ARTIFACT:-full refract-os-<strain>} artifact (mode-omitted/testing builds don't count — pass 'artifact' to force one)." >&2
+            exit 1; }
+          echo "using run $id, artifact $art"
+          { echo "id=$id"; echo "artifact=$art"; } >> "$GITHUB_OUTPUT"
       - name: Download ISO
         uses: actions/download-artifact@v4
         with:
-          pattern: refract-os-*
+          name: ${{ steps.run.outputs.artifact }}
           run-id: ${{ steps.run.outputs.id }}
           github-token: ${{ github.token }}
-          merge-multiple: true
           path: iso-dl
       - name: Tools
         run: |
@@ -71,15 +105,23 @@ jobs:
           ok=""
           for i in $(seq 1 50); do
             sleep 6
-            if grep -qiE "reached target|systemd\[1\]|casper|Welcome to Refract|GNOME|gdm|login:|Reached target" uefi-serial.log 2>/dev/null; then ok=1; fi
+            # LATE marker only: require the graphical target / a display manager / a
+            # login prompt. A bare "reached target" fires for Swap / Local FS and
+            # "systemd[1]" fires the instant PID 1 starts — both are reached long
+            # before userspace is actually up. "casper" is dropped entirely: the
+            # ISO's grub cmdline carries "boot=casper" (build.sh grub.cfg), so the
+            # kernel's "Command line: ... boot=casper" echo would green-light this
+            # before anything booted. The UEFI grub path DOES set console=ttyS0
+            # (build.sh:606-618), so these systemd markers do reach uefi-serial.log.
+            if grep -qiE "reached target graphical|graphical\.target|started gnome display manager|\bgdm3?\b|login:" uefi-serial.log 2>/dev/null; then ok=1; fi
             case "$i" in 15|25|35) shot "uefi-$i" ;; esac
             [ -n "$ok" ] && [ "$i" -ge 30 ] && break
           done
           shot uefi-final
           echo "=== UEFI serial tail ==="; tail -40 uefi-serial.log || true
           for f in shots/*.ppm; do convert "$f" "${f%.ppm}.png" 2>/dev/null && rm -f "$f" || true; done
-          [ -n "$ok" ] || { echo "FAIL: no userspace signal on serial under UEFI/OVMF." >&2; exit 1; }
-          echo "PASS: Refract booted under real UEFI firmware (OVMF)."
+          [ -n "$ok" ] || { echo "FAIL: no graphical-userspace signal (graphical target / display manager / login) on serial under UEFI/OVMF." >&2; exit 1; }
+          echo "PASS: Refract reached graphical userspace under real UEFI firmware (OVMF)."
       - name: Upload UEFI evidence
         if: always()
         uses: actions/upload-artifact@v4

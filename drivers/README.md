@@ -29,10 +29,18 @@ Two hard requirements, verified against Nvidia's docs/forums (mid-2026):
   ./install-nvidia.sh 580
   ```
 
-CUDA (for AI mode's llama.cpp build) needs **12.8+** for Blackwell's sm_120 —
-12.8 is the first toolkit with sm_120 support. CUDA 13.x (current in 2026)
-also works; see `modes/ai/legacy-crucible12/setup/01-install-llamacpp.sh` and the
-Blackwell-readiness notes in `docs/blackwell-readiness.md`.
+AI mode itself is **Ollama**, which ships its own bundled CUDA runners — you do
+**not** need a system CUDA toolkit for it. The CUDA-version constraint applies to
+**ComfyUI's PyTorch**: Blackwell's sm_120 needs a CUDA **12.8+** torch build (12.8
+is the first with sm_120 support). Refract installs the stable **cu130** wheel;
+CUDA 13.x (current in 2026) also works. See
+`modes/ai/setup/03-install-comfyui.sh` and the Blackwell-readiness notes in
+`docs/blackwell-readiness.md`.
+
+(Legacy only: the old llama.cpp path in
+`modes/ai/legacy-crucible12/setup/01-install-llamacpp.sh` builds against a system
+CUDA and has the same 12.8+ floor — it is superseded by Ollama and kept for
+reference.)
 
 ## Secure Boot
 

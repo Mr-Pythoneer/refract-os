@@ -132,6 +132,14 @@ jobs:
           inc=config/includes.chroot
           modectl="$inc/opt/distro/modes/modectl/distro-modectl"
           reg="$inc/etc/refract/enabled-modes"
+          cala="$inc/etc/calamares"
+          # Calamares surfaces only exist on NON-headless strains: build.sh rm -rf's
+          # the whole /etc/calamares tree and only re-creates it for strains that
+          # ship a desktop — server/cloud are headless (no installer GUI at all), so
+          # only assert the STRIPPED installer surfaces where they can exist. This
+          # list must track build.sh's HEADLESS_STRAINS=(server cloud).
+          headless=0
+          case "${{ inputs.strain }}" in server|cloud) headless=1 ;; esac
           fail=0
           for m in ${{ steps.modes.outputs.omit }}; do
             echo "== asserting mode '$m' is absent =="
@@ -148,6 +156,29 @@ jobs:
             fi
             if sudo grep -qw "$m" "$reg" 2>/dev/null; then
               echo "  LEAK: '$m' still in default /etc/refract/enabled-modes" >&2; fail=1
+            fi
+            # The three Calamares surfaces build.sh range-deletes for an omitted mode
+            # (design §4.1-K): its packagechooser checkbox, its slideshow slide, and
+            # its screenshot. Without these asserts a "no-$m" desktop ISO could still
+            # render a $m checkbox that writes '$m' into the mode registry, or
+            # advertise $m in the installer slideshow — the packagechooser_modes.conf
+            # comment warns this exact gap. Skipped on headless strains (no tree).
+            if [ "$headless" -eq 0 ]; then
+              pc="$cala/modules/packagechooser_modes.conf"
+              qml="$cala/branding/refractos/show.qml"
+              # '# @item:<mode>' .. '# @enditem:<mode>' block (checkbox + its 'id:').
+              if sudo grep -qE "@item:$m\$" "$pc" 2>/dev/null \
+                 || sudo grep -qE "^[[:space:]]*- id: $m\$" "$pc" 2>/dev/null; then
+                echo "  LEAK: '$m' checkbox still in packagechooser_modes.conf" >&2; fail=1
+              fi
+              # '// @slide:<mode>' .. '// @endslide:<mode>' slideshow slide.
+              if sudo grep -qE "@slide:$m\$" "$qml" 2>/dev/null; then
+                echo "  LEAK: '$m' slide still in branding/refractos/show.qml" >&2; fail=1
+              fi
+              # The per-mode screenshot the stripped checkbox pointed at.
+              if sudo test -e "$cala/branding/refractos/$m.png"; then
+                echo "  LEAK: $cala/branding/refractos/$m.png still present" >&2; fail=1
+              fi
             fi
           done
           if [ "$fail" -ne 0 ]; then
@@ -270,5 +301,14 @@ jobs:
             && gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes "$notes" --title "$title" \
             || gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
                  --title "$title" --notes "$notes" --prerelease
-          gh release upload "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          # This step runs `set -uo pipefail` (no -e) and is continue-on-error, so a
+          # failed upload would otherwise fall straight through to the "Published"
+          # echo and report success while the release has NO ISO attached. Check the
+          # upload exit status explicitly and fail THIS step (continue-on-error keeps
+          # the ISO-already-an-artifact build green; we only refuse to lie about the
+          # release having been published).
+          if ! gh release upload "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber; then
+            echo "FAIL: 'gh release upload' did not complete — release '$tag' may be missing assets. Not reporting success." >&2
+            exit 1
+          fi
           echo "Published ${#assets[@]} asset(s) to release '$tag'."

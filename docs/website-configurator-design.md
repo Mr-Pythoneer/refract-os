@@ -28,8 +28,9 @@ This is a new dimension layered on the existing concepts, not a rewrite:
   base packages per hardware *class* (workstation/laptop/lowspec/…). The
   configurator adds an **AI-model tier** dimension on top — what models to
   preload — keyed primarily on **VRAM** (the binding constraint for local LLMs).
-- The model catalog (`modes/ai/config/models.catalog.json`, built now for the
-  5090 tier) is the data the configurator would scale. Each model already
+- The per-tier model catalogs (`modes/ai/config/models.catalog.<tier>.json`, one
+  per hardware tier — e.g. `.max.json` for the 5090) are the data the
+  configurator would scale across. Each model already
   carries an approximate size + VRAM need, so a tier is just "the subset that
   fits in N GB of VRAM (plus CPU-offload candidates up to system RAM)."
 

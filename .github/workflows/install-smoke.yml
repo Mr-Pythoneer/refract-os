@@ -349,12 +349,31 @@ jobs:
           ok=""
           for i in $(seq 1 80); do
             sleep 5
-            grep -qiE "reached target|systemd.*running|login:|gdm|gnome" installed-serial.log 2>/dev/null && ok=1 && break
+            # LATE marker only: the installed disk must reach the GRAPHICAL target
+            # (or a display manager / login prompt) — a bare "reached target" fires
+            # for Swap / Local File Systems on any half-booted system and would
+            # green-light a box that never actually gets a desktop or a login.
+            grep -qiE "reached target graphical|graphical\.target|started gnome display manager|\bgdm3?\b|login:" installed-serial.log 2>/dev/null && ok=1 && break
           done
           kill "$(cat qemu2.pid)" 2>/dev/null || true
           echo "=== installed-disk serial tail ==="; tail -40 installed-serial.log || true
-          [ -n "$ok" ] || { echo "FAIL: installed disk did not reach userspace — grub/unpackfs/fstab problem." >&2; exit 1; }
-          echo "PASS: the installed disk boots to userspace with no ISO attached."
+          if [ -n "$ok" ]; then
+            echo "PASS: the installed disk boots to a graphical / login userspace with no ISO attached."
+            echo "INSTALL VERIFY PASSED: installed disk reached the graphical target with no ISO attached." >> "$GITHUB_STEP_SUMMARY"
+          else
+            # This job is continue-on-error, so a bare `exit 1` here is neutralised to
+            # a GREEN run — a totally broken install would then masquerade as verified.
+            # Surface a loud, distinct marker on the run's summary page so the failure
+            # can't hide behind the green check, THEN fail this step (continue-on-error
+            # still keeps the overall run green; we are only refusing to OVERSTATE it).
+            echo "FAIL: installed disk did not reach the graphical target / a display manager / login prompt — grub/unpackfs/fstab problem." >&2
+            {
+              echo "## ⚠️ INSTALL VERIFY FAILED"
+              echo "The installed disk booted but never reached the graphical target, a display manager, or a login prompt."
+              echo "This run's green status is due to \`continue-on-error\` on the flaky VNC-driven install job — treat the install as **UNVERIFIED**. See the installed-disk serial tail in the step log and the \`install-smoke-evidence\` artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: Upload install evidence
         if: always()

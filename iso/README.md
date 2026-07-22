@@ -18,7 +18,7 @@ repos (`main`/`restricted`/`universe`/`multiverse`) with no extra apt
 sources — see `config/package-lists/*.list.chroot`. Everything that needs
 its own repo, a Flatpak, or a GitHub-release fetch (Steam, Lutris,
 Wine-staging, Proton-GE, Bottles, Docker, Netdata, FreeCAD, Blender,
-Kdenlive, the WhiteSur theme, Crucible12 itself) is **not** baked into the
+Kdenlive, the WhiteSur theme, Ollama and ComfyUI) is **not** baked into the
 image — it's installed by the already-built `modes/*/setup/*.sh` scripts,
 which `build.sh` copies into the image at `/opt/distro/modes/` so they're
 available on first boot, run on demand rather than during the ISO build.

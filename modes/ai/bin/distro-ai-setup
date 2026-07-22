@@ -65,7 +65,7 @@ if [ "$DO_INSTALL" != true ]; then
     echo ""
     c 36 "Plan for the '$TIER' tier (image: $IMAGE):"
     echo "  1) sudo $SETUP_DIR/01-install-ollama.sh       # Ollama (system service)"
-    echo "  2) $SETUP_DIR/02-preload-models.sh          # preload the $TIER-tier LLMs (large download)"
+    echo "  2) $SETUP_DIR/02-preload-models.sh          # pulls the '$TIER' tier's coding model (one model)"
     if [ "$IMAGE" != none ]; then
         echo "  3) $SETUP_DIR/03-install-comfyui.sh         # ComfyUI (image gen)"
         echo "  4) $SETUP_DIR/04-download-image-models.sh --from-config   # the '$IMAGE' image model"

@@ -3,3 +3,9 @@
 ## iso/cloud-image/build-cloud-image.sh, which builds this strain as a real
 ## qcow2 cloud image instead -- see iso/cloud-image/README.md.
 cloud-init
+## openssh-server lives here (and in server.list.chroot), NOT base.list.chroot:
+## a cloud/VM instance needs sshd to be reachable at all, but the desktop strains
+## never asked for an open :22. On the qcow2 path, build-cloud-image.sh already
+## installs openssh-server explicitly, so there this line is a harmless idempotent
+## re-install -- it's here so the live-build ISO path of this strain gets sshd too.
+openssh-server

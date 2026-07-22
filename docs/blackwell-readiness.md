@@ -59,7 +59,8 @@ What still matters:
 
 ## 3. Models — Ollama (LLMs) + ComfyUI (images)
 
-Full catalog + exact repos/quants: `modes/ai/config/models.catalog.json` and
+Full catalog + exact repos/quants: the per-tier `modes/ai/config/models.catalog.<tier>.json`
+(the 32 GB 5090 is the `max` tier → `models.catalog.max.json`) and
 `modes/ai/README.md`. Highlights for the 32 GB card:
 
 | Use-case | Model | Repo | Fit on 32 GB |
@@ -88,7 +89,7 @@ layers on the GPU as VRAM allows and spills the rest to CPU/RAM:
 The 70B ratio is the single biggest real-hardware tuning task. DDR5 EXPO/XMP
 should be ON in BIOS for the offloaded layers' bandwidth.
 
-## 5. NVENC on Blackwell (Creative mode)
+## 4. NVENC on Blackwell (Creative mode)
 
 - The 5090 supports hardware NVENC encode for **H.264, HEVC, and AV1**.
 - Blackwell-only features: **4:2:2 chroma** encode (H.264/HEVC/AV1), H.264 10-bit
@@ -98,7 +99,7 @@ should be ON in BIOS for the offloaded layers' bandwidth.
   `modes/creative/setup/05-install-ffmpeg-nvenc.sh` fetches is current enough.
   An older ffmpeg still runs nvenc but won't expose 4:2:2 / UHQ.
 
-## 6. Live checklist — close these on the real card
+## 5. Live checklist — close these on the real card
 
 - [ ] `nvidia-smi` lists the 5090 after installing `nvidia-driver-<v>-open` (v ≥ 570) + reboot
 - [ ] `./verify-drivers.sh` passes (driver + microcode + Secure Boot state)

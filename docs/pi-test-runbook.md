@@ -12,7 +12,7 @@ build (`TODO.md` §4: "verify cpupower/powerprofilesctl calls on a real
 
 | Check | Command | Expected |
 |---|---|---|
-| Full hermetic test suite on real Linux | `bash tests/run.sh` | 9/9 files, 165 assertions pass |
+| Full hermetic test suite on real Linux | `bash tests/run.sh` | 10/10 files, ~190 assertions pass |
 | Repo static health | `./preflight.sh` | static checks pass; env section will flag live-build/amd64 items — expected, this box doesn't build ISOs |
 | Tier detection on GPU-less, DMI-less, low-RAM hardware | `modes/ai/bin/distro-ai-detect-tier --print` | tier `cpu`; "no dedicated GPU"; the **<4GB RAM warning fires for real**; form factor `desktop` — Pis have **no `/sys/class/dmi`** (ARM uses device-tree), so this exercises the chassis-read fallback → battery check → desktop path on real hardware |
 | modectl on a real non-Mac Linux | `sudo ./modes/modectl/distro-modectl switch normal --yes` then `status` | governor/power-profile calls run for real (`cpupower` / `powerprofilesctl` exist on arm64 Ubuntu); service enable/disable doesn't fight stock defaults — **this closes a live TODO item** |

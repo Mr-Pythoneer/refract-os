@@ -46,6 +46,17 @@ for f in "$B"/casper/initrd.img-*; do
     break
 done
 
+# A rename loop that matched nothing 'continue's silently, leaving the ISO
+# referencing /casper/vmlinuz (or initrd.img) that won't exist — a build that
+# "succeeds" but can't boot. Assert the final names exist, mirroring the
+# isolinux.bin path's exit 1 below.
+for k in vmlinuz initrd.img; do
+    [ -e "$B/casper/$k" ] || {
+        echo "refract-bootfix: $B/casper/$k missing — no casper/$k-* to rename; kernel image not staged." >&2
+        exit 1
+    }
+done
+
 mkdir -p "$B/isolinux"
 found=""
 for root in $ROOTS; do

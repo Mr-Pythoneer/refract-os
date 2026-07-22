@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
 # Explicit opt-in toggle to route OpenCode through Claude (cloud) instead
-# of (or alongside) the local Crucible12 presets. Per DESIGN.md §5: this is
+# of (or alongside) the local Ollama models. Per DESIGN.md §5: this is
 # secondary to the local-first default, never silently substituted in --
 # this script requires an explicit "enable" command and an API key the
-# user provides themselves, same OpenClaw-gateway principle of "the user's
-# own choice, not a forced background service."
+# user provides themselves: the user's own explicit choice, not a forced
+# background service.
 #
 # This does NOT start a local server (that's distro-ai-model / Ollama) --
 # it's purely an OpenCode config swap plus an explicit acknowledgment that
@@ -43,6 +43,13 @@ EOF
 
         echo "This sends your prompts/code to Anthropic's cloud API instead of running locally." >&2
         echo "Confirming explicit opt-in: copying cloud config to $TARGET" >&2
+        # Don't silently clobber a project's existing opencode.json. If one is
+        # present and isn't already our cloud config, keep it as .bak so the local
+        # (or custom) config can be restored later — `disable` prints how.
+        if [ -f "$TARGET" ] && ! grep -q "claude-cloud" "$TARGET" 2>/dev/null; then
+            cp "$TARGET" "$TARGET.bak"
+            echo "Backed up your existing $TARGET -> $TARGET.bak" >&2
+        fi
         cp "$CLOUD_CONFIG" "$TARGET"
         echo "Done. OpenCode will use Claude (cloud) in this project until you switch back."
         echo "(The {env:ANTHROPIC_API_KEY} interpolation in opencode.claude-cloud.json is OpenCode's"
@@ -51,6 +58,7 @@ EOF
     disable)
         echo "No state to tear down here (this script doesn't run a service)."
         echo "To go back to the local model: cp $SCRIPT_DIR/../config/opencode.ollama.json $TARGET"
+        [ -f "$TARGET.bak" ] && echo "Or restore the config you had before enabling: cp $TARGET.bak $TARGET"
         echo "(and make sure a local model is loaded: distro-ai-model use coding)"
         ;;
     status)
@@ -59,6 +67,9 @@ EOF
         else
             echo "Cloud toggle: not enabled in $(pwd) (no opencode.json, or it doesn't reference claude-cloud)"
         fi
+        ;;
+    -h|--help)
+        sed -n '2,17p' "$SELF" | sed 's/^# \{0,1\}//'
         ;;
     *)
         echo "Usage: $(basename "$0") enable | disable | status" >&2

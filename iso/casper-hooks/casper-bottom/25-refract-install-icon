@@ -39,4 +39,31 @@ if [ -f "/root$DESKTOP_FILE" ] && [ -n "$USERNAME" ]; then
     chroot /root install -D -o "$USERNAME" -g "$USERNAME" "$DESKTOP_FILE" "/home/$USERNAME/Desktop/$(basename "$DESKTOP_FILE")"
 fi
 
+# Passwordless polkit grant for the LIVE installer only. The launcher is
+# `pkexec calamares`, and the live `ubuntu` user has no password, so without a
+# grant the installer can never launch (or manage disks / reboot). This rule
+# USED to be baked into the squashfs (config/includes.chroot) — which meant it
+# ALSO landed on every installed system, where any local desktop user could then
+# `pkexec bash` for a passwordless root shell (the "subject.local && active"
+# scope matches the installed user too, and nothing removed it). Writing it here,
+# from casper-bottom, keeps it in the LIVE overlay only: an installed system
+# never runs this hook, so the rule cannot persist. Scope is disk (udisks2),
+# the installer's own action, generic pkexec (for the `pkexec calamares`
+# launcher), and reboot (login1) — all fine in an ephemeral live session.
+if [ -d /root/etc ]; then
+    mkdir -p /root/etc/polkit-1/rules.d
+    cat > /root/etc/polkit-1/rules.d/49-refract-installer.rules <<'POLKIT'
+polkit.addRule(function(action, subject) {
+    if (subject.local && subject.active &&
+        (action.id.indexOf("org.freedesktop.udisks2.") === 0 ||
+         action.id.indexOf("com.github.calamares.") === 0 ||
+         action.id === "org.freedesktop.policykit.exec" ||
+         action.id.indexOf("org.freedesktop.login1.") === 0)) {
+        return polkit.Result.YES;
+    }
+});
+POLKIT
+    chmod 0644 /root/etc/polkit-1/rules.d/49-refract-installer.rules
+fi
+
 log_end_msg

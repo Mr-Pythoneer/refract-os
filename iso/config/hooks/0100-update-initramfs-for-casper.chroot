@@ -17,4 +17,12 @@
 
 set -e
 
+# Belt-and-suspenders, kept deliberately: 0200-refract-identity.chroot (step 8)
+# also runs update-initramfs, after the same casper-bottom script is in place
+# (staged via includes.chroot, before any hook), so on the happy path that later
+# rebuild would embed it too. We keep THIS rebuild because it runs under `set -e`
+# with no `|| true` — a failure to embed the casper-bottom hook hard-fails the
+# build here, whereas 0200's rebuild is best-effort (`|| true`) and would
+# silently ship a live initrd missing the installer-icon hook. Do not delete on
+# "it's redundant" grounds — the fatal guarantee is the point.
 update-initramfs -u
