@@ -88,6 +88,25 @@ jobs:
           chk "i915 DMC/GuC firmware dir present" \
               "test -d $SQ/lib/firmware/i915"
           echo
+          echo "=== installer polkit grant is LIVE-ONLY (security) ==="
+          # SECURITY: the passwordless installer grant must NOT be in the installed
+          # tree. If 49-refract-installer.rules shipped inside the squashfs, it
+          # would land on every installed desktop, where any local+active user
+          # could 'pkexec bash' into a passwordless root shell. It is now written
+          # by the casper-bottom hook into the LIVE overlay only (an installed
+          # system never runs casper-bottom), so the installed squashfs must be
+          # rule-free.
+          chk "installed squashfs has NO 49-refract-installer.rules (no passwordless root)" \
+              "! test -e $SQ/etc/polkit-1/rules.d/49-refract-installer.rules"
+          # ...but the live-only generator MUST still ship, or the live installer
+          # loses its passwordless disk/pkexec/reboot grant and can't launch. The
+          # casper-bottom hook is baked into the initrd from this squashfs path and
+          # writes the rule into /root (the live overlay) at boot.
+          chk "casper-bottom hook 25-refract-install-icon ships (live grant generator)" \
+              "test -e $SQ/usr/share/initramfs-tools/scripts/casper-bottom/25-refract-install-icon"
+          chk "that hook writes the live installer polkit rule at boot" \
+              "grep -q '49-refract-installer.rules' $SQ/usr/share/initramfs-tools/scripts/casper-bottom/25-refract-install-icon"
+          echo
           echo "=== installed-package cross-check (filesystem.manifest) ==="
           MAN=/mnt/iso/casper/filesystem.manifest
           chk "manifest: xserver-xorg-video-intel ABSENT" \
