@@ -258,3 +258,57 @@ every remaining factual unknown, then built/corrected against it:
   the first real `lb build` + boot + install, the GPU work (driver/AI/NVENC/
   game launches), and live-desktop theme/extension/color rendering. These are
   the *only* remaining open items — see `docs/first-hardware-runbook.md`.
+
+### 12d. Second read-only review pass (2026-07-22)
+
+A fresh full-codebase review on top of 12a–c (commit `9558bad`), read-only on the
+laptop by request — nothing built/run locally; validated by `bash -n`, shellcheck,
+and YAML/JSON parse, then proven on GitHub CI. ~50 objective issues cataloged and
+every confirmed one fixed (`f160364`, 44 files; `3e20125` closed the CI gap below):
+
+- [x] **SECURITY (HIGH): passwordless-root no longer persists onto installed
+  systems.** The installer polkit grant (`49-refract-installer.rules`) was baked
+  into `config/includes.chroot` → shipped in the squashfs → landed on every
+  installed desktop, where any local+active user could `pkexec bash` to root with
+  no password. Moved to the casper-bottom hook (LIVE overlay only); `build.sh`
+  purges any stale copy. **CI-proven on the built workstation ISO** (`3e20125`):
+  `verify-boot-fixes` now asserts the rule is ABSENT from the installed squashfs
+  while the casper-bottom generator still ships + writes it — all three PASS.
+- [x] **CI false-greens closed.** boot-smoke/install-smoke/uefi-boot require a
+  LATE marker (graphical.target / display-manager / login) instead of a bare
+  "reached target" (fires for Swap) + a casper RUNTIME marker instead of the
+  `boot=casper` cmdline echo; install-smoke/publish surface a loud failure + exit
+  1 despite `continue-on-error`; uefi-boot resolves the ISO by exact name (not a
+  `refract-os-*` glob that could boot a `-noai`/DANGER image); build-iso's
+  omitted-mode absence assertion now also covers the Calamares checkbox/slide/
+  screenshot surfaces. `tests/mode-mechanism.sh` asserts the command the switcher
+  actually emits (`disable gdm`, not `disable --now gdm`).
+- [x] **Installer/boot correctness.** Wayland-disable scoped to Intel at runtime
+  (AMD/NVIDIA keep Wayland); `openssh-server` out of the universal base list into
+  server/cloud only; welcome.conf floor 20/4 → 8/2 GiB (was locking out lowspec);
+  partition default erase → none (dual-boot footgun); shellprocess@modes ordered
+  after users; bootfix asserts the renamed kernel exists; `lb --version` glob
+  `3.0*` → `*3.0*`; REFRACT_TESTING drops the splash on the live UEFI entry;
+  omitting ALL optional modes drops the now-empty packagechooser page.
+- [x] **AI/modectl runtime.** `modes enable gaming|creative` runs setup as the
+  normal user (sudo made `usermod -aG` target root); 02-preload honors the power
+  PROFILE (efficiency was preloading the heavier tag → re-download); default tier
+  max → entry; cloud-toggle backs up an existing `opencode.json`; creative-scratch
+  gained a root guard; verify-drivers SKIPs (not FAILs) on non-Nvidia/non-AMD;
+  ComfyUI `is_running` probes `/system_stats` (not `/`) so a random :8188 listener
+  can't false-positive; dead `YARU_ACCENT` dropped from 4 profiles; icon-theme
+  `WhiteSur` → `WhiteSur-dark` for parity.
+- [x] **Docs & naming sweep.** Last Crucible12/LM-Studio/llama.cpp stragglers →
+  "Ollama + ComfyUI (Crucible12-derived)"; mode-selection-design.md marked
+  SHIPPED; misleading "omit arg = ALL ~150GB" preload text corrected (pulls ONE
+  model); non-tier `models.catalog.json` refs → per-tier; GNU-only `dd` split by
+  OS; test counts 9 → 10; blackwell section-4 gap; typo.
+- **Deliberately skipped:** BIOS/`isolinux.cfg` live-menu parity (that file's edit
+  was declined earlier — the UEFI-side no-splash/serial equivalent is in
+  `build.sh`) and a couple of pure-taste items (keyd opt-out advertising, full
+  `-h/--help` uniformity).
+- [~] **install-smoke `install` job** stays the known best-effort CI limitation
+  (the VNC-driven Calamares GUI drive isn't reliably automatable — timed out again
+  this pass, unchanged by these edits). The deterministic `inspect` job passes;
+  the real end-to-end install proof is a human clicking through Calamares once
+  (`docs/utm-guide.md`).
