@@ -1,0 +1,15 @@
+#!/bin/sh
+# Last-chance size cleanup — numbered to run AFTER every other chroot hook
+# (this fork runs config/hooks/*.chroot in sorted order; 0410-keyd is the
+# latest hook that downloads packages). live-build's own Save_cache only
+# clears /var/cache/apt/archives at the install-packages stage, so any .deb a
+# LATER hook pulled (0410-keyd's gcc/make round-trip) is otherwise baked into
+# the squashfs, along with whatever apt lists the hooks regenerated after
+# --apt-indices false already stripped them once.
+#
+# Deliberately failure-tolerant end to end: this is a size optimisation and
+# must never become a build gate.
+apt-get clean >/dev/null 2>&1 || true
+rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb 2>/dev/null || true
+rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
+exit 0

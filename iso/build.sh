@@ -569,11 +569,43 @@ lb config \
     --debian-installer "$DI_OFF" \
     --syslinux-theme live-build \
     --iso-application "$ISO_APPLICATION" \
-    --iso-volume "$ISO_VOLUME"
+    --iso-volume "$ISO_VOLUME" \
+    --apt-indices false \
+    --apt-source-archives false
 # --iso-volume deliberately does NOT vary by strain: ISO9660 volume labels
 # have an 11-character limit and "REFRACTOS-LOWSPEC" etc. would blow past
 # it. --iso-application has no such constraint and is where the strain
 # name actually shows up (e.g. in a VM's drive label).
+#
+# --apt-indices false / --apt-source-archives false: drop the ~50-90 MB of
+# /var/lib/apt/lists package indices (and deb-src lines) from the squashfs —
+# part of getting each ISO under GitHub's 2 GiB single-asset cap so it ships
+# as ONE flashable file instead of split parts. Both flags verified present in
+# this fork's lb_config getopt string, and lb_chroot_archives really does
+# `rm -rf chroot/var/lib/apt/lists` on LB_APT_INDICES=false. Safe because every
+# repo setup script that apt-get installs anything already runs `apt-get
+# update` first (audited 2026-07-29) — a fresh install regenerates the lists.
+# DO NOT add `--compression xz` here: in this fork --compression only feeds
+# lb_binary_tar, which never runs on an amd64 iso-hybrid build — the squashfs
+# is ALREADY xz (lb_binary_rootfs hardcodes `-comp xz` for everything except
+# squeeze). It would be a silent no-op that reads like a fix.
+# DO NOT add `--apt-recommends false`: ubuntu-desktop-minimal pulls network-
+# manager, cups and gnome-terminal via Recommends — it would "save" 400-600 MB
+# and ship a desktop with no network UI and no terminal.
+
+# Squashfs block size: 1 MiB blocks compress ~6-9% better than the 128 KiB
+# default. MKSQUASHFS_OPTIONS has no default in this fork and lb_binary_rootfs
+# APPENDS its hardcoded `-comp xz` after it, so config/binary is the one
+# sanctioned injection point — and only compressor-agnostic flags are safe
+# here (-b yes; -Xbcj NO: mksquashfs refuses a -comp after compressor-specific
+# options). Cost: a 4 KiB random read must inflate a full 1 MiB block, ~6s
+# slower live boot — so the two strains whose whole point is weak hardware
+# keep the smaller default block. Must sit AFTER `lb config` (which rewrites
+# config/binary) and BEFORE `lb build`.
+case "$STRAIN" in
+    lowspec|handheld) ;;
+    *) printf 'MKSQUASHFS_OPTIONS="-b 1M"\n' >> config/binary ;;
+esac
 
 echo -e "\033[36mBuilding ISO (this takes a long time and a lot of disk — run on the build host, not a laptop)...\033[0m"
 lb build

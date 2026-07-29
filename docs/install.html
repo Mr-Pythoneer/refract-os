@@ -133,11 +133,10 @@
       <div class="body">
         <h3>Download the image</h3>
         <p>Grab the latest prebuilt ISO from the <a href="https://github.com/Mr-Pythoneer/refract-os/releases">Releases page</a> — no account, no Linux. Pick the <strong>strain</strong> that matches your machine (<code>workstation</code> is the default; also <code>laptop</code>, <code>lowspec</code>, <code>server</code>, <code>handheld</code>, <code>cloud</code>). Every strain still has all five modes.</p>
-        <p>The image is published in <strong>&lt;2&nbsp;GB parts</strong> (GitHub's per-file cap) — download every <code>.part*</code> for your strain and rejoin them (each release lists the exact parts + rejoin command):</p>
-        <pre class="code"><span class="c"># Linux / macOS — after downloading the .part* files:</span>
-<span class="p">$</span> cat refract-os-workstation.iso.part* &gt; refract-os-workstation.iso
-<span class="c"># Windows (cmd): copy /b refract-os-workstation.iso.part00 + ...part01 refract-os-workstation.iso</span></pre>
-        <p>Each release also ships a <code>.sha256</code> of the joined ISO — verify it if you like. Got the image? <strong>Skip step&nbsp;2</strong> and jump to flashing.</p>
+        <p>Each strain ships as <strong>one file</strong> — nothing to rejoin. Most releases are a plain <code>.iso</code>; a strain that would exceed GitHub's 2&nbsp;GB per-file cap ships as a single <code>.iso.xz</code> instead, and <strong>balenaEtcher, Rufus, Raspberry Pi Imager, and GNOME Disks all decompress that while flashing</strong> — select the <code>.iso.xz</code> exactly like a normal image. Only Ventoy and the <code>dd</code> command need it unpacked first:</p>
+        <pre class="code"><span class="c"># Only for Ventoy/dd, and only if your download is a .iso.xz:</span>
+<span class="p">$</span> xz -d refract-os-workstation.iso.xz     <span class="c"># → refract-os-workstation.iso</span></pre>
+        <p>Each release also ships a <code>.sha256</code> of the <code>.iso</code> (decompress first if you got a <code>.xz</code>) — verify it if you like. If a release ever falls back to split <code>.part*</code> files, its notes carry the exact rejoin command. Got the image? <strong>Skip step&nbsp;2</strong> and jump to flashing.</p>
         <p><strong>No spare PC?</strong> Try it in a VM instead — see the <a href="https://github.com/Mr-Pythoneer/refract-os/blob/main/docs/utm-guide.md">UTM guide (macOS)</a>. It boots the same image; no USB needed.</p>
       </div>
     </div>
@@ -160,7 +159,7 @@
         <h3>Flash it to the USB — Windows, macOS, or Linux</h3>
         <p>This <span class="warn-inline">erases the stick</span>. Easiest on any OS is a point-and-click tool — pick the ISO, pick the USB, go:</p>
         <ul>
-          <li><strong>Any OS (recommended):</strong> <a href="https://etcher.balena.io/">balenaEtcher</a> — Windows, macOS, and Linux; hard to get wrong.</li>
+          <li><strong>Any OS (recommended):</strong> <a href="https://etcher.balena.io/">balenaEtcher</a> — Windows, macOS, and Linux; hard to get wrong. Takes the <code>.iso</code> or the <code>.iso.xz</code> as-is, and verifies the write when done.</li>
           <li><strong>Windows:</strong> <a href="https://rufus.ie/">Rufus</a> — select the ISO and write in <em>DD Image</em> mode.</li>
           <li><strong>macOS:</strong> Etcher, or the Terminal (see below). Note: an Apple-Silicon Mac can make the stick but can't boot it — install onto a PC.</li>
         </ul>

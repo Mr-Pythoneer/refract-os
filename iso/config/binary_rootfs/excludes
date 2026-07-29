@@ -1,0 +1,27 @@
+# Paths excluded from the squashfs at mksquashfs time (NOT uninstalled — the
+# chroot keeps them; they just never enter the image). First-class in Ubuntu's
+# live-build 3.0~a57 fork: lb_binary_rootfs passes `-wildcards -ef` with this
+# file when it exists. Purpose: get every strain's ISO under GitHub's 2 GiB
+# single-asset cap so releases ship ONE flashable file (balenaEtcher can't
+# rejoin split parts).
+#
+# TRADE-OFF, decided consciously: Calamares unpacks this same squashfs, so
+# installed systems also lack man pages / offline GNOME help / non-English
+# locales. `man foo` says "No manual entry" (web docs exist); GNOME Yelp help
+# is degraded; English stays intact. ~250-350 MiB for that is the deal.
+#
+# DO NOT exclude usr/share/doc/*/copyright — this distro redistributes
+# GPL/LGPL binaries and shipping their licence/attribution files is a
+# compliance REQUIREMENT, not polish. The doc/ patterns below therefore name
+# specific junk (changelogs, NEWS, examples) instead of doc/*.
+usr/share/man/*
+# Locales: keep en* (the [a-d]/[f-z] split skips the whole e* range — that
+# also spares eo/es/et/eu, an acceptable overshoot to keep the pattern simple
+# and en* provably safe).
+usr/share/locale/[a-d]*
+usr/share/locale/[f-z]*
+usr/share/help/*
+usr/share/gnome/help/*
+usr/share/doc/*/changelog*
+usr/share/doc/*/NEWS*
+usr/share/doc/*/examples

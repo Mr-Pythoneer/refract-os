@@ -120,6 +120,23 @@ jobs:
           set -euo pipefail
           sudo -E ./build.sh "${{ inputs.strain }}"
 
+      # Where did the bytes go? Every slimming decision (excludes file, apt
+      # indices, block size, package drops) was sized from models, not
+      # measurements — this step replaces the models with numbers on every run,
+      # so the next size regression is diagnosable from the log alone.
+      - name: Report ISO + payload sizes
+        if: ${{ success() }}
+        working-directory: iso
+        run: |
+          set -uo pipefail
+          echo "=== ISO size vs the 2 GiB (2147483648 B) release-asset cap ==="
+          for f in *.iso; do printf '%s  %s bytes\n' "$f" "$(stat -c%s "$f")"; done
+          echo "=== biggest payload dirs (du, top 40) ==="
+          sudo du -xk --max-depth=2 chroot/usr chroot/var chroot/lib 2>/dev/null | sort -n | tail -40 || true
+          echo "=== biggest installed packages (top 40, KiB) ==="
+          sudo dpkg-query -Wf '${Installed-Size}\t${Package}\n' \
+            --admindir=chroot/var/lib/dpkg 2>/dev/null | sort -n | tail -40 || true
+
       # Prove the HARD guarantee: for every omitted mode, assert its footprint is
       # gone from the staged image (config/includes.chroot is what gets squashed
       # into the ISO). FAIL the build if anything leaked, so a "no-AI" image can
@@ -247,22 +264,56 @@ jobs:
           fi
           sha=$(sha256sum "$ISO" | cut -d' ' -f1)
           echo "$sha  $base" > "iso/${strain}${suffix}.sha256"
-          # GitHub release assets are capped at 2 GiB. Split larger ISOs into
-          # < 2 GiB parts (users rejoin them) and upload the parts instead.
-          limit=$((1900*1024*1024)); sz=$(stat -c%s "$ISO")
+          # GitHub caps a SINGLE release asset at 2 GiB — the upload API 422s at
+          # 2147483648 bytes, on every plan, public or private (verified 2026-07).
+          # balenaEtcher cannot rejoin split parts, so ship ONE file whenever
+          # physically possible. Three rungs, best first:
+          #   1. raw .iso fits    -> upload it (Etcher/Rufus/Ventoy/dd, no caveats)
+          #   2. .iso.xz fits     -> upload the single compressed file. Etcher,
+          #                          Rufus, Raspberry Pi Imager and GNOME Disks
+          #                          all decompress xz on the fly while flashing;
+          #                          only Ventoy/dd users decompress by hand. xz
+          #                          is lossless so the written stick is byte-
+          #                          identical to the raw ISO (hybrid BIOS+UEFI
+          #                          boot intact), and Etcher verifies after
+          #                          write. xz ONLY — Etcher writes unsupported
+          #                          formats (.zst/.7z) to the stick RAW and
+          #                          reports success: a green-check unbootable
+          #                          drive. Never "upgrade" this to zstd.
+          #   3. neither fits     -> the old split, strictly a last resort.
+          # 2000 MiB, not the old 1900: still 47 MiB under the real cap, and the
+          # extra ~100 MiB of headroom is free.
+          limit=$((2000*1024*1024)); sz=$(stat -c%s "$ISO")
           assets=("iso/${strain}${suffix}.sha256")
           if [ "$sz" -le "$limit" ]; then
             assets+=("$ISO")
-            reasm="It's a single file — just flash it."
+            reasm="It's a single \`.iso\` — flash it directly with balenaEtcher (or any of the tools above)."
           else
-            ( cd iso && split -b 1900M --numeric-suffixes=0 --suffix-length=2 "$base" "${base}.part" )
-            shopt -s nullglob; parts=(iso/"${base}".part*); shopt -u nullglob
-            [ "${#parts[@]}" -ge 1 ] || { echo "split produced no parts — not publishing" >&2; exit 0; }
-            assets+=("${parts[@]}")
-            # Build the Windows rejoin command from the ACTUAL parts (any count),
-            # not a hardcoded part00+part01 — 3+ parts would otherwise be truncated.
-            win=""; for p in "${parts[@]}"; do bn=$(basename "$p"); win="${win:+$win + }$bn"; done
-            reasm=$'This ISO is split into '"${#parts[@]}"' parts (GitHub caps assets at 2 GiB) — download every `.part*`, rejoin, then flash:\n- **Linux/macOS:** `cat '"${base}"'.part* > '"${base}"'`\n- **Windows (cmd):** `copy /b '"$win"' '"${base}"'`'
+            # -9 (not -9e): 64 MiB dictionary — Etcher caps its LZMA decoder at
+            # 20% of system RAM, so a bigger dictionary can refuse to flash on
+            # low-RAM machines. -T0 only threads compression; the stream is
+            # ordinary single-stream-decodable xz. The squashfs inside is already
+            # xz so the gain is small — this rung exists to catch a near-miss.
+            echo "ISO is $sz B (> $limit B) — trying a single .iso.xz asset before splitting."
+            xzsz=$((limit + 1))
+            if xz -T0 -9 -c "$ISO" > "${ISO}.xz"; then
+              xzsz=$(stat -c%s "${ISO}.xz")
+            fi
+            echo "xz: $sz -> $xzsz bytes"
+            if [ "$xzsz" -le "$limit" ]; then
+              assets+=("${ISO}.xz")
+              reasm=$'This release is **one compressed file**, `'"${base}"$'.xz` — nothing to rejoin.\n- **balenaEtcher / Rufus / Raspberry Pi Imager / GNOME Disks:** select the `.iso.xz` directly — they decompress while flashing.\n- **Ventoy or `dd`:** decompress first: `xz -d '"${base}"$'.xz`'
+            else
+              rm -f "${ISO}.xz"
+              ( cd iso && split -b 1900M --numeric-suffixes=0 --suffix-length=2 "$base" "${base}.part" )
+              shopt -s nullglob; parts=(iso/"${base}".part*); shopt -u nullglob
+              [ "${#parts[@]}" -ge 1 ] || { echo "split produced no parts — not publishing" >&2; exit 0; }
+              assets+=("${parts[@]}")
+              # Build the Windows rejoin command from the ACTUAL parts (any count),
+              # not a hardcoded part00+part01 — 3+ parts would otherwise be truncated.
+              win=""; for p in "${parts[@]}"; do bn=$(basename "$p"); win="${win:+$win + }$bn"; done
+              reasm=$'This ISO is split into '"${#parts[@]}"' parts (GitHub caps assets at 2 GiB) — download every `.part*`, rejoin, then flash:\n- **Linux/macOS:** `cat '"${base}"'.part* > '"${base}"'`\n- **Windows (cmd):** `copy /b '"$win"' '"${base}"'`'
+            fi
           fi
           if [ "${{ inputs.testing_no_login }}" = "true" ]; then
             title="⚠️ Testing build (${strain}) — no login, developer use only"
@@ -278,7 +329,7 @@ jobs:
 
           ${reasm}
 
-          SHA-256 of the joined ISO: \`${sha}\`
+          SHA-256 of the \`.iso\` (after decompressing/rejoining, if this release ships a \`.xz\` or parts): \`${sha}\`
 
           Built from commit \`${GITHUB_SHA}\`.
 
@@ -293,14 +344,27 @@ jobs:
 
           ${reasm}
 
-          SHA-256 of the joined ISO: \`${sha}\`
+          SHA-256 of the \`.iso\` (after decompressing/rejoining, if this release ships a \`.xz\` or parts): \`${sha}\`
 
-          ⚠ Boots via BIOS/CSM for now (UEFI in progress). Apple-Silicon Macs can create the USB but can't boot an x86 OS."
+          Boots on both UEFI and legacy BIOS/CSM machines (hybrid image, OVMF-verified in CI). Apple-Silicon Macs can create the USB but can't boot an x86 OS."
           fi
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
             && gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes "$notes" --title "$title" \
             || gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
                  --title "$title" --notes "$notes" --prerelease
+          # --clobber only replaces SAME-NAMED assets. When a strain crosses a
+          # rung boundary between runs (split -> single .iso, or .iso -> .iso.xz)
+          # the old shape's files would stay attached and users would download a
+          # stale .part00 next to the fresh single file. Drop every image-shaped
+          # asset first; the sha256 is same-named every run so --clobber covers it.
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.assets[].name' 2>/dev/null \
+          | while read -r a; do
+              case "$a" in
+                *.iso|*.iso.xz|*.iso.part*)
+                  gh release delete-asset "$tag" "$a" --repo "$GITHUB_REPOSITORY" --yes || true ;;
+              esac
+            done
           # This step runs `set -uo pipefail` (no -e) and is continue-on-error, so a
           # failed upload would otherwise fall straight through to the "Published"
           # echo and report success while the release has NO ISO attached. Check the

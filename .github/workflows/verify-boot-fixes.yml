@@ -107,6 +107,21 @@ jobs:
           chk "that hook writes the live installer polkit rule at boot" \
               "grep -q '49-refract-installer.rules' $SQ/usr/share/initramfs-tools/scripts/casper-bottom/25-refract-install-icon"
           echo
+          echo "=== ISO slimming took effect AND spared what must survive ==="
+          # The size levers (config/binary_rootfs/excludes + --apt-indices false)
+          # fail SILENTLY if the fork ignores them — the build still succeeds,
+          # just 300+ MB fatter, and the release quietly regresses to split
+          # parts. So assert both directions: the excluded junk is really gone,
+          # and the two things the excludes must NEVER take with them survive.
+          chk "man pages excluded (proves binary_rootfs/excludes engaged)" \
+              "! ls $SQ/usr/share/man/man1/ >/dev/null 2>&1 || [ -z \"\$(ls -A $SQ/usr/share/man/man1/ 2>/dev/null)\" ]"
+          chk "apt package indices excluded (proves --apt-indices false engaged)" \
+              "[ -z \"\$(ls -A $SQ/var/lib/apt/lists/ 2>/dev/null | grep -v ^lock$ | grep -v ^partial$ | grep -v ^auxfiles$)\" ]"
+          chk "licence/copyright files SURVIVE the excludes (GPL compliance)" \
+              "ls $SQ/usr/share/doc/*/copyright >/dev/null 2>&1"
+          chk "English locale SURVIVES the locale excludes" \
+              "test -d $SQ/usr/share/locale/en || test -d $SQ/usr/share/locale/en_GB || test -d $SQ/usr/share/locale/en@shaw"
+          echo
           echo "=== installed-package cross-check (filesystem.manifest) ==="
           MAN=/mnt/iso/casper/filesystem.manifest
           chk "manifest: xserver-xorg-video-intel ABSENT" \

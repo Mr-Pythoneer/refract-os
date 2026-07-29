@@ -8,8 +8,13 @@
 curl
 jq
 git
-build-essential
-cmake
+## build-essential + cmake are deliberately NOT baked in (~110-140 MB installed;
+## part of keeping every ISO under GitHub's 2 GiB single-file cap). Nothing in
+## the shipped image needs a compiler at runtime: the only repo consumer,
+## modes/ai/legacy-crucible12/setup/01-install-llamacpp.sh, apt-installs them
+## itself on demand, and hooks/0410-keyd.chroot self-installs gcc/make at build
+## time and purges them again. Don't re-add here — apt-get install works fine
+## on an installed system when a user actually wants a toolchain.
 linux-tools-common
 ## Must match the HWE kernel build.sh installs (--linux-flavours
 ## generic-hwe-24.04), NOT the GA kernel. linux-tools-common ships the
