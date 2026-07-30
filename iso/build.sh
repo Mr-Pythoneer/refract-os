@@ -586,25 +586,41 @@ lb config \
 # repo setup script that apt-get installs anything already runs `apt-get
 # update` first (audited 2026-07-29) — a fresh install regenerates the lists.
 # DO NOT add `--compression xz` here: in this fork --compression only feeds
-# lb_binary_tar, which never runs on an amd64 iso-hybrid build — the squashfs
-# is ALREADY xz (lb_binary_rootfs hardcodes `-comp xz` for everything except
-# squeeze). It would be a silent no-op that reads like a fix.
+# lb_binary_tar, which never runs on an amd64 iso-hybrid build — it would be a
+# silent no-op that reads like a fix. Squashfs compression is set instead via
+# MKSQUASHFS_OPTIONS in config/binary below (empirically verified channel).
 # DO NOT add `--apt-recommends false`: ubuntu-desktop-minimal pulls network-
 # manager, cups and gnome-terminal via Recommends — it would "save" 400-600 MB
 # and ship a desktop with no network UI and no terminal.
 
-# Squashfs block size: 1 MiB blocks compress ~6-9% better than the 128 KiB
-# default. MKSQUASHFS_OPTIONS has no default in this fork and lb_binary_rootfs
-# APPENDS its hardcoded `-comp xz` after it, so config/binary is the one
-# sanctioned injection point — and only compressor-agnostic flags are safe
-# here (-b yes; -Xbcj NO: mksquashfs refuses a -comp after compressor-specific
-# options). Cost: a 4 KiB random read must inflate a full 1 MiB block, ~6s
-# slower live boot — so the two strains whose whole point is weak hardware
-# keep the smaller default block. Must sit AFTER `lb config` (which rewrites
-# config/binary) and BEFORE `lb build`.
+# Squashfs compression — THE lever that gets desktop strains under GitHub's
+# 2 GiB single-asset cap. EMPIRICAL, from real build logs (runs 30414930853 and
+# 30416054636, 2026-07-29): on this fork's amd64 iso-hybrid path the squashfs is
+# GZIP, and MKSQUASHFS_OPTIONS from config/binary reaches mksquashfs verbatim —
+# setting a bare "-b 1M" produced exactly "gzip compressed, data block size
+# 1048576". A source-reading claim that lb_binary_rootfs hardcodes `-comp xz`
+# did NOT survive contact with the build; trust the log line "Exportable
+# Squashfs 4.0 filesystem, <comp> compressed". So set the compressor ourselves:
+# xz is worth ~20-30% over gzip on a desktop rootfs (~450-650 MB here).
+# -b 1M is ~6-9% more but costs ~6s of live boot on weak hardware (a 4 KiB read
+# must inflate a full 1 MiB block), so lowspec and handheld keep the 128 KiB
+# default block — they still get xz, because shipping ONE flashable file beats
+# a few seconds of live-session latency even there. Installed systems are
+# unaffected either way (Calamares copies the tree out of the squashfs).
+# NO -Xbcj x86, though it would add a few % on binaries: "gzip" in the log is
+# ambiguous — equally consistent with live-build appending nothing (mksquashfs
+# defaults to gzip) or appending its own `-comp gzip` AFTER our string. Under
+# the second reading an xz-specific -X* option followed by a -comp makes
+# mksquashfs ABORT ("cannot change compressor after compressor specific
+# options") and every strain fails to build. A bare -comp xz is safe under both
+# readings: worst case it is overridden and we get no gain, no failure. Revisit
+# only once a log proves "xz compressed" (i.e. nothing overrides us).
+# Must sit AFTER `lb config` (which regenerates config/binary) and BEFORE
+# `lb build`. verify-boot-fixes.yml asserts the shipped squashfs really is xz,
+# so a silent regression back to gzip cannot creep in unnoticed.
 case "$STRAIN" in
-    lowspec|handheld) ;;
-    *) printf 'MKSQUASHFS_OPTIONS="-b 1M"\n' >> config/binary ;;
+    lowspec|handheld) printf 'MKSQUASHFS_OPTIONS="-comp xz"\n' >> config/binary ;;
+    *)                printf 'MKSQUASHFS_OPTIONS="-comp xz -b 1M"\n' >> config/binary ;;
 esac
 
 echo -e "\033[36mBuilding ISO (this takes a long time and a lot of disk — run on the build host, not a laptop)...\033[0m"

@@ -12,4 +12,11 @@ gnome-tweaks
 ## (build.sh drops the sentinel on kept builds). See iso/build.sh.
 gamemode  #@omit-if-no:gaming
 mangohud  #@omit-if-no:gaming
-winetricks  #@omit-if-no:gaming
+## winetricks is deliberately NOT baked in: it pulls the distro wine stack, and
+## libwine alone is ~647 MB installed -- the single largest package in the image,
+## bigger even than linux-firmware (measured, build run 30416054636). Gaming mode
+## never wanted distro wine anyway: modes/gaming/setup/03-install-wine-staging.sh
+## installs winehq-staging AND winetricks itself on demand. Dropping it here costs
+## Gaming nothing and is the single biggest win in getting every ISO under
+## GitHub's 2 GiB single-file cap (so releases ship one Etcher-flashable file
+## instead of split parts). Don't re-add it.

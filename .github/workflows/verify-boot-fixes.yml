@@ -108,6 +108,15 @@ jobs:
               "grep -q '49-refract-installer.rules' $SQ/usr/share/initramfs-tools/scripts/casper-bottom/25-refract-install-icon"
           echo
           echo "=== ISO slimming took effect AND spared what must survive ==="
+          # The compressor is the single biggest size lever (~20-30%) and it is
+          # set through an EMPIRICALLY-verified, undocumented channel: a
+          # MKSQUASHFS_OPTIONS line build.sh appends to config/binary. If a
+          # live-build change ever starts overriding that, the build still
+          # succeeds — it just silently reverts to gzip, the ISO balloons ~500 MB
+          # past the 2 GiB cap, and releases quietly regress to split parts that
+          # balenaEtcher cannot flash. Assert the shipped compressor directly.
+          chk "shipped squashfs is xz-compressed (not a silent gzip regression)" \
+              "unsquashfs -s /mnt/iso/casper/filesystem.squashfs | grep -qi 'Compression[[:space:]]*xz'"
           # The size levers (config/binary_rootfs/excludes + --apt-indices false)
           # fail SILENTLY if the fork ignores them — the build still succeeds,
           # just 300+ MB fatter, and the release quietly regresses to split
