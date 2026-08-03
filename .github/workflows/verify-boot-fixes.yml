@@ -126,6 +126,8 @@ jobs:
               "! ls $SQ/usr/share/man/man1/ >/dev/null 2>&1 || [ -z \"\$(ls -A $SQ/usr/share/man/man1/ 2>/dev/null)\" ]"
           chk "apt package indices excluded (proves --apt-indices false engaged)" \
               "[ -z \"\$(ls -A $SQ/var/lib/apt/lists/ 2>/dev/null | grep -v ^lock$ | grep -v ^partial$ | grep -v ^auxfiles$)\" ]"
+          chk "kernel headers excluded (/usr/src empty — ~175 MB of build artifacts)" \
+              "[ -z \"\$(ls -A $SQ/usr/src 2>/dev/null)\" ]"
           chk "licence/copyright files SURVIVE the excludes (GPL compliance)" \
               "ls $SQ/usr/share/doc/*/copyright >/dev/null 2>&1"
           chk "English locale SURVIVES the locale excludes" \

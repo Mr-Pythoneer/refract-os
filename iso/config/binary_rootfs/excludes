@@ -25,3 +25,12 @@ usr/share/gnome/help/*
 usr/share/doc/*/changelog*
 usr/share/doc/*/NEWS*
 usr/share/doc/*/examples
+# Kernel headers (~175 MB, nearly all of /usr/src): build-time artifacts for
+# compiling out-of-tree/DKMS modules. Nothing in a running desktop reads them,
+# and they are only here as a Recommends of the HWE kernel metapackage. Anything
+# that genuinely needs them (e.g. a DKMS driver build) apt-installs the matching
+# linux-headers package itself — drivers/install-nvidia.sh already does, and apt
+# pulls headers as a dependency of the driver package. Excluded from every
+# strain: this is the difference between lowspec shipping as one flashable file
+# and shipping as split .part files.
+usr/src/*

@@ -281,9 +281,14 @@ jobs:
           #                          reports success: a green-check unbootable
           #                          drive. Never "upgrade" this to zstd.
           #   3. neither fits     -> the old split, strictly a last resort.
-          # 2000 MiB, not the old 1900: still 47 MiB under the real cap, and the
-          # extra ~100 MiB of headroom is free.
-          limit=$((2000*1024*1024)); sz=$(stat -c%s "$ISO")
+          # 2045 MiB = 2,144,337,920 B — 3 MiB under GitHub's hard 2,147,483,648.
+          # A large safety buffer would be pointless: $sz below is the exact byte
+          # size of the finished file, so there is no estimation error to absorb;
+          # the only thing the margin guards is the cap itself moving. Every MiB
+          # given away here is a MiB that pushes a strain into the split rung —
+          # at the old 2000 MiB this was the difference between lowspec shipping
+          # as one flashable file and shipping as .part files.
+          limit=$((2045*1024*1024)); sz=$(stat -c%s "$ISO")
           assets=("iso/${strain}${suffix}.sha256")
           if [ "$sz" -le "$limit" ]; then
             assets+=("$ISO")
