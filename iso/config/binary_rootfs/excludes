@@ -34,3 +34,12 @@ usr/share/doc/*/examples
 # strain: this is the difference between lowspec shipping as one flashable file
 # and shipping as split .part files.
 usr/src/*
+# Offline speech-to-text acoustic models (~37 MB). This is speech RECOGNITION
+# (voice input), NOT the accessibility text-to-speech path — screen readers go
+# through speech-dispatcher + flite/espeak, both of which are deliberately left
+# intact. Nothing in the shipped desktop invokes pocketsphinx by default.
+usr/share/pocketsphinx/*
+# AppStream software-catalogue metadata (~22 MB): a rebuildable cache for the
+# software centre, regenerated on demand by `appstreamcli refresh`. Shipping a
+# stale snapshot of it in the image buys nothing.
+var/lib/swcatalog/*

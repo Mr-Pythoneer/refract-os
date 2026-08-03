@@ -61,7 +61,28 @@ jobs:
           chk() { # name, test-cmd
             if eval "$2" >/dev/null 2>&1; then echo "  PASS  $1"; else echo "  FAIL  $1"; fail=1; fi
           }
+          skip() { echo "  SKIP  $1 — not applicable to this strain"; }
+          # STRAIN AWARENESS. Most assertions below encode GNOME-specific boot
+          # fixes (gdm3's WaylandEnable, the ubuntu-xorg session, the Intel DDX
+          # purge, gnome-shell in the manifest). They are only meaningful on the
+          # GNOME strains — workstation/laptop/handheld ship ubuntu-desktop-
+          # minimal, lowspec ships lubuntu-desktop (LXQt + SDDM, and build.sh
+          # deliberately skips the whole polish layer for it), and server/cloud
+          # ship no desktop at all. Run unguarded, this job red-Xes a perfectly
+          # good lowspec image with ~8 failures that are all "correct behaviour
+          # for that strain" — which is exactly what happened on run 30814792796
+          # and is worse than no check, because it trains you to ignore reds.
+          # Detect the desktop from the image itself rather than trusting a
+          # workflow input, so the check cannot disagree with what actually shipped.
+          if [ -e "$SQ/usr/bin/gnome-shell" ]; then DESKTOP=gnome
+          elif [ -e "$SQ/usr/bin/startlxqt" ] || [ -e "$SQ/usr/bin/lxqt-session" ]; then DESKTOP=lxqt
+          else DESKTOP=headless; fi
+          echo "Detected desktop in this image: $DESKTOP"
+          echo
           echo "=== GDM forced to Xorg ==="
+          if [ "$DESKTOP" != gnome ]; then
+            skip "all GNOME/gdm3 boot-fix assertions ($DESKTOP image)"
+          else
           # custom.conf is the file Ubuntu's gdm3 READS. This used to assert on
           # daemon.conf (Debian's name) — the same file the hook wrote — so it
           # passed while the setting was inert and the machine booted Wayland.
@@ -84,7 +105,9 @@ jobs:
           echo "=== no Ubuntu setup wizard ==="
           chk "gnome-initial-setup binary is PURGED" \
               "! test -e $SQ/usr/libexec/gnome-initial-setup"
+          fi   # end GNOME-only boot-fix assertions
           echo "=== firmware for the iGPU is present ==="
+          # Not GNOME-gated: every strain needs i915 firmware for Intel graphics.
           chk "i915 DMC/GuC firmware dir present" \
               "test -d $SQ/lib/firmware/i915"
           echo
@@ -135,14 +158,26 @@ jobs:
           echo
           echo "=== installed-package cross-check (filesystem.manifest) ==="
           MAN=/mnt/iso/casper/filesystem.manifest
+          # Absence checks are universal — the legacy Intel DDX and the Ubuntu
+          # setup wizard must be missing from EVERY strain, desktop or not.
           chk "manifest: xserver-xorg-video-intel ABSENT" \
               "! grep -q '^xserver-xorg-video-intel' $MAN"
           chk "manifest: gnome-initial-setup ABSENT" \
               "! grep -q '^gnome-initial-setup' $MAN"
-          chk "manifest: ubuntu-session PRESENT (provides the xsession)" \
-              "grep -q '^ubuntu-session' $MAN"
-          chk "manifest: gnome-shell PRESENT" \
-              "grep -q '^gnome-shell' $MAN"
+          # Presence checks are GNOME-only: lowspec ships LXQt (lubuntu-desktop)
+          # and server/cloud ship no desktop, so demanding gnome-shell there
+          # fails a correct image.
+          if [ "$DESKTOP" = gnome ]; then
+            chk "manifest: ubuntu-session PRESENT (provides the xsession)" \
+                "grep -q '^ubuntu-session' $MAN"
+            chk "manifest: gnome-shell PRESENT" \
+                "grep -q '^gnome-shell' $MAN"
+          elif [ "$DESKTOP" = lxqt ]; then
+            chk "manifest: lubuntu-desktop PRESENT (this strain's desktop)" \
+                "grep -q '^lubuntu-desktop' $MAN"
+          else
+            skip "desktop-package presence checks (headless image)"
+          fi
           echo
           if [ "$fail" = 0 ]; then
             echo "ALL BOOT FIXES VERIFIED PRESENT IN THE SHIPPED IMAGE."
