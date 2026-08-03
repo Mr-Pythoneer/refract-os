@@ -607,21 +607,29 @@ lb config \
 # default block — they still get xz, because shipping ONE flashable file beats
 # a few seconds of live-session latency even there. Installed systems are
 # unaffected either way (Calamares copies the tree out of the squashfs).
-# NO -Xbcj x86, though it would add a few % on binaries: "gzip" in the log is
-# ambiguous — equally consistent with live-build appending nothing (mksquashfs
-# defaults to gzip) or appending its own `-comp gzip` AFTER our string. Under
-# the second reading an xz-specific -X* option followed by a -comp makes
-# mksquashfs ABORT ("cannot change compressor after compressor specific
-# options") and every strain fails to build. A bare -comp xz is safe under both
-# readings: worst case it is overridden and we get no gain, no failure. Revisit
-# only once a log proves "xz compressed" (i.e. nothing overrides us).
+# -Xbcj x86 is now PROVEN SAFE and is a free win. It was held back while "gzip"
+# in the log was ambiguous between "live-build appends nothing" and "live-build
+# appends its own -comp AFTER ours" — under the second reading an xz-specific
+# -X* flag before a -comp aborts mksquashfs and every build fails. Run
+# 30530238585 settled it: the log reads "xz compressed, data block size
+# 1048576", i.e. BOTH our flags survived verbatim and nothing is appended. The
+# BCJ x86 branch-target filter costs nothing measurable at decompression.
+#
+# -b 1M now applies to EVERY strain, lowspec and handheld included. Earlier it
+# was withheld from those two to protect weak hardware from random-read
+# amplification (a 4 KiB read must inflate a whole 1 MiB block, ~6s of live
+# boot). Measurements changed the trade: at 128 KiB blocks handheld missed the
+# single-asset cap by 0.83 MB and lowspec by 198 MB, which would push exactly
+# the two weakest-hardware strains back to SPLIT .part files — the one shape
+# balenaEtcher cannot flash at all. The cost is a slower LIVE session only:
+# the installed system is unaffected (Calamares copies the tree out of the
+# squashfs), and the live session exists mainly to run the installer. A
+# one-time slower live boot beats "you must cat the parts back together first".
+#
 # Must sit AFTER `lb config` (which regenerates config/binary) and BEFORE
 # `lb build`. verify-boot-fixes.yml asserts the shipped squashfs really is xz,
 # so a silent regression back to gzip cannot creep in unnoticed.
-case "$STRAIN" in
-    lowspec|handheld) printf 'MKSQUASHFS_OPTIONS="-comp xz"\n' >> config/binary ;;
-    *)                printf 'MKSQUASHFS_OPTIONS="-comp xz -b 1M"\n' >> config/binary ;;
-esac
+printf 'MKSQUASHFS_OPTIONS="-comp xz -Xbcj x86 -b 1M"\n' >> config/binary
 
 echo -e "\033[36mBuilding ISO (this takes a long time and a lot of disk — run on the build host, not a laptop)...\033[0m"
 lb build
