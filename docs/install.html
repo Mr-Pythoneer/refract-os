@@ -10,7 +10,7 @@
 <!-- Inter + Fira Code: the exact fonts Refract OS ships (see index.html). -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #0a0b0d; --bg-card: #14161a; --bg-card2: #1a1d22;
@@ -24,10 +24,16 @@
     --m-gaming: #ff5a52; --m-normal: #ffa23d; --m-server: #7bc043;
     --m-ai: #4a9df0; --m-creative: #e857a0;
     --beam: #f7f7f7;
+    /* Also in sync with index.html: two faces split by ROLE, not by weight —
+       Fira Code sets display type, Inter sets reading type. Both ship in the OS. */
+    --font-display: "Fira Code", "SF Mono", Menlo, Consolas, monospace;
+    --font-body: "Inter", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
-  body { margin: 0; background: var(--bg); color: var(--text); font-family: "Inter", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; font-size: 16px;
+  /* Two faces split by role, matching index.html: Fira Code sets display
+     type, Inter sets reading type. Both ship inside the OS itself. */
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-body); line-height: 1.6; font-size: 16px;
     -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-feature-settings: "cv11", "ss01"; }
   .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
   a { color: var(--accent); text-decoration: none; }
@@ -36,7 +42,7 @@
 
   nav { position: sticky; top: 0; z-index: 10; background: rgba(10,11,13,0.85); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
   nav .wrap { max-width: 1040px; display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; }
-  .brand { font-weight: 700; font-size: 1.05rem; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .brand { font-family: var(--font-display); font-weight: 600; font-size: 1rem; letter-spacing: -0.02em; color: var(--text); display: flex; align-items: center; gap: 8px; }
   .brand img { width: 28px; height: 28px; border-radius: 50%; }
   .navlinks { display: flex; gap: 26px; font-size: 0.92rem; }
   .navlinks a { color: var(--text-dim); }
@@ -44,7 +50,7 @@
 
   header { padding: 60px 0 34px; border-bottom: 1px solid var(--border); }
   .back { color: var(--text-dim); font-size: 0.9rem; display: inline-flex; align-items: center; gap: 6px; margin-bottom: 22px; }
-  h1 { font-size: 2.4rem; margin: 0 0 12px; letter-spacing: -0.02em; line-height: 1.1; }
+  h1 { font-family: var(--font-display); font-size: 1.95rem; font-weight: 700; margin: 0 0 12px; letter-spacing: -0.03em; line-height: 1.18; }
   .tagline { color: var(--text-dim); font-size: 1.1rem; max-width: 640px; margin: 0; }
 
   .callout { display: flex; gap: 12px; background: var(--bg-card); border: 1px solid var(--warn); border-left: 3px solid var(--warn); border-radius: 10px; padding: 16px 18px; margin: 28px 0 0; }
@@ -54,7 +60,7 @@
 
   section { padding: 40px 0; border-bottom: 1px solid var(--border); }
   section:last-of-type { border-bottom: none; }
-  h2 { font-size: 1.2rem; margin: 0 0 8px; letter-spacing: -0.01em; }
+  h2 { font-family: var(--font-display); font-size: 1.08rem; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.015em; }
 
   .prereq { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 20px; }
   .prereq li { display: flex; gap: 9px; font-size: 0.92rem; color: var(--text-dim); }
@@ -74,7 +80,10 @@
   pre.code { background: var(--bg-card); border: 1px solid var(--border); border-radius: 9px; padding: 14px 16px; overflow-x: auto; font-family: "Fira Code", "SF Mono", Menlo, Consolas, monospace; font-size: 0.85rem; color: var(--text); margin: 0 0 12px; line-height: 1.55; }
   pre.code .c { color: var(--text-faint); }
   pre.code .p { color: var(--ok); }
+  /* Real icon from the Tabler set already loaded above, not a ⚠ emoji —
+     emoji render as someone else's artwork at someone else's colour. */
   .warn-inline { color: var(--warn); }
+  .warn-inline i { font-size: 0.95em; vertical-align: -0.08em; }
 
   .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; border-radius: 9px; font-weight: 600; font-size: 0.95rem; border: none; }
   .btn-primary { background: var(--accent); color: var(--accent-ink); }
@@ -169,7 +178,7 @@
         <p><strong>macOS</strong> — find the device with <code>diskutil list</code>, unmount it, then write to the raw <code>rdisk</code> node:</p>
         <pre class="code"><span class="p">$</span> diskutil unmountDisk /dev/diskN
 <span class="p">$</span> sudo dd if=refract-os-workstation.iso of=/dev/rdiskN bs=1m</pre>
-        <p><span class="warn-inline">⚠ Replace <code>/dev/sdX</code> (Linux) or <code>/dev/diskN</code> (macOS) with your actual USB device</span> — the wrong device overwrites the wrong disk. On macOS, <code>dd</code> prints nothing until it finishes; press <kbd>Ctrl-T</kbd> to see progress.</p>
+        <p><span class="warn-inline"><i class="ti ti-alert-triangle" aria-hidden="true"></i> Replace <code>/dev/sdX</code> (Linux) or <code>/dev/diskN</code> (macOS) with your actual USB device</span> — the wrong device overwrites the wrong disk. On macOS, <code>dd</code> prints nothing until it finishes; press <kbd>Ctrl-T</kbd> to see progress.</p>
       </div>
     </div>
 
