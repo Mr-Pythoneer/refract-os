@@ -1,13 +1,27 @@
 # Brand assets
 
-Real, version-controlled SVG sources for Refract OS's logo and Calamares
-welcome banner — a refract-vessel motif (molten glow, twin handles, rising
-sparks) on a dark badge, matching the website's dark palette.
+Real, version-controlled sources for Refract OS's logo, Calamares welcome
+banner and desktop wallpapers.
+
+The motif is a **prism**: one white beam enters, and five coloured rays leave
+it — the five modes. Geometry is solved, not eyeballed (equilateral triangle,
+beam entering and exiting on real faces, rays fanning in true dispersion order
+with red deviating least and magenta most), and the five hexes are identical
+everywhere they appear: logo, wallpapers, installer, `docs/index.html`'s
+`--m-*` tokens, and `modes/modectl/profiles/*.conf`'s `ACCENT`.
+
+> This file used to describe a *"refract-vessel motif (molten glow, twin
+> handles, rising sparks)"*. That was the pre-prism identity, and
+> `src/welcome.svg` was still drawing it — so the installer shipped a logo the
+> product no longer used, in five colours that matched nothing. Both are fixed;
+> the note stays as a reminder that these assets drift silently because nobody
+> looks at a PNG in a diff.
 
 - `src/logo.svg` — circular badge, used as both Calamares' `productLogo`
   and `productIcon`
-- `src/welcome.svg` — wide banner with wordmark + the 5 mode color chips,
-  used as Calamares' `productWelcome`
+- `src/welcome.svg` — wide banner with the mark, wordmark and the 5 labelled
+  mode colour chips, used as Calamares' `productWelcome`
+- `make-wallpapers.py` — generates the six desktop wallpapers (see below)
 
 ## Building
 
@@ -35,6 +49,34 @@ after a real run, not just asserted.
 out/X.png` instead — it's the standard tool there, doesn't need the
 letterbox-crop workaround, and should be considered the long-term path once
 this repo is actually built/maintained from Linux rather than this Mac.
+
+## Wallpapers
+
+```bash
+python3 make-wallpapers.py
+```
+
+Writes `out/wallpapers/{base,normal,gaming,ai,server,creative}.png` at
+2560×1440. `iso/build.sh` copies them to `/usr/share/backgrounds/refract/`,
+and `base.png` additionally becomes the GNOME/login default.
+
+Needs only Pillow — no SVG rasterizer, so it runs the same on macOS and Linux.
+Output is deterministic (fixed dither seed), so a rebuild is byte-identical.
+
+**Why they carry no text or logo.** The previous wallpapers put the mark, the
+wordmark in tracked-out caps *and* the marketing tagline in a centred stack on
+the desktop. No shipping OS does that — macOS ships abstract art, Windows ships
+the bloom — because the wallpaper is the surface you stare at all day, not ad
+space, and branding on it is the loudest "hobby distro" signal a desktop can
+send. The brand idea survives as the *artwork*: the beam, the implied prism and
+the dispersed rays. Each mode's wallpaper is the same composition with that
+mode's ray brought up and the others dimmed, so switching modes reads as one
+system in a different state rather than six unrelated pictures.
+
+They are also built to sit *behind* things: dark and quiet through the middle
+where windows land, interest pushed off-centre, peak brightness held well under
+white so text on top always wins, and lightly dithered because wide dark
+gradients band badly on 8-bit panels.
 
 ## Status
 
