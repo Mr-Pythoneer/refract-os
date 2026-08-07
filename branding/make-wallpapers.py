@@ -137,10 +137,14 @@ def dither(img, amount=1):
         dither=3  2.02 MB
 
     At 1 the steps are already dissolved; 2 and 3 only get smoother under ~30x
-    contrast amplification nobody will ever apply to their desktop. Since these
-    six files ship inside the ISO and the lowspec strain clears GitHub's 2 GiB
-    single-asset cap by only ~17 MB (see iso/build.sh), the 4 MB that 3 would
-    cost buys nothing visible and eats a quarter of that margin.
+    contrast amplification nobody will ever apply to their desktop. That margin
+    matters more than it first looks: these six files ship inside the ISO, and
+    the lowspec strain clears the publish threshold by about ONE mebibyte
+    (measured 2026-08-07: ISO 2143289344 B against the 2045 MiB limit in
+    build-iso.yml, 4 MiB under GitHub's hard 2 GiB asset cap). At dither=3 the
+    extra ~4 MB would push lowspec straight past the hard cap. Raising this
+    value is therefore a release-shape decision, not a taste one — re-measure
+    lowspec before touching it.
     """
     rnd = random.Random(20260804)          # fixed seed: byte-identical rebuilds
     noise = Image.new("L", (W, H))
@@ -163,13 +167,44 @@ def build(emphasis=None):
     return dither(img)
 
 
+# Calamares' packagechooser shows a preview image per selectable mode
+# (iso/calamares/modules/packagechooser_modes.conf `screenshot:`). Those four
+# PNGs were hand-copied from the OLD text-laden wallpapers and were NOT updated
+# when the wallpapers were regenerated, so the installer went on previewing a
+# desktop the OS no longer ships — wordmark, tagline and all. Generating them
+# here is what stops that drifting again: same source artwork, one command.
+#
+# 'normal' is absent on purpose: it is the always-on base desktop, never a
+# selectable item in the chooser (see docs/mode-selection-design.md).
+#
+# Downscaled to 640x360, which is both plenty for a chooser thumbnail and a size
+# WIN — the stale full-resolution copies were ~245 KB each; these are ~40 KB.
+# That matters: lowspec clears the publish threshold by about 1 MiB.
+PREVIEW = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "..", "iso", "calamares", "branding", "refractos")
+PREVIEW_SIZE = (640, 360)
+PREVIEW_MODES = ["gaming", "ai", "server", "creative"]
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     targets = [("base", None)] + [(n, n) for n, _ in RAYS]
+    rendered = {}
     for name, emphasis in targets:
+        img = build(emphasis)
+        rendered[name] = img
         path = os.path.join(OUT, f"{name}.png")
-        build(emphasis).save(path, optimize=True)
+        img.save(path, optimize=True)
         print(f"wrote {path} ({os.path.getsize(path) // 1024} KB)")
+
+    preview_dir = os.path.normpath(PREVIEW)
+    if os.path.isdir(preview_dir):
+        for name in PREVIEW_MODES:
+            path = os.path.join(preview_dir, f"{name}.png")
+            rendered[name].resize(PREVIEW_SIZE, Image.LANCZOS).save(path, optimize=True)
+            print(f"wrote {path} ({os.path.getsize(path) // 1024} KB, installer preview)")
+    else:
+        print(f"NOTE: {preview_dir} missing — installer previews not written")
 
 
 if __name__ == "__main__":

@@ -34,7 +34,7 @@ cd refract-os
 
 ## Track A — OVH server (CPU-only build host)
 
-### Stage 1 — Build succeeds (the first-ever real `lb build`)
+### Stage 1 — Build succeeds (reproducing locally what CI already does green)
 
 ```bash
 sudo apt-get update && sudo apt-get install -y live-build
@@ -42,8 +42,10 @@ cd iso
 sudo ./build.sh workstation
 ```
 **Pass:** `refract-os-workstation.iso` is produced.
-**Expect to hit at least one real bug on this first pass** — nothing in `iso/`
-has ever run `lb build`. Common first-run failure points: a package name not in
+This path is no longer unexplored: `build-iso.yml` builds all six strains green
+on `ubuntu-latest`, so treat a local failure as a difference in YOUR host rather
+than a bug in `iso/` — compare against the reference run in that workflow.
+Historic first-run failure points, still worth knowing: a package name not in
 the enabled components (check `--archive-areas`), `lb config` flag drift vs the
 installed live-build version, the casper-bottom hook + `update-initramfs`. Fix,
 commit, re-run.

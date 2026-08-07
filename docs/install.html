@@ -214,8 +214,8 @@
       <div class="body">
         <h3>GPU drivers + local AI</h3>
         <p>Install the GPU driver, then set up local AI — <code>distro-ai-setup</code> detects your GPU, picks the tier that fits, and preloads exactly those models (nothing your card can't run).</p>
-        <pre class="code"><span class="p">$</span> sudo ./drivers/install-nvidia.sh   <span class="c"># RTX/Blackwell -open module + Secure Boot MOK</span>
-  <span class="c"># AMD instead: sudo ./drivers/install-amd-microcode.sh</span>
+        <pre class="code"><span class="p">$</span> sudo /opt/distro/drivers/install-nvidia.sh   <span class="c"># RTX/Blackwell -open module + Secure Boot MOK</span>
+  <span class="c"># AMD instead: sudo /opt/distro/drivers/install-amd-microcode.sh</span>
 <span class="p">$</span> distro-ai-setup --install          <span class="c"># detect tier → install Ollama/ComfyUI → preload fitting models</span></pre>
         <p>Switching into AI mode the first time also auto-detects your tier. Not sure what you'll get? <a href="index.html#download">Preview it in the configurator</a> — pick your GPU and it shows the exact models.</p>
       </div>

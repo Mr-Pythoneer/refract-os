@@ -497,7 +497,7 @@
     <!-- This said "No prebuilt ISO yet — build it from source" long after the
          laptop ISO was actually published to Releases with a public, no-login
          download + sha256. Keep this in step with what's really on Releases. -->
-    <p class="sub">One ISO — but it tailors its local-AI payload to your machine. Tell it your hardware and it previews the exact models your build will preload (auto-detected on first boot, or run <code>distro-ai-setup&nbsp;--install</code> yourself). <strong>Prebuilt images are on the Releases page</strong> — public, no login, checksum-verified.</p>
+    <p class="sub">Six strain images, one per hardware class — each a <strong>single <code>.iso</code></strong> on the Releases page, public, no login, checksum-verified. Tell the picker your hardware and it previews the exact local models that machine would preload (auto-detected on first boot, or run <code>distro-ai-setup&nbsp;--install</code> yourself).</p>
     <div class="cfg">
       <div class="cfg-controls">
         <label for="gpu">GPU</label>
@@ -514,7 +514,7 @@
       <a class="btn btn-primary" href="https://github.com/Mr-Pythoneer/refract-os/releases/latest">Download the ISO</a>
       <a class="btn btn-secondary" href="install.html">Install guide</a>
     </div>
-    <p class="dl-fine">The build is one image; the hardware picker only tailors which local models preload — the OS itself is identical across machines.</p>
+    <p class="dl-fine">Pick the <a href="#strains">strain</a> that matches your machine — they differ in desktop and default packages, not in modes. Within a strain the image is identical everywhere; the picker above only previews which local models that hardware would preload.</p>
   </div>
 </section>
 
@@ -568,7 +568,7 @@
           <li>Broad game/app compatibility via Proton-GE + Wine-staging + Bottles, pre-tuned out of the box</li>
           <li>Fully local AI — Ollama (LLMs) + ComfyUI (image gen), auto-sized to your GPU across six tiers, zero forced cloud round-trips</li>
           <li>Native CAD/video tools that actually work well on Linux today: FreeCAD, Blender, DaVinci Resolve</li>
-          <li>Nvidia + AMD drivers preinstalled, Secure Boot handled, not ignored</li>
+          <li>A one-command Nvidia/AMD driver installer that handles Secure Boot MOK signing rather than telling you to switch it off — <code>linux-firmware</code> and <code>mokutil</code> are baked in, the driver itself is not (you run the installer after first boot)</li>
         </ul>
       </div>
       <div class="honesty-card no">

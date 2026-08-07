@@ -412,7 +412,13 @@ cp "$REPO_ROOT"/branding/out/wallpapers/*.png "$INCLUDES/usr/share/backgrounds/r
 for m in "${OMITTED[@]}"; do
     rm -f "$INCLUDES/usr/share/backgrounds/refract/$m.png"
 done
-cp "$REPO_ROOT/branding/out/wallpapers/base.png" "$INCLUDES/usr/share/backgrounds/refract-os.png"  # GNOME default (login/base)
+# GNOME default (login/base). A SYMLINK, not a second copy: base.png is ~1.3 MB
+# and shipping it twice cost that again inside the squashfs. lowspec clears the
+# publish threshold by only ~1 MiB (measured: ISO 2143289344 B vs the 2045 MiB
+# limit in build-iso.yml), so a duplicated wallpaper is the difference between
+# shipping a raw .iso and being demoted to the .iso.xz rung. Relative target so
+# it resolves identically in the squashfs, the installed tree and the chroot.
+ln -sf refract/base.png "$INCLUDES/usr/share/backgrounds/refract-os.png"
 cp "$REPO_ROOT/branding/out/logo-clean.png" "$INCLUDES/usr/share/refract/logo.png"
 cp "$REPO_ROOT/branding/out/logo-small.png" "$INCLUDES/usr/share/refract/logo-small.png"
 # The SVG source too — the identity hook copies it over any start-here.svg /
@@ -603,10 +609,9 @@ lb config \
 # Squashfs 4.0 filesystem, <comp> compressed". So set the compressor ourselves:
 # xz is worth ~20-30% over gzip on a desktop rootfs (~450-650 MB here).
 # -b 1M is ~6-9% more but costs ~6s of live boot on weak hardware (a 4 KiB read
-# must inflate a full 1 MiB block), so lowspec and handheld keep the 128 KiB
-# default block — they still get xz, because shipping ONE flashable file beats
-# a few seconds of live-session latency even there. Installed systems are
-# unaffected either way (Calamares copies the tree out of the squashfs).
+# must inflate a full 1 MiB block). Installed systems are unaffected either way
+# (Calamares copies the tree out of the squashfs). See the -b 1M note below for
+# why that cost is accepted on every strain, lowspec and handheld included.
 # -Xbcj x86 is now PROVEN SAFE and is a free win. It was held back while "gzip"
 # in the log was ambiguous between "live-build appends nothing" and "live-build
 # appends its own -comp AFTER ours" — under the second reading an xz-specific

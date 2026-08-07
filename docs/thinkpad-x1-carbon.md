@@ -12,8 +12,8 @@ This is a general Intel-laptop guide too; the X1 is just the reference device.
 
 - **Back up the laptop.** Installing erases the target disk.
 - You need the **`laptop`** ISO from the
-  [Releases page](https://github.com/Mr-Pythoneer/refract-os/releases) (rejoin the
-  `.part*` files: `cat refract-os-laptop.iso.part* > refract-os-laptop.iso`).
+  [Releases page](https://github.com/Mr-Pythoneer/refract-os/releases) — a single
+  `refract-os-laptop.iso`, nothing to rejoin.
 - A **USB stick** (8 GB+).
 
 ## 1. Write the ISO to USB

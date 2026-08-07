@@ -4,7 +4,29 @@
 
 An Ubuntu-based Linux distro that switches its whole personality on command — Gaming, AI, Server, Creative, or a polished macOS-style Normal mode — built around a local-first AI stack (Ollama + ComfyUI, [Crucible12](https://github.com/Mr-Pythoneer/Crucible12)-derived; the original port is preserved under `modes/ai/legacy-crucible12/`), not a cloud assistant bolted onto a browser.
 
-**Status: scaffolded, audited, awaiting first hardware.** Every piece below has a first implementation and every external dependency has been web-verified, but nothing has run on real target hardware yet. The first real test is imminent: an OVH server (CPU build host) now, and the **RTX 5090 + 9950X3D build ~early August 2026**. See [TODO.md](TODO.md) for the live build checklist, [DESIGN.md](DESIGN.md) for the architecture (including what's deliberately *not* promised — no distro runs "every Windows app"), [`docs/first-hardware-runbook.md`](docs/first-hardware-runbook.md) for the ordered test plan, and [`docs/blackwell-readiness.md`](docs/blackwell-readiness.md) for the 5090-specific pre-flight. Run [`./preflight.sh`](preflight.sh) on any build host first.
+## Download
+
+All six strains are published as a **single `.iso`** — no rejoining, flash it straight
+with balenaEtcher, Rufus or `dd`:
+
+**[Releases →](https://github.com/Mr-Pythoneer/refract-os/releases)** · step-by-step:
+[`docs/install.html`](https://mr-pythoneer.github.io/refract-os/install.html) · no spare
+PC? [`docs/utm-guide.md`](docs/utm-guide.md) runs it in a VM.
+
+`workstation` (default) · `laptop` · `lowspec` · `server` · `handheld` · `cloud`
+
+**Status: builds and boots; the installer is the open milestone.** Every strain builds
+green in CI and is boot-verified under BIOS (isolinux) and UEFI (OVMF), and the `laptop`
+image **booted on real hardware on 2026-07-16** — a UEFI-only ThinkPad X1 Carbon Gen 13
+(Intel Core Ultra 7, Arc 140V) reaching the login screen. What has **not** happened yet:
+the Calamares installer has never completed an install onto a real disk, so don't point
+it at a drive you care about without a backup. GPU work (driver install, AI inference,
+NVENC) still awaits the **RTX 5090 + 9950X3D** box. See [TODO.md](TODO.md) for the live
+checklist, [DESIGN.md](DESIGN.md) for the architecture (including what's deliberately
+*not* promised — no distro runs "every Windows app"),
+[`docs/first-hardware-runbook.md`](docs/first-hardware-runbook.md) for the ordered test
+plan, and [`docs/blackwell-readiness.md`](docs/blackwell-readiness.md) for the
+5090-specific pre-flight. Run [`./preflight.sh`](preflight.sh) on any build host first.
 
 ## Layout
 

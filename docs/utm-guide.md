@@ -10,14 +10,14 @@ virtual machine on your Mac. Two honest caveats up front:
 
 The ISO boots both **UEFI** and **legacy BIOS**, so UTM's default (UEFI) is fine.
 
-## 1. Get the ISO (rejoin the parts)
+## 1. Get the ISO
 
-The image is published in <2 GB parts on the
-[Releases page](https://github.com/Mr-Pythoneer/refract-os/releases). Download every
-`refract-os-workstation.iso.part*`, then rejoin:
+Download `refract-os-workstation.iso` from the
+[Releases page](https://github.com/Mr-Pythoneer/refract-os/releases) — it is a single
+file, nothing to rejoin. (Images used to be `split` into <2 GB parts to fit GitHub's
+per-asset cap; every strain now lands under it on its own, so the parts are gone.)
 
 ```sh
-cat refract-os-workstation.iso.part* > refract-os-workstation.iso
 # optional: verify against the .sha256 in the release
 shasum -a 256 refract-os-workstation.iso
 ```
@@ -36,7 +36,7 @@ shasum -a 256 refract-os-workstation.iso
 ## 3. Attach the ISO and boot
 
 1. Edit the VM → **Drives** → **New Drive** → **Removable / CD-ROM (USB or IDE)** →
-   point it at your rejoined `refract-os-workstation.iso`.
+   point it at `refract-os-workstation.iso`.
 2. Make sure the CD/ISO is **above the disk** in boot order (Drives list order), or
    use the UTM boot menu.
 3. **Start** the VM. You'll land in the **live desktop** first (give emulation a few

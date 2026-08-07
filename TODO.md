@@ -312,3 +312,54 @@ every confirmed one fixed (`f160364`, 44 files; `3e20125` closed the CI gap belo
   this pass, unchanged by these edits). The deterministic `inspect` job passes;
   the real end-to-end install proof is a human clicking through Calamares once
   (`docs/utm-guide.md`).
+
+### 12e. Flashability, website and branding pass (2026-08-03 → 2026-08-07)
+
+Three pieces of work after 12d, then a full re-audit of all of it.
+
+- [x] **Every strain now ships as ONE Etcher-flashable `.iso`.** Releases used to
+  `split` oversized images into `.part` files that balenaEtcher cannot rejoin, so
+  the download was unflashable without a manual `cat`. Fixed by shrinking the
+  images rather than by instructions: squashfs switched from **gzip → xz**
+  (`-comp xz -Xbcj x86 -b 1M` via `MKSQUASHFS_OPTIONS`, ~20-30%); `winetricks`
+  dropped from workstation/laptop/handheld (it dragged in ~647 MB of `libwine`
+  and Gaming mode installs its own); `/usr/src` kernel headers, man pages,
+  non-English locales and apt indices excluded from the squashfs
+  (`config/binary_rootfs/excludes` + `hooks/0500-slim.chroot`); `build-essential`
+  and `cmake` out of the base list. workstation went **2.71 GB → 1.82 GB**.
+  `build-iso.yml` gained a 3-rung publish ladder — raw `.iso`, else a single
+  `.iso.xz` (Etcher/Rufus/RPi Imager decompress it while flashing), else split as
+  a last resort — plus stale-asset cleanup so a rung change can't leave old
+  `.part` files on the tag. All six strains published to `latest-<strain>`.
+- [x] **Website de-generified** (`a863447`) — asymmetric hero with the prism drawn
+  as real geometry instead of a violet blob, Fira Code display face vs Inter body
+  (both already ship in the OS), the two uniform 3x2 card grids replaced with real
+  hierarchy, "Your call" pulled out of the modes grid since it is not a mode.
+- [x] **Branding** (`912bfcc`) — wallpapers regenerated **text-free** via the new
+  reproducible `branding/make-wallpapers.py` (they had carried logo + wordmark +
+  tagline, which no shipping OS puts on a desktop); per-mode `ACCENT` added so a
+  mode switch is visible in the UI chrome and not only the wallpaper; installer
+  banner rebuilt after it was found still drawing the **pre-prism** mark in five
+  colours the product doesn't use.
+- [x] **Full re-audit (2026-08-07)** — 5 parallel auditors + adversarial
+  verification, 95 findings raw / 91 confirmed. Nothing in the OS was broken, but
+  7 HIGH doc defects were: `utm-guide.md` and `thinkpad-x1-carbon.md` still told
+  users to rejoin `.part*` files that no longer exist; the site claimed GPU
+  drivers were preinstalled (they are not — no driver package is in any list);
+  `install.html`'s driver command used a repo-relative path that does not exist on
+  an installed system (now `/opt/distro/drivers/`); the download block claimed the
+  OS is "identical across machines" directly above the six-strain section;
+  `iso/README.md` and `first-hardware-runbook.md` still said `lb build` had never
+  run; and `README.md` had no download link. All fixed.
+- [x] **lowspec headroom corrected.** It clears the publish threshold by ~1 MiB,
+  not the ~10 MB previously reported — that figure came from the artifact *zip*
+  size, while the publish step measures the raw ISO. Reclaimed ~1.9 MB:
+  `base.png` was being shipped twice (now a symlink) and the four Calamares mode
+  previews were stale full-resolution copies of the *old* text-laden wallpapers
+  (now regenerated at 640x360 by `make-wallpapers.py`, so they cannot drift again).
+- [ ] **Remaining audit items (MEDIUM/LOW)** — assorted doc drift: `iso/README.md`
+  package list, four subsystem READMEs describing pre-implementation behaviour,
+  `DESIGN.md` cloud/DE-switching status, `winetricks` still documented in four
+  places, the `REFRACT_OMIT_MODES=ai` leak via the installer banner's baked-in "AI"
+  chip, no baked default accent for a fresh install, and `--text-faint` contrast
+  below WCAG AA. None user-blocking; tracked here rather than silently dropped.

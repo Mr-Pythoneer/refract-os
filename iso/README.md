@@ -124,9 +124,11 @@ session's work.
 
 ## Status
 
-**`lb build` itself has never run — at all.** live-build doesn't run on
-macOS (debootstrap, chroot, bind-mounts), so only `lb config`'s arguments
-and the file-copy mechanics have had any real execution. The new CI
+**`lb build` runs green in CI for all six strains.** It still can't run on
+macOS (debootstrap, chroot, bind-mounts) — it runs on `ubuntu-latest` via
+`.github/workflows/build-iso.yml`, which has published a single-file ISO to
+every `latest-<strain>` release. Locally, only `lb config`'s arguments and
+the file-copy mechanics execute. The CI
 workflow above is where that would actually get tested next.
 
 What HAS actually been verified (not just read and assumed): the strain
@@ -138,8 +140,8 @@ present before each (fake) `lb config` call. That's the one piece of this
 directory that's been execution-tested, not just written and hoped about.
 
 Still unverified:
-- [ ] Run `./build.sh` on an actual Ubuntu host, confirm `lb config`'s flags are still valid for the live-build version installed
-- [ ] Confirm the resulting ISO boots in a VM at all, for each strain
+- [x] Run `./build.sh` on an actual Ubuntu host — done continuously in CI (`build-iso.yml`); `lb config`'s flags are valid for the fork in noble
+- [x] Confirm the resulting ISO boots in a VM — `boot-smoke.yml` (BIOS/isolinux) and `uefi-boot.yml` (OVMF) both pass; a ThinkPad X1 Carbon Gen 13 booted it on real hardware 2026-07-16
 - [ ] Confirm `lubuntu-desktop`/`ubuntu-desktop-minimal` are still the correct current metapackage names on whatever Ubuntu release is actually targeted
 - [ ] Confirm `/opt/distro/modes/` and the `/usr/local/bin` symlinks land correctly and `distro-modectl status` works on first boot
 - [x] `config/archives/` decision made and documented above (not adopted — see "Architecture decision")
