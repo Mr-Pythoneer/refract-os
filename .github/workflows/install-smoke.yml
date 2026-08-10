@@ -168,6 +168,54 @@ jobs:
           else echo "FAIL every shipped module conf is used by the sequence"; fail=1
           fi
 
+          # ...and the REVERSE direction, which this check was structurally blind
+          # to. It only ever computed `shipped - used` (orphans), so a module the
+          # sequence NEEDS but whose conf nobody wrote sailed through: mount,
+          # displaymanager and bootloader were all missing at once, which is why
+          # Calamares had never completed an install. Noble's `calamares` package
+          # ships no /usr/share/calamares/modules defaults to fall back on.
+          #
+          # Only modules that genuinely NEED a conf are listed. Most C++ modules
+          # (locale, keyboard, summary, machineid, localecfg, networkcfg, hwclock,
+          # umount, finished) and the tolerant Python ones (fstab, grubcfg — all
+          # .get() with defaults) are correct with no file, so asserting on every
+          # sequence entry would just cry wolf.
+          if python3 - <<'PY'
+          import yaml, os, sys
+          # Each entry: module -> why a missing conf is a real bug, verified in
+          # upstream Calamares source (3.3.x).
+          REQUIRES_CONF = {
+              'mount':          'main.py warns and CONTINUES with no extraMounts, so /proc /sys /dev /run /efivars are never mounted and every later chrooted job runs in a bare chroot',
+              'displaymanager': 'main.py returns an error tuple ("No display managers selected") which ABORTS the install',
+              'bootloader':     'indexes configuration["grubInstall"]/["grubMkconfig"] directly -> uncaught KeyError, no bootloader installed',
+              'unpackfs':       'no source/destination means nothing is copied to the target',
+              'partition':      'partitioning behaviour must be pinned, not defaulted',
+              'users':          'account policy must be pinned, not defaulted',
+          }
+          s = yaml.safe_load(open('/mnt/sq/etc/calamares/settings.conf'))
+          seq = []
+          for phase in s['sequence']:
+              for k, v in phase.items():
+                  seq += v
+          inst = {(i['module'], i['id']): i.get('config', i['module'] + '.conf')
+                  for i in (s.get('instances') or [])}
+          shipped = {f for f in os.listdir('/mnt/sq/etc/calamares/modules') if f.endswith('.conf')}
+          missing = []
+          for entry in seq:
+              mod = entry.split('@', 1)[0]
+              if mod not in REQUIRES_CONF:
+                  continue
+              conf = inst.get(tuple(entry.split('@', 1)), mod + '.conf') if '@' in entry else mod + '.conf'
+              if conf not in shipped:
+                  missing.append((entry, conf, REQUIRES_CONF[mod]))
+          for entry, conf, why in missing:
+              print(f"MISSING: sequence runs '{entry}' but {conf} is not shipped -> {why}")
+          sys.exit(1 if missing else 0)
+          PY
+          then echo "ok   every config-REQUIRING sequence module ships its conf"
+          else echo "FAIL a sequence module that needs a conf has none — install would break"; fail=1
+          fi
+
           [ "$fail" -eq 0 ] || { echo "installer-assembly assertions FAILED" >&2; exit 1; }
 
       - name: Run the distro CLIs in the real image userland (overlay + chroot)

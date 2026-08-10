@@ -23,3 +23,41 @@ fun message_cb(text) {
     msg.sprite.SetX(Window.GetWidth() / 2 - msg.image.GetWidth() / 2);
 }
 Plymouth.SetMessageFunction(message_cb);
+
+# Encrypted (LUKS) installs: actually SHOW the passphrase prompt + one bullet per
+# typed character. Without this callback an encrypted boot is a silent near-black
+# screen — plymouthd still forwards blind-typed keystrokes, so it is not a hang,
+# but it reads exactly like one.
+#
+# RESTORED after the logo removal deleted it by accident: this block used to
+# position itself against logo.image, so it went out with the logo. It is pure
+# Image.Text (same label plugin the title and messages already need, shipped via
+# plymouth-label), so it reintroduces no mark — it just anchors to the title
+# instead. Do not drop it again when editing this theme.
+pw.prompt_sprite = Sprite();
+pw.bullets_sprite = Sprite();
+fun password_cb(prompt, bullets) {
+    Window.SetBackgroundTopColor(0.043, 0.043, 0.051);
+
+    prompt_img = Image.Text(prompt, 0.85, 0.85, 0.85);
+    pw.prompt_sprite.SetImage(prompt_img);
+    pw.prompt_sprite.SetX(Window.GetWidth() / 2 - prompt_img.GetWidth() / 2);
+    pw.prompt_sprite.SetY(Window.GetHeight() / 2 + title.image.GetHeight() / 2 + 40);
+    pw.prompt_sprite.SetZ(100);
+
+    # one bullet glyph per typed character
+    dots = "";
+    i = 0;
+    while (i < bullets) { dots += "•"; i++; }
+    if (dots == "") {
+        pw.bullets_sprite.SetOpacity(0);
+    } else {
+        bullets_img = Image.Text(dots, 0.78, 0.66, 1.0);   # prism-violet accent
+        pw.bullets_sprite.SetImage(bullets_img);
+        pw.bullets_sprite.SetX(Window.GetWidth() / 2 - bullets_img.GetWidth() / 2);
+        pw.bullets_sprite.SetY(Window.GetHeight() / 2 + title.image.GetHeight() / 2 + 70);
+        pw.bullets_sprite.SetZ(100);
+        pw.bullets_sprite.SetOpacity(1);
+    }
+}
+Plymouth.SetDisplayPasswordFunction(password_cb);

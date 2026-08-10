@@ -30,18 +30,12 @@ Presentation
     }
 
     Slide {
-        Image {
-            id: introLogo
-            source: "logo.png"
-            width: 160; height: 160
-            fillMode: Image.PreserveAspectFit
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: parent.top
-            anchors.topMargin: 40
-        }
+        // No logo image: the OS ships no Refract mark, and logo.png here is a
+        // 1x1 transparent stand-in. Keeping the 160px Image reserved an empty
+        // ~200px band above the title because both Texts anchored to its bottom.
         Text {
-            anchors.top: introLogo.bottom
-            anchors.topMargin: 24
+            anchors.top: parent.top
+            anchors.topMargin: 90
             anchors.horizontalCenter: parent.horizontalCenter
             text: qsTr("Refract OS")
             font.pixelSize: 32
@@ -49,8 +43,8 @@ Presentation
             color: "#ffffff"
         }
         Text {
-            anchors.top: introLogo.bottom
-            anchors.topMargin: 70
+            anchors.top: parent.top
+            anchors.topMargin: 136
             anchors.horizontalCenter: parent.horizontalCenter
             width: presentation.width * 0.7
             horizontalAlignment: Text.Center
@@ -62,7 +56,7 @@ Presentation
 
     // @slide:gaming
     Slide {
-        centeredText: qsTr("Gaming mode: Proton-GE, Wine-staging, Bottles, GameMode, and MangoHud preinstalled and tuned -- broad practical compatibility, not an unrealistic promise of 100%.")
+        centeredText: qsTr("Gaming mode: one command installs and tunes Proton-GE, Wine-staging and Bottles (GameMode and MangoHud ship in the image) -- broad practical compatibility, not an unrealistic promise of 100%.")
     }
     // @endslide:gaming
 
