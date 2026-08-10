@@ -125,10 +125,19 @@ jobs:
           # loses its passwordless disk/pkexec/reboot grant and can't launch. The
           # casper-bottom hook is baked into the initrd from this squashfs path and
           # writes the rule into /root (the live overlay) at boot.
-          chk "casper-bottom hook 25-refract-install-icon ships (live grant generator)" \
-              "test -e $SQ/usr/share/initramfs-tools/scripts/casper-bottom/25-refract-install-icon"
-          chk "that hook writes the live installer polkit rule at boot" \
-              "grep -q '49-refract-installer.rules' $SQ/usr/share/initramfs-tools/scripts/casper-bottom/25-refract-install-icon"
+          # DESKTOP-ONLY. iso/build.sh removes the whole casper-bottom directory
+          # and only recreates it for non-headless strains (there is no installer
+          # to launch on server/cloud), so asserting these unconditionally failed
+          # a CORRECT headless ISO with "DO NOT FLASH". The absence check above
+          # stays unconditional — build.sh purges that rule for every strain.
+          if [ "$DESKTOP" != headless ]; then
+            chk "casper-bottom hook 25-refract-install-icon ships (live grant generator)" \
+                "test -e $SQ/usr/share/initramfs-tools/scripts/casper-bottom/25-refract-install-icon"
+            chk "that hook writes the live installer polkit rule at boot" \
+                "grep -q '49-refract-installer.rules' $SQ/usr/share/initramfs-tools/scripts/casper-bottom/25-refract-install-icon"
+          else
+            skip "casper-bottom installer-icon hook (headless strain ships no installer)"
+          fi
           echo
           echo "=== ISO slimming took effect AND spared what must survive ==="
           # The compressor is the single biggest size lever (~20-30%) and it is

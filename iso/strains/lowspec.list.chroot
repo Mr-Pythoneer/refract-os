@@ -6,4 +6,12 @@
 ## all is the exception, not the default; modes/gaming/setup/*.sh installs
 ## those on demand instead of bloating every low-spec install up front.
 lubuntu-desktop
+## REQUIRED for the live session to autologin. lubuntu-desktop hard-depends on
+## SDDM, so casper takes its SDDM branch -- but casper's Lubuntu live probe looks
+## for /usr/share/xsessions/lubuntu-live-environment.desktop, which ONLY
+## lubuntu-installer-prompt provides, and that is neither a Depends nor a
+## Recommends of lubuntu-desktop. Without it casper finds no session to autologin
+## and SDDM drops the live user at a greeter -- with no password to type, since
+## casper's live user has none. The GNOME strains are unaffected (gdm branch).
+lubuntu-installer-prompt
 flatpak

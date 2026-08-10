@@ -71,16 +71,22 @@ done
 #    blank by EXACT extension: a transparent SVG for .svg targets (a PNG written
 #    into a .svg filename renders as a broken image), transparent PNG for .png.
 SVG=/usr/share/refract/logo.svg
-for name in ubuntu-logo start-here distributor-logo ubuntu-logo-icon; do
+# gnome-logo/gnome-logo-text are in this list because dropping LOGO= from
+# os-release does NOT give a blank About panel: gnome-control-center 46
+# does `if (logo_name == NULL) logo_name = g_strdup ("gnome-logo")`, and
+# noble ships /usr/share/icons/gnome-logo-text-dark.svg, which resolves on
+# a dark-default desktop. So removing the key swapped a Refract mark for a
+# GNOME one. Blank those names too.
+for name in ubuntu-logo start-here distributor-logo ubuntu-logo-icon \
+            gnome-logo gnome-logo-text gnome-logo-text-dark gnome-logo-dark; do
     find /usr/share/icons /usr/share/pixmaps -type f \
         \( -iname "${name}.png" -o -iname "${name}@2x.png" -o -iname "${name}-icon.png" \) \
         -exec cp "$CL" {} \; 2>/dev/null || true
     [ -f "$SVG" ] && find /usr/share/icons /usr/share/pixmaps -type f -iname "${name}.svg" \
         -exec cp "$SVG" {} \; 2>/dev/null || true
 done
-# No GNOME "About" distributor logo is installed: os-release no longer sets
-# LOGO=, so GNOME looks for nothing and renders the panel without an icon. The
-# previous refract.png here is deliberately not recreated.
+# No Refract distributor icon is installed (os-release sets no LOGO=), and the
+# GNOME fallback that would otherwise fill that gap is blanked by the loop above.
 rm -f /usr/share/icons/hicolor/256x256/apps/refract.png 2>/dev/null || true
 for theme in hicolor Yaru WhiteSur WhiteSur-dark; do
     [ -d "/usr/share/icons/$theme" ] && command -v gtk-update-icon-cache >/dev/null 2>&1 \

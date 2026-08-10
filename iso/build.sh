@@ -84,8 +84,17 @@ if [[ ! " ${VALID_STRAINS[*]} " == *" $STRAIN "* ]]; then
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INCLUDES="$(dirname "${BASH_SOURCE[0]}")/config/includes.chroot"
-PACKAGE_LISTS="$(dirname "${BASH_SOURCE[0]}")/config/package-lists"
+# Anchor the CWD to iso/. Staging paths below are script-relative, but `lb config`,
+# the `>> config/binary` append, `lb build` and the output scan are all
+# CWD-relative — and nothing enforced where this runs. Invoked from the repo root
+# it did NOT fail loudly: lb config would happily create a default tree there, lb
+# build would produce binary.hybrid.iso, and the rename would ship it as
+# refract-os-<strain>.iso — a stock Ubuntu live image wearing the Refract name,
+# with none of the strain packages, hooks or includes. Only a prose warning in the
+# header guarded that.
+cd "$(dirname "${BASH_SOURCE[0]}")"
+INCLUDES="config/includes.chroot"
+PACKAGE_LISTS="config/package-lists"
 STRAIN_FILE="$REPO_ROOT/iso/strains/${STRAIN}.list.chroot"
 
 echo -e "\033[36mStrain: $STRAIN\033[0m"

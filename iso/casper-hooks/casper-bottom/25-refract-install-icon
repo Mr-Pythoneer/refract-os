@@ -13,7 +13,13 @@
 # build.sh only copies this file in for GUI strains (the same ones that get
 # Calamares wired in at all) -- see iso/build.sh's HEADLESS_STRAINS check.
 
-PREREQ=""
+# MUST run after casper's own 25adduser: initramfs-tools orders casper-bottom
+# scripts by tsort over PREREQ, falling back to glob order, and under the C
+# locale mkinitramfs runs with, "25-refract-install-icon" sorts BEFORE
+# "25adduser" ('-' is 0x2D, 'a' is 0x61). Without this the hook ran first,
+# $USERNAME was still empty, the [ -n "$USERNAME" ] guard short-circuited, and
+# the Desktop launcher was silently never created.
+PREREQ="25adduser"
 DESCRIPTION="Adding Refract OS install icon to live session user..."
 
 prereqs()

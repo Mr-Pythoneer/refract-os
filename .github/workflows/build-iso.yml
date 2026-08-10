@@ -362,14 +362,15 @@ jobs:
           # the old shape's files would stay attached and users would download a
           # stale .part00 next to the fresh single file. Drop every image-shaped
           # asset first; the sha256 is same-named every run so --clobber covers it.
-          gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
-              --json assets --jq '.assets[].name' 2>/dev/null \
-          | while read -r a; do
-              case "$a" in
-                *.iso|*.iso.xz|*.iso.part*)
-                  gh release delete-asset "$tag" "$a" --repo "$GITHUB_REPOSITORY" --yes || true ;;
-              esac
-            done
+          # Deliberately NOT done before the upload. This step has no `set -e` and
+          # is continue-on-error, so deleting first meant a failed 2 GB upload left
+          # the public release holding nothing but the .sha256 — worse than a stale
+          # asset. --clobber already replaces same-named files, so the only case
+          # needing a delete is a RUNG CHANGE (.part* -> .iso, or .iso -> .iso.xz),
+          # and that can be cleaned up safely once the new asset is definitely up.
+          # Names we are about to upload, so we never delete what we just wrote.
+          _keep=""
+          for _a in "${assets[@]}"; do _keep="$_keep $(basename "$_a")"; done
           # This step runs `set -uo pipefail` (no -e) and is continue-on-error, so a
           # failed upload would otherwise fall straight through to the "Published"
           # echo and report success while the release has NO ISO attached. Check the
@@ -380,4 +381,17 @@ jobs:
             echo "FAIL: 'gh release upload' did not complete — release '$tag' may be missing assets. Not reporting success." >&2
             exit 1
           fi
+          # Now that the new assets are definitely uploaded, drop any image-shaped
+          # asset from a PREVIOUS rung so users cannot grab a stale .part00 sitting
+          # next to the new single .iso.
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.assets[].name' 2>/dev/null \
+          | while read -r a; do
+              case " $_keep " in *" $a "*) continue ;; esac
+              case "$a" in
+                *.iso|*.iso.xz|*.iso.part*)
+                  echo "removing stale asset from a previous rung: $a"
+                  gh release delete-asset "$tag" "$a" --repo "$GITHUB_REPOSITORY" --yes || true ;;
+              esac
+            done
           echo "Published ${#assets[@]} asset(s) to release '$tag'."
