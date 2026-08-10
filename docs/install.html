@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Refract OS — download &amp; install guide</title>
-<meta name="description" content="How to build the Refract OS ISO from source, write it to a USB, install it, and set up local AI sized to your GPU.">
+<meta name="description" content="Download a Refract OS image, flash it to a USB from Windows, macOS or Linux, install it, and set up local AI sized to your GPU.">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/3.35.0/tabler-icons.min.css">
 <!-- Inter + Fira Code: the exact fonts Refract OS ships (see index.html). -->
@@ -15,7 +15,10 @@
   :root {
     --bg: #0a0b0d; --bg-card: #14161a; --bg-card2: #1a1d22;
     --border: #232730; --border-hi: #343944;
-    --text: #e9eaed; --text-dim: #93989f; --text-faint: #5d6168;
+    --text: #e9eaed; --text-dim: #93989f;
+    /* 4.89:1 on --bg, 4.50:1 on --bg-card — clears WCAG AA. Was #5d6168
+       (3.16:1), and it styles pre.code .c, i.e. EVERY code comment here. */
+    --text-faint: #7a7f88;
     /* Keep in sync with index.html — same brand palette, same reasons:
        the five values are the logo prism's refracted rays, and --accent is the
        Calamares installer's prism-violet so web + installer read as one product. */
@@ -90,6 +93,13 @@
   .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border-hi); }
   .btn:hover { text-decoration: none; opacity: 0.92; }
   .endcta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important; scroll-behavior: auto !important;
+    }
+  }
 
   footer { padding: 40px 0 64px; color: var(--text-faint); font-size: 0.88rem; }
   footer a { color: var(--text-dim); text-decoration: underline; }

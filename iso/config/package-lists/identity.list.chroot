@@ -1,3 +1,11 @@
 # Packages the Refract OS identity needs (plymouth ships in the base image).
 plymouth-themes
+# REQUIRED, not optional: the boot splash is now text-only (no logo image), and
+# every glyph it draws comes from Image.Text() in refract.script. Image.Text is
+# backed by plymouth's LABEL plugin, which lives in this package — without it
+# Image.Text yields nothing and the splash renders as a blank near-black screen
+# for the whole boot, which reads as a hang. It was survivable before only
+# because the splash drew a logo via Image() and text was decorative; after the
+# logo removal there is no fallback left.
+plymouth-label
 dconf-cli

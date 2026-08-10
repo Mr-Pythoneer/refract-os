@@ -32,7 +32,11 @@
     --border-hi: #343944;
     --text: #e9eaed;
     --text-dim: #93989f;
-    --text-faint: #5d6168;
+    /* 4.89:1 on --bg and 4.50:1 on --bg-card — clears WCAG AA (4.5:1).
+       Was #5d6168 = 3.16:1, which failed on every surface, and each of its
+       uses is small text carrying real content (spec figures, captions,
+       code comments), not decoration. */
+    --text-faint: #7a7f88;
     /* BRAND PALETTE — these are not decorative choices, they are the five
        colours the logo's prism actually refracts the beam into, and the five
        glows the shipped mode wallpapers actually use. The site previously
@@ -66,7 +70,7 @@
     background: var(--bg);
     color: var(--text);
     /* Inter = the OS's own UI font (see the <head> note). */
-    font-family: "Inter", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: var(--font-body);
     line-height: 1.6;
     font-size: 16px;
     -webkit-font-smoothing: antialiased;
@@ -88,7 +92,6 @@
   }
   nav .wrap { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; }
   .brand { font-family: var(--font-display); font-weight: 600; font-size: 1rem; letter-spacing: -0.02em; color: var(--text); display: flex; align-items: center; gap: 9px; }
-  .brand i { color: var(--accent); }
   .brand img { width: 28px; height: 28px; border-radius: 50%; }
   .navlinks { display: flex; gap: 26px; font-size: 0.92rem; }
   .navlinks a { color: var(--text-dim); }
@@ -131,8 +134,6 @@
     content: ""; width: 6px; height: 6px; border-radius: 50%; flex: none;
     background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
   }
-  .badge i { display: none; }   /* the dot replaces the icon */
-  .badge strong { color: var(--text); font-weight: 600; }
   /* Display type is mono (see the <head> note). Mono runs wide, so the size
      comes down and the tracking goes negative — a 3.4rem Inter-800 headline
      and a 2.55rem Fira-700 one occupy about the same measure. */
@@ -237,7 +238,6 @@
   .mode-card .value { font-size: 1.12rem; font-weight: 700; }
   .mode-card .role { color: var(--text-dim); font-size: 0.9rem; line-height: 1.55; }
   .mode-card .role a { color: color-mix(in srgb, var(--mode-color) 75%, var(--text)); }
-  .mode-card code { font-size: 0.78rem; }
   /* ---- "Your call" is not a mode ---------------------------------------
      It used to be the 6th card in the modes grid, the same size and shape as
      Gaming and AI — which quietly said "here is a sixth mode called Your
@@ -358,6 +358,16 @@
   .dl-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 22px; }
   .dl-fine { color: var(--text-faint); font-size: 0.82rem; margin: 12px 0 0; }
   @media (max-width: 760px) { .cfg { grid-template-columns: 1fr; } }
+
+  /* Honour the OS-level setting: every transition here is decorative, and
+     motion-sensitive users get vestibular symptoms from hover lifts. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important; scroll-behavior: auto !important;
+    }
+    .mode-card:hover, .btn:hover { transform: none; }
+  }
 
   footer { padding: 44px 0 64px; color: var(--text-faint); font-size: 0.88rem; }
   footer a { color: var(--text-dim); text-decoration: underline; }
@@ -511,7 +521,7 @@
       <div class="cfg-result" id="cfg-result" aria-live="polite"></div>
     </div>
     <div class="dl-row">
-      <a class="btn btn-primary" href="https://github.com/Mr-Pythoneer/refract-os/releases/latest">Download the ISO</a>
+      <a class="btn btn-primary" href="https://github.com/Mr-Pythoneer/refract-os/releases">Download the ISO</a>
       <a class="btn btn-secondary" href="install.html">Install guide</a>
     </div>
     <p class="dl-fine">Pick the <a href="#strains">strain</a> that matches your machine — they differ in desktop and default packages, not in modes. Within a strain the image is identical everywhere; the picker above only previews which local models that hardware would preload.</p>
