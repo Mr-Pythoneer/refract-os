@@ -12,7 +12,9 @@ componentName: refractos
 # A centered, fixed-size window with the branded (not generic-Calamares) welcome
 # page and an expanding logo — the polished, "real distro installer" look.
 welcomeStyleCalamares: false
-welcomeExpandingLogo:   true
+# No logo to expand — the OS ships no Refract mark (productLogo/productIcon
+# below are transparent stand-ins), so this would animate an empty image.
+welcomeExpandingLogo:   false
 windowExpanding:        normal
 windowSize:             920px,580px
 windowPlacement:        center
@@ -30,6 +32,8 @@ strings:
   knownIssuesUrl: "https://github.com/Mr-Pythoneer/refract-os/issues"
 
 images:
+  # Transparent 1x1 stand-ins: the OS is deliberately logo-free. The keys stay
+  # because Calamares expects them; the images render nothing.
   productLogo: "logo.png"
   productIcon: "logo.png"
   productWelcome: "welcome.png"

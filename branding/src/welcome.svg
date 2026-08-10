@@ -1,83 +1,43 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 460">
   <!-- Calamares welcome banner — the first thing anyone sees of Refract OS.
-       REBUILT because the previous version had drifted into being wrong, not
-       merely dated: it drew an entirely DIFFERENT mark (an orange lamp/beaker
-       shape left over from before the prism identity), and its five "mode
-       colour chips" were #3daee9/#ff7a3d/#6ee7b7/#c084fc/#9ca3af — none of
-       which are the product's mode colours. An installer showing the wrong
-       logo in the wrong palette is a correctness bug in the branding.
 
-       Geometry here is the real mark from logo.svg, scaled 0.55 about (256,256)
-       and re-centred on (170,230), with the ray fan extended for the banner's
-       wide format. Colours are the same five mode values used by the logo, the
-       wallpapers, the mode cards on the site and distro-modectl. Unlike a
-       wallpaper (where branding is wrong), an installer SHOULD introduce the
-       product by name, so the wordmark and tagline stay — they just have to be
-       correct. Background matches the wallpapers' near-black so installer,
-       desktop and login read as one system. -->
+       LOGO-FREE by request. This previously drew the prism mark at banner scale
+       (beam entering, five rays leaving). All of it is gone: the OS now ships no
+       Refract mark anywhere, in any surface, and branding is the product NAME as
+       text only. The mode chips stay because they are a functional legend for
+       the five modes, not a logo — each is just the mode's colour beside its
+       name, and the same five hexes are used by the wallpapers, the mode cards
+       on the website and distro-modectl's per-mode ACCENT.
+
+       Background matches the wallpapers' near-black so installer, desktop and
+       login still read as one system without a mark tying them together. -->
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%"   stop-color="#0e1016"/>
       <stop offset="100%" stop-color="#060709"/>
     </linearGradient>
-    <linearGradient id="glass" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%"   stop-color="#ffffff" stop-opacity="0.13"/>
-      <stop offset="55%"  stop-color="#ffffff" stop-opacity="0.05"/>
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.02"/>
-    </linearGradient>
   </defs>
 
   <rect width="1024" height="460" fill="url(#bg)"/>
 
-  <!-- refracted spectrum: soft underlay, then the crisp ray (same two-pass
-       treatment as logo.svg so the mark reads identically at banner scale) -->
-  <g stroke-linecap="round" fill="none">
-    <g stroke-width="10" stroke-opacity="0.15">
-      <line x1="216.4" y1="244.3" x2="403.2" y2="211.3" stroke="#ff5a52"/>
-      <line x1="216.4" y1="244.3" x2="406.2" y2="246.1" stroke="#ffa23d"/>
-      <line x1="216.4" y1="244.3" x2="402.7" y2="280.6" stroke="#7bc043"/>
-      <line x1="216.4" y1="244.3" x2="392.9" y2="314.1" stroke="#4a9df0"/>
-      <line x1="216.4" y1="244.3" x2="377.2" y2="345.1" stroke="#e857a0"/>
-    </g>
-    <g stroke-width="4.5">
-      <line x1="216.4" y1="244.3" x2="403.2" y2="211.3" stroke="#ff5a52"/>
-      <line x1="216.4" y1="244.3" x2="406.2" y2="246.1" stroke="#ffa23d"/>
-      <line x1="216.4" y1="244.3" x2="402.7" y2="280.6" stroke="#7bc043"/>
-      <line x1="216.4" y1="244.3" x2="392.9" y2="314.1" stroke="#4a9df0"/>
-      <line x1="216.4" y1="244.3" x2="377.2" y2="345.1" stroke="#e857a0"/>
-    </g>
-  </g>
-
-  <!-- prism -->
-  <polygon points="170,164 227.1,263 112.9,263"
-           fill="url(#glass)" stroke="#eaeaf0" stroke-width="3.3" stroke-linejoin="round"/>
-
-  <!-- incoming beam (glow + core), then the single bend inside the glass -->
-  <g stroke-linecap="round" fill="none">
-    <line x1="24" y1="230" x2="131.9" y2="230" stroke="#f2f2f2" stroke-opacity="0.16" stroke-width="10"/>
-    <line x1="24" y1="230" x2="131.9" y2="230" stroke="#f7f7f7" stroke-width="5"/>
-    <line x1="131.9" y1="230" x2="216.4" y2="244.3" stroke="#f7f7f7" stroke-width="4"/>
-  </g>
-
   <!-- Wordmark. Inter is the OS's own UI font; the fallbacks are what a macOS
        build host will actually rasterize with (see branding/build.sh). -->
-  <text x="470" y="222" font-family="Inter, SF Pro Display, Helvetica Neue, Helvetica, Arial, sans-serif"
+  <text x="72" y="200" font-family="Inter, SF Pro Display, Helvetica Neue, Helvetica, Arial, sans-serif"
         font-size="66" font-weight="700" fill="#f2f3f5" letter-spacing="-2">Refract OS</text>
-  <text x="472" y="262" font-family="Inter, SF Pro Display, Helvetica Neue, Helvetica, Arial, sans-serif"
+  <text x="74" y="240" font-family="Inter, SF Pro Display, Helvetica Neue, Helvetica, Arial, sans-serif"
         font-size="21" fill="#9297a0">One install. Five modes. Local-first AI.</text>
 
-  <!-- Mode chips, in dispersion order, each labelled — the same five colours the
-       rays above disperse into, so the chip row is a legend for the artwork. -->
+  <!-- Mode legend: colour swatch + name, in dispersion order. -->
   <g font-family="Inter, SF Pro Display, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#6c717a">
-    <rect x="472" y="300" width="10" height="10" rx="2.5" fill="#ff5a52"/>
-    <text x="490" y="309.5">Gaming</text>
-    <rect x="472" y="324" width="10" height="10" rx="2.5" fill="#ffa23d"/>
-    <text x="490" y="333.5">Normal</text>
-    <rect x="472" y="348" width="10" height="10" rx="2.5" fill="#7bc043"/>
-    <text x="490" y="357.5">Server</text>
-    <rect x="614" y="300" width="10" height="10" rx="2.5" fill="#4a9df0"/>
-    <text x="632" y="309.5">AI</text>
-    <rect x="614" y="324" width="10" height="10" rx="2.5" fill="#e857a0"/>
-    <text x="632" y="333.5">Creative</text>
+    <rect x="74" y="286" width="10" height="10" rx="2.5" fill="#ff5a52"/>
+    <text x="92" y="295.5">Gaming</text>
+    <rect x="74" y="310" width="10" height="10" rx="2.5" fill="#ffa23d"/>
+    <text x="92" y="319.5">Normal</text>
+    <rect x="74" y="334" width="10" height="10" rx="2.5" fill="#7bc043"/>
+    <text x="92" y="343.5">Server</text>
+    <rect x="216" y="286" width="10" height="10" rx="2.5" fill="#4a9df0"/>
+    <text x="234" y="295.5">AI</text>
+    <rect x="216" y="310" width="10" height="10" rx="2.5" fill="#e857a0"/>
+    <text x="234" y="319.5">Creative</text>
   </g>
 </svg>

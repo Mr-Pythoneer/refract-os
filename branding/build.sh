@@ -123,10 +123,22 @@ rasterize "$SRC/logo.svg" 256 256 "favicon.png"
 rasterize "$SRC/logo.svg" 512 512 "logo-clean.png"
 rasterize "$SRC/logo.svg" 200 200 "logo-small.png"
 
+# The 1x1 transparent stand-in shipped wherever the OS needs an image slot to
+# resolve but render nothing (Calamares branding keys, and the Ubuntu-owned
+# icon names iso/config/hooks/0200-refract-identity.chroot blanks). Generated
+# here so it is reproducible rather than a committed mystery binary.
+python3 -c 'from PIL import Image; Image.new("RGBA",(1,1),(0,0,0,0)).save("'"$OUT"'/blank.png", optimize=True)'
+echo "Wrote $OUT/blank.png (1x1 transparent — logo-free image slots)"
+
 mkdir -p "$CALAMARES_DIR"
-cp "$OUT/logo.png" "$CALAMARES_DIR/logo.png"
+# LOGO-FREE OS: the installer's productLogo/productIcon must render NOTHING, so
+# the blank 1x1 goes in rather than out/logo.png. This used to copy the prism
+# badge, which meant every run of this script silently re-introduced the mark
+# into the shipped installer. out/logo.png is still generated above because the
+# WEBSITE uses it (docs/); it just no longer reaches the OS.
+cp "$OUT/blank.png" "$CALAMARES_DIR/logo.png"
 cp "$OUT/welcome.png" "$CALAMARES_DIR/welcome.png"
-echo "Copied logo.png + welcome.png into $CALAMARES_DIR"
+echo "Copied blank logo.png (logo-free OS) + welcome.png into $CALAMARES_DIR"
 
 echo
 echo "favicon.png is for docs/ (the website) -- copy it in manually if docs/index.html"

@@ -381,7 +381,6 @@ SUPPORT_URL="https://github.com/Mr-Pythoneer/refract-os"
 BUG_REPORT_URL="https://github.com/Mr-Pythoneer/refract-os/issues"
 VARIANT="${VARIANT_LABEL}"
 VARIANT_ID=${STRAIN}
-LOGO=refract
 EOF
 }
 _osrelease > "$INCLUDES/etc/os-release"           # overrides base-files' symlink
@@ -419,17 +418,28 @@ done
 # shipping a raw .iso and being demoted to the .iso.xz rung. Relative target so
 # it resolves identically in the squashfs, the installed tree and the chroot.
 ln -sf refract/base.png "$INCLUDES/usr/share/backgrounds/refract-os.png"
-cp "$REPO_ROOT/branding/out/logo-clean.png" "$INCLUDES/usr/share/refract/logo.png"
-cp "$REPO_ROOT/branding/out/logo-small.png" "$INCLUDES/usr/share/refract/logo-small.png"
-# The SVG source too — the identity hook copies it over any start-here.svg /
-# ubuntu-logo.svg (a PNG written into a .svg filename renders blank).
-cp "$REPO_ROOT/branding/src/logo.svg" "$INCLUDES/usr/share/refract/logo.svg"
+# LOGO-FREE BUILD (deliberate, requested): the OS ships NO Refract mark anywhere
+# — no boot splash logo, no greeter logo, no distributor icon, no installer
+# logo. Branding is the NAME "Refract OS" as text, nothing pictorial.
+#
+# What ships instead is a 1x1 fully transparent PNG. That is not laziness: the
+# icon-theme names below (ubuntu-logo, start-here, distributor-logo) are shipped
+# BY UBUNTU, so simply not overwriting them does not remove a logo — it restores
+# Ubuntu's. A transparent file keeps the filename resolvable for anything that
+# looks it up while rendering nothing, which is the only way to end up with
+# neither mark. Same reasoning for Calamares' branding.desc image keys.
+cp "$REPO_ROOT/branding/out/blank.png" "$INCLUDES/usr/share/refract/logo.png"
+cp "$REPO_ROOT/branding/out/blank.png" "$INCLUDES/usr/share/refract/logo-small.png"
+# A transparent SVG for the .svg icon slots (a PNG written into a .svg filename
+# renders as a broken image, so the extension has to be honoured).
+cat > "$INCLUDES/usr/share/refract/logo.svg" <<'BLANKSVG'
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1" width="1" height="1"></svg>
+BLANKSVG
 
-# Plymouth boot splash (theme + its logo).
+# Plymouth boot splash — theme only, no logo image (the script is text-only).
 mkdir -p "$INCLUDES/usr/share/plymouth/themes/refract"
 cp "$REPO_ROOT/iso/branding/plymouth/refract/refract.plymouth" "$INCLUDES/usr/share/plymouth/themes/refract/"
 cp "$REPO_ROOT/iso/branding/plymouth/refract/refract.script"   "$INCLUDES/usr/share/plymouth/themes/refract/"
-cp "$REPO_ROOT/branding/out/logo-clean.png" "$INCLUDES/usr/share/plymouth/themes/refract/logo.png"
 
 # GNOME default wallpaper + dark theme via a glib SCHEMA OVERRIDE — the reliable
 # mechanism (99_ sorts after Ubuntu's own 10_ override, so ours wins); compiled

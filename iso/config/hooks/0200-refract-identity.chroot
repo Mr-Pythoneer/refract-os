@@ -1,13 +1,22 @@
 #!/bin/sh
-# Refract OS identity — strip EVERY visible sign of Ubuntu and replace with
-# Refract branding. Runs inside the chroot (config/hooks/*.chroot is the path
-# this live-build fork actually scans). Static files (os-release, wallpaper,
-# glib override, gdm dconf) arrive via includes.chroot, applied before hooks.
+# Refract OS identity — strip EVERY visible sign of Ubuntu. Runs inside the
+# chroot (config/hooks/*.chroot is the path this live-build fork actually
+# scans). Static files (os-release, wallpaper, glib override, gdm dconf) arrive
+# via includes.chroot, applied before hooks.
+#
+# NOTE: this hook no longer substitutes a Refract MARK for Ubuntu's. The OS is
+# deliberately logo-free — branding is the name "Refract OS" as text only — so
+# every image slot below is filled with a transparent stand-in. Blanking rather
+# than deleting is load-bearing: these filenames are Ubuntu's own, and a missing
+# file means the stock Ubuntu asset or theme fallback reappears.
 set -e
-CL=/usr/share/refract/logo.png
+CL=/usr/share/refract/logo.png     # 1x1 transparent PNG (see iso/build.sh)
 
-# 1) BOOT SPLASH — replace every plymouth logo/watermark image with our logo,
-#    so whichever theme renders shows the refract, not the Ubuntu circle/word.
+# 1) BOOT SPLASH — BLANK every plymouth logo/watermark image. $CL is now a 1x1
+#    transparent PNG (iso/build.sh), so this overwrites Ubuntu's circle/word with
+#    nothing rather than with a Refract mark. Deleting the files instead would be
+#    wrong: a theme that expects one would fail to load and fall back to a stock
+#    Ubuntu theme, putting the logo we are removing right back on screen.
 if [ -f "$CL" ]; then
     find /usr/share/plymouth -type f \
         \( -iname "*logo*.png" -o -iname "watermark*.png" -o -iname "*ubuntu*.png" \) \
@@ -59,8 +68,8 @@ done
 # 5) The Ubuntu "swirl" — it appears as the dock "Show Applications" button and
 #    the GNOME About logo. It's shipped under SEVERAL names (ubuntu-logo,
 #    start-here, distributor-logo), not just "ubuntu-logo", so match each and
-#    replace by EXACT extension: a real SVG for .svg targets (a PNG written into
-#    a .svg file renders blank), our PNG for .png targets.
+#    blank by EXACT extension: a transparent SVG for .svg targets (a PNG written
+#    into a .svg filename renders as a broken image), transparent PNG for .png.
 SVG=/usr/share/refract/logo.svg
 for name in ubuntu-logo start-here distributor-logo ubuntu-logo-icon; do
     find /usr/share/icons /usr/share/pixmaps -type f \
@@ -69,9 +78,10 @@ for name in ubuntu-logo start-here distributor-logo ubuntu-logo-icon; do
     [ -f "$SVG" ] && find /usr/share/icons /usr/share/pixmaps -type f -iname "${name}.svg" \
         -exec cp "$SVG" {} \; 2>/dev/null || true
 done
-# GNOME About distributor logo (os-release LOGO=refract resolves to this).
-mkdir -p /usr/share/icons/hicolor/256x256/apps
-cp "$CL" /usr/share/icons/hicolor/256x256/apps/refract.png 2>/dev/null || true
+# No GNOME "About" distributor logo is installed: os-release no longer sets
+# LOGO=, so GNOME looks for nothing and renders the panel without an icon. The
+# previous refract.png here is deliberately not recreated.
+rm -f /usr/share/icons/hicolor/256x256/apps/refract.png 2>/dev/null || true
 for theme in hicolor Yaru WhiteSur WhiteSur-dark; do
     [ -d "/usr/share/icons/$theme" ] && command -v gtk-update-icon-cache >/dev/null 2>&1 \
         && gtk-update-icon-cache -f "/usr/share/icons/$theme" 2>/dev/null || true
@@ -85,7 +95,7 @@ command -v dconf >/dev/null 2>&1 && dconf update 2>/dev/null || true
 # 7) BOOT SPLASH default theme — make OUR minimal script theme the active one so
 #    NOTHING Ubuntu can composite (the stock bgrt/spinner themes draw a small
 #    Ubuntu logo at the top that survives image-replacement). Our refract theme
-#    draws only our logo + boot text, so the splash is 100% ours.
+#    draws only the product NAME as text + boot messages — no logo at all.
 if [ -d /usr/share/plymouth/themes/refract ]; then
     if command -v plymouth-set-default-theme >/dev/null 2>&1; then
         plymouth-set-default-theme refract 2>/dev/null || true

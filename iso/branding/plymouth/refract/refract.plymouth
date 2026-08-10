@@ -1,6 +1,6 @@
 [Plymouth Theme]
 Name=Refract OS
-Description=Refract OS boot splash — molten refract on dark
+Description=Refract OS boot splash — product name on near-black, no logo
 ModuleName=script
 
 [script]
