@@ -198,6 +198,18 @@ jobs:
           chk "gnome-initial-setup binary is PURGED" \
               "! test -e $SQ/usr/libexec/gnome-initial-setup"
           fi   # end GNOME-only boot-fix assertions
+          echo "=== the installer's own binary dependencies are present ==="
+          # Calamares shells out to these; a missing one fails the job with exit
+          # 127 (command not found) MID-INSTALL, after partitioning has already
+          # written to the disk. rsync was absent from every package list and
+          # nothing pulled it in, so unpackfs died with "rsync failed with error
+          # code 127" and no install could ever complete — on any strain, on any
+          # hardware. Nothing caught it because every existing check verified
+          # Calamares' CONFIG, never the binaries its modules invoke.
+          chk "rsync present (unpackfs copies the squashfs with it)" \
+              "test -x $SQ/usr/bin/rsync"
+          chk "unsquashfs present (unpackfs' squashfs path)" \
+              "test -x $SQ/usr/bin/unsquashfs"
           echo "=== UID/GID 1000 is FREE for casper's live user (regression guard) ==="
           # casper creates the live session user at UID/GID 1000 (user-setup sets
           # passwd/user-uid 1000, per LP: #2004092). If ANY packaged user or group

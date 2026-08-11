@@ -36,3 +36,21 @@ ffmpeg
 ## first flash never boots with a dead Intel iwlwifi radio just because a
 ## transitive Recommends got dropped. Belt-and-suspenders, no downside.
 linux-firmware
+## rsync — REQUIRED BY THE INSTALLER, and its absence made installing impossible.
+## Calamares' unpackfs module shells out to rsync to copy
+## /cdrom/casper/filesystem.squashfs onto the freshly-partitioned target. rsync
+## was in no package list and nothing pulled it in transitively, so the job died
+## with exit 127 (command not found) and the installer showed:
+##     Installation Failed
+##     Failed to unpack image "/cdrom/casper/filesystem.squashfs"
+##     Details: rsync failed with error code 127.
+## Captured from install-smoke run 31519214084 — the first run to get far enough
+## to reach unpackfs at all. Partitioning had already succeeded (the target disk
+## grew from 200704 to 331776 bytes, i.e. a partition table was written), so
+## this was the very next step and the last thing standing between the wizard
+## and a real install.
+rsync
+## squashfs-tools — unpackfs handles a squashfs source by mounting it and, in
+## some code paths, by calling unsquashfs. Pinned alongside rsync so the same
+## class of silent exit-127 cannot bite on the other branch.
+squashfs-tools
