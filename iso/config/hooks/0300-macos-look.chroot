@@ -51,15 +51,32 @@ clone_pin() {  # url sha dir
 if clone_pin https://github.com/vinceliuice/WhiteSur-gtk-theme.git "$GTK_SHA" "$WORK/ws-gtk"; then
     echo "macos-look: installing WhiteSur GTK + GNOME Shell theme..."
     mkdir -p "$WORK/ws-out"
-    # Try a plain root install first (we ARE root here); only if that fails fall
-    # back to a pseudo-TTY wrapper. bash explicitly, since the installer is bash.
-    if bash "$WORK/ws-gtk/install.sh" -d "$WORK/ws-out" 2>&1; then
-        :
-    elif command -v script >/dev/null 2>&1 \
-         && script -qfec "bash $WORK/ws-gtk/install.sh -d $WORK/ws-out" /dev/null 2>&1; then
+    # --silent-mode is REQUIRED here, not cosmetic. lib-core.sh's start_animation()
+    # runs `setterm -cursor off` to hide the cursor behind its spinner, and setterm
+    # needs a real terminal — which a live-build chroot with stdout on a log file
+    # does not have. Under the installer's own `set -Eeo pipefail` that kills it
+    # instantly, immediately after it prints its settings banner and before it
+    # installs anything, with no error of its own. This is the SECOND of two
+    # environment landmines in this installer; the first was the empty $USER
+    # tripping `getent passwd ""`, fixed by the export at the top of this hook.
+    # Fixing only that one got the banner to print and nothing else.
+    #
+    # --silent-mode is upstream's own non-interactive path: it early-returns from
+    # start_animation/stop_animation and every other cursor-and-prompt routine.
+    # Its full_sudo() check only tests that /root is writable, which it is here.
+    # The old `script -qfec` pseudo-TTY fallback is gone — it failed identically,
+    # because the problem was never the absence of a pty.
+    if bash "$WORK/ws-gtk/install.sh" --silent-mode -d "$WORK/ws-out" 2>&1; then
         :
     else
-        echo "macos-look: WhiteSur GTK installer failed (desktop keeps dark Yaru frames)." >&2
+        # Do not guess a third time. Re-run under a shell trace and print the tail,
+        # so the build log names the exact command that failed instead of leaving
+        # another silent death to be reverse-engineered from upstream source.
+        echo "macos-look: WhiteSur GTK install failed — re-running traced to identify the failing command." >&2
+        bash -x "$WORK/ws-gtk/install.sh" --silent-mode -d "$WORK/ws-out" >"$WORK/ws-trace.log" 2>&1 || true
+        echo "--- last 40 lines of the traced WhiteSur run ---" >&2
+        tail -n 40 "$WORK/ws-trace.log" >&2 || true
+        echo "--- end trace (desktop falls back to an installed theme, see below) ---" >&2
     fi
     cp -a "$WORK/ws-out/." /usr/share/themes/ 2>/dev/null || true
 fi
