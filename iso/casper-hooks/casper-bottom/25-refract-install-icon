@@ -45,6 +45,41 @@ if [ -f "/root$DESKTOP_FILE" ] && [ -n "$USERNAME" ]; then
     chroot /root install -D -o "$USERNAME" -g "$USERNAME" "$DESKTOP_FILE" "/home/$USERNAME/Desktop/$(basename "$DESKTOP_FILE")"
 fi
 
+# LIVE AUTOLOGIN — without this the ISO boots to a GDM prompt nobody can get
+# past. casper's live user has NO PASSWORD (the polkit block below depends on
+# exactly that), so the greeter asks for a credential that does not exist.
+#
+# This is not a theory. install-smoke run 31477983073 uploaded its evidence
+# shots: 00-desktop.ppm is a GDM "Username" field and 01c-after-launch.ppm is a
+# GDM "Password" field — the harness was typing its app-search keystrokes into
+# the login form. The installer never appeared, so the job burned its entire
+# 40-minute timeout waiting for a window that could not exist, twice, and was
+# recorded as "cancelled" both times. It is also precisely what a real X1
+# Carbon showed ("it still goes to that old login screen").
+#
+# Ubuntu's casper only configures GDM autologin when /etc/gdm3/custom.conf
+# ALREADY exists; writing the file ourselves removes that dependency instead of
+# betting on it. Both custom.conf (Ubuntu's gdm3) and daemon.conf (Debian's) are
+# written because the unused one is inert, and a single guess is how this
+# silently no-ops. Live-only by construction: an installed system never runs a
+# casper-bottom script, so autologin cannot leak onto a real install — the same
+# containment that makes the polkit grant below safe.
+if [ -n "$USERNAME" ] && [ -d /root/etc ]; then
+    for f in /root/etc/gdm3/custom.conf /root/etc/gdm3/daemon.conf; do
+        mkdir -p "$(dirname "$f")"
+        [ -f "$f" ] || printf '[daemon]\n' > "$f"
+        grep -q '^\[daemon\]' "$f" || printf '[daemon]\n' >> "$f"
+        for kv in "AutomaticLoginEnable=true" "AutomaticLogin=$USERNAME"; do
+            k="${kv%%=*}"
+            if grep -q "^${k}=" "$f"; then
+                sed -i "s|^${k}=.*|${kv}|" "$f"
+            else
+                sed -i "/^\[daemon\]/a ${kv}" "$f"
+            fi
+        done
+    done
+fi
+
 # Passwordless polkit grant for the LIVE installer only. The launcher is
 # `pkexec calamares`, and the live `ubuntu` user has no password, so without a
 # grant the installer can never launch (or manage disks / reboot). This rule
