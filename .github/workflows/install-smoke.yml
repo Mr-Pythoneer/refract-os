@@ -409,15 +409,40 @@ jobs:
             sudo qemu-nbd --disconnect /dev/nbd0 >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
-          sudo modprobe nbd max_part=16
+          # max_part matters: if the nbd module is already loaded WITHOUT it, the
+          # kernel creates no /dev/nbd0pN nodes and every check below would blame
+          # a missing filesystem for what is really a module-parameter problem.
+          sudo modprobe nbd max_part=16 || true
           sudo qemu-nbd --connect=/dev/nbd0 target.qcow2
           # Partition nodes appear asynchronously after connect.
+          sudo partprobe /dev/nbd0 >/dev/null 2>&1 || true
           for _ in $(seq 1 20); do [ -e /dev/nbd0p1 ] && break; sleep 1; done
-          lsblk -no NAME,SIZE,FSTYPE /dev/nbd0 || true
-          # Root is the largest ext4 partition: the ESP is vfat and swap is swap.
-          root_part=$(lsblk -bnro NAME,FSTYPE,SIZE /dev/nbd0 \
-                        | awk '$2=="ext4" {print $3" /dev/"$1}' | sort -rn | head -n1 | awk '{print $2}')
-          [ -n "$root_part" ] || { echo "FAIL: no ext4 partition on the installed disk — the partition/unpackfs steps never produced a root filesystem." >&2; exit 1; }
+          lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME /dev/nbd0 || true
+          if [ ! -e /dev/nbd0p1 ]; then
+            echo "FAIL: no partition nodes under /dev/nbd0 after connect+settle." >&2
+            echo "Either the installer never partitioned the disk, or the nbd module was already loaded without max_part (check 'cat /sys/module/nbd/parameters/max_part')." >&2
+            cat /sys/module/nbd/parameters/max_part 2>/dev/null || true
+            exit 1
+          fi
+          # Root is the largest LINUX filesystem partition — the ESP is vfat and
+          # swap is swap. Parsed with -P (KEY="value" pairs) rather than columnar
+          # output: with `lsblk -r`, an empty field collapses under awk's default
+          # splitting and shifts every later column, which is exactly the kind of
+          # thing that silently picks the wrong partition. defaultFileSystemType in
+          # partition.conf is ext4, but accept the other rootable types it offers
+          # so changing that setting doesn't quietly break this assertion.
+          root_part=$(lsblk -bPo NAME,FSTYPE,SIZE /dev/nbd0 | awk '
+            { fs=""; sz=0; nm=""
+              if (match($0, /FSTYPE="[^"]*"/)) { fs=substr($0, RSTART+8, RLENGTH-9) }
+              if (match($0, /SIZE="[^"]*"/))   { sz=substr($0, RSTART+6, RLENGTH-7) + 0 }
+              if (match($0, /NAME="[^"]*"/))   { nm=substr($0, RSTART+6, RLENGTH-7) }
+              if (fs=="ext4" || fs=="btrfs" || fs=="xfs" || fs=="f2fs") { print sz" /dev/"nm }
+            }' | sort -rn | head -n1 | awk '{print $2}')
+          if [ -z "$root_part" ]; then
+            echo "FAIL: the installed disk has no Linux root filesystem (looked for ext4/btrfs/xfs/f2fs)." >&2
+            echo "The partition and/or unpackfs steps never produced a root filesystem — the GUI-driven install did not complete." >&2
+            exit 1
+          fi
           echo "installed root filesystem: $root_part"
           sudo mkdir -p /mnt/installed
           sudo mount "$root_part" /mnt/installed
