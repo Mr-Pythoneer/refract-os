@@ -1,17 +1,23 @@
 name: diag-live-autologin
 
-# ONE-OFF DIAGNOSTIC, not a permanent gate. install-smoke's install job has
-# timed out three times running (40m17s, 40m19s, twice more) on an unchanged
-# GDM Username/Password prompt, including after d6800db added live autologin —
-# and verify-boot-fixes' initrd extraction (added in this same session) proved
-# the autologin code genuinely reaches casper/initrd.img, ruling out staleness.
-# So the code runs; GDM still isn't honoring it. Rather than guess again and
-# burn another ~45-minute rebuild, this boots the ALREADY-BUILT ISO, switches
-# off GDM's VT to the OTHER autologin path this image already ships —
-# 0400-polish.chroot's `agetty --autologin ubuntu` on tty3, unrelated to GDM and
-# proven simpler — and reads the real post-boot /etc/gdm3/custom.conf plus GDM's
-# own journal straight off the running system. Reuses the exact QEMU+VNC+
-# vncdotool recipe install-smoke already relies on for typing into the guest.
+# ONE-OFF DIAGNOSTIC, not a permanent gate. Round 2.
+#
+# Round 1 (this same workflow) found autologin fails on BOTH independent paths:
+# GDM (custom.conf, added in d6800db) AND 0400-polish.chroot's completely
+# separate `agetty --autologin ubuntu` on tty3, which only fires when
+# `id -u ubuntu` succeeds at getty-start — so tty3 fell back to a plain login
+# prompt, meaning that check itself failed at boot. GDM also showed a blank
+# free-text Username FIELD rather than a clickable user tile, which is what GDM
+# renders when AccountsService has no normal user to list — not what it renders
+# for "autologin misconfigured but the account exists".
+#
+# Two failures sharing nothing but the literal string "ubuntu" points at one
+# question: does the live user actually get created at all, under ANY name.
+# This round answers that directly — attempt a manual login as ubuntu (blank
+# password, casper's live user standard), then root, then dump /etc/passwd's
+# tail from whichever shell (if either) succeeds. That tail reveals the REAL
+# live username if it exists under a different name, or confirms no live user
+# was created at all.
 
 on:
   workflow_dispatch:
@@ -48,7 +54,7 @@ jobs:
           pipx install vncdotool 2>/dev/null || pip install --user vncdotool
           [ -e /dev/kvm ] && sudo chmod 666 /dev/kvm && echo "ACCEL=kvm" >> "$GITHUB_ENV" || echo "ACCEL=tcg" >> "$GITHUB_ENV"
 
-      - name: Boot live, switch to tty3, dump the real on-disk gdm3 state
+      - name: Boot live, try manual login as ubuntu then root, dump /etc/passwd
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
@@ -65,32 +71,31 @@ jobs:
           sleep 210
           shot 00-gdm
 
-          # tty3 has its OWN autologin (0400-polish.chroot: agetty --autologin
-          # ubuntu on tty3), independent of GDM's autologin — proven simpler,
-          # unaffected by whatever is stopping GDM specifically. Ctrl+Alt+F3
-          # switches the virtual console the same way it would on real hardware.
           vd key ctrl-alt-f3; sleep 8
-          shot 01-tty3
+          shot 01-tty3-prompt
 
-          # A shell prompt (not another login) confirms tty3's autologin works,
-          # which also confirms $USERNAME/user creation is fine in general —
-          # narrowing the GDM failure to GDM itself, not casper/user setup.
-          vd type 'echo TTY3-SHELL-CHECK-$(whoami)'; vd key enter; sleep 2
-          shot 02-whoami
+          # Plain word, no shell metacharacters — round 1's typed text landed in
+          # the username FIELD (autologin never fired), so this is a fresh manual
+          # login attempt, not a command inside an already-open shell.
+          vd type 'ubuntu'; vd key enter; sleep 3
+          shot 02-ubuntu-username-sent
 
-          vd type 'cat /etc/gdm3/custom.conf'; vd key enter; sleep 2
-          shot 03-custom-conf
-
-          vd type 'cat /etc/gdm3/daemon.conf'; vd key enter; sleep 2
-          shot 04-daemon-conf
-
-          vd type 'journalctl -u gdm -b --no-pager 2>&1 | grep -iE "auto|login|fail" | tail -15'
+          # casper's standard live user ships with an empty password; try blank.
           vd key enter; sleep 3
-          shot 05-gdm-journal-grep
+          shot 03-ubuntu-blank-password-result
 
-          vd type 'systemctl status gdm --no-pager -l 2>&1 | head -15'
-          vd key enter; sleep 2
-          shot 06-gdm-status
+          # If that didn't produce a shell, retry clean as root (also try blank).
+          vd type 'root'; vd key enter; sleep 3
+          shot 04-root-username-sent
+          vd key enter; sleep 3
+          shot 05-root-blank-password-result
+
+          # Whichever attempt succeeded (if either), this reveals the actual
+          # non-system accounts that exist on the live overlay right now — the
+          # real answer to "does a live user exist, and under what name".
+          vd type 'getent passwd 1000 1001 1002; cat /etc/passwd | tail -6'
+          vd key enter; sleep 3
+          shot 06-passwd-tail
 
           mon "quit" || true
 
@@ -109,6 +114,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: diag-autologin-evidence
+          name: diag-autologin-evidence-r2
           path: shots/
           retention-days: 7
