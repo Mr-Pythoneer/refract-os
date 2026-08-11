@@ -407,8 +407,59 @@ Three pieces of work after 12d, then a full re-audit of all of it.
   Calamares fix in particular is inferred from reading upstream module source,
   not observed — no install has been attempted since. Published ISOs still date
   from `e3c0ec7` and predate every fix here.
-- [ ] **Deferred** (needs a wider pass than one session): a full efficiency audit
-  of build time / ISO size / boot time; the WhiteSur GTK installer failing
-  silently in 27ms so the macOS look ships as icons only while dconf points at a
-  missing theme; `handheld` shipping no `setup-handheld-ui.sh` despite docs
-  telling users to run it; the cloud qcow2 containing no Refract at all.
+- [x] **THE macOS LOOK HAS NEVER ONCE INSTALLED** — root-caused, not guessed.
+  WhiteSur's `install.sh` sources `libs/lib-core.sh`, which opens `set -Eeo
+  pipefail` and then runs `MY_USERNAME="${SUDO_USER:-$(logname || echo
+  "$USER")}"` followed by `getent passwd "$MY_USERNAME" | cut -d: -f6`. In a
+  live-build chroot there is no `SUDO_USER`, `logname` fails (no controlling
+  terminal) and `USER` is unset — so the name is EMPTY, `getent passwd ""` exits
+  2, and errexit+pipefail kill the installer at source time with zero output.
+  That is the silent ~27 ms failure, and it explains the exact symptom: the ICON
+  installer doesn't source those libs, which is why icons always shipped and the
+  GTK theme never did. Fix is `export USER=root LOGNAME=root HOME=/root`.
+  - Worse than a missing theme: the glib override *and* the dconf db both still
+    named `WhiteSur-Dark`, so every session asked for a theme that wasn't on
+    disk. GTK answers that by silently falling back to Adwaita — the headline
+    feature was absent and nothing failed. The hook now repoints both at an
+    installed theme if WhiteSur is missing, and `verify-boot-fixes` asserts the
+    theme, shell theme, icons, blur extension, and that the `gtk-theme` default
+    names a theme actually present in the squashfs.
+- [x] **CI could not have caught an install failure.** install-smoke's
+  installed-disk step greps `installed-serial.log`, but the installed system
+  boots its own GRUB with `quiet splash` and no `console=` — nothing was ever
+  written to ttyS0, so the log was empty every run and the grep could only take
+  its failure branch, which `continue-on-error` swallowed into green. It has
+  never verified an install in either direction. The target now gets a serial
+  console (and loses `quiet`) via qemu-nbd, in the throwaway test artifact only.
+  - Both smoke jobs also accepted `\bgdm3?\b` as proof of userspace, which
+    matches `gdm3.service: Main process exited, status=1/FAILURE` as happily as
+    a successful start. Markers are positive-only and anchored now.
+- [x] **Omitted-mode leaks.** The Calamares welcome banner is a baked PNG reading
+  "One install. Five modes. Local-first AI." with an AI chip — unstrippable, so a
+  build dispatched as "provably AI-free" advertised AI on screen one. `show.qml`'s
+  intro slide (the one slide `build.sh` can't strip) promised "Windows app and
+  game compatibility", which no strain ships at all (Wine is on-demand; libwine
+  is ~647 MB). Both now say only what is true of every build.
+- [x] **Fresh installs had no accent** — `apply_accent()` runs on `switch`, and
+  nothing ran before the *first* switch, so the mode the machine boots in was the
+  one mode whose colour never applied. Baked into `/etc/skel` from `normal.conf`.
+- [x] **`handheld` was byte-for-byte `workstation`** — `setup-handheld-ui.sh`
+  existed and was tested, but nothing copied `iso/strains/handheld/` into the
+  image, so the command the docs told users to run wasn't on the installed
+  system. Staged, and on PATH as `distro-handheld-ui`.
+- [x] **The cloud qcow2 contained no Refract** — `build-cloud-image.sh`
+  debootstrapped stock Ubuntu and wrote it out as `refract-os-cloud.qcow2`. It
+  now bakes a headless identity layer (os-release, hostname, GRUB_DISTRIBUTOR,
+  MOTD, `/opt/distro` + `distro-modectl`, `enabled-modes`). No CI job runs this
+  script — stated plainly in its README now.
+- [ ] **Still deferred** (needs a wider pass than one session): the full
+  efficiency audit of build time / ISO size / boot time / CI wall clock; a fresh
+  full-tree bug hunt over everything that landed unverified since; the
+  MEDIUM/LOW doc-drift backlog in §12e/§12f; and unifying the `os-release`
+  version/codename now duplicated between `iso/build.sh` and
+  `iso/cloud-image/build-cloud-image.sh`.
+- [ ] **Open product decision:** the website still ships the prism badge
+  (`docs/logo.png` in the nav) that the OS no longer has anywhere. The removal
+  was asked for on the grounds it "caused too much trouble" at boot, which does
+  not apply to a web page — so the site's mark is deliberately left alone
+  pending a call, not overlooked.
