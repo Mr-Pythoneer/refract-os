@@ -324,7 +324,14 @@ jobs:
             -monitor unix:mon.sock,server,nowait -pidfile qemu.pid -daemonize
           mon() { printf '%s\n' "$1" | socat - unix-connect:mon.sock >/dev/null; }
           shot() { mon "screendump $PWD/shots/$1.ppm"; }
-          vd() { vncdo -s localhost:0 "$@"; }
+          # BOUNDED + NON-FATAL. Run 31510234422 proved why: `vd key super-Up`
+          # hung, and with no timeout that single call consumed the job's entire
+          # 40-minute budget — the step never even reached its own PNG conversion
+          # (the uploaded artifact still held .ppm files), and the job died as
+          # "cancelled" with no error to read. No single GUI poke may ever be able
+          # to eat the budget again; a failed poke should show up as a wrong
+          # screenshot, which is diagnosable, not as a silent 40-minute stall.
+          vd() { timeout 45 vncdo -s localhost:0 "$@" || echo "WARN: vncdo '$*' failed/timed out" >&2; }
 
           echo "Waiting for the live desktop (~3.5 min)..."
           sleep 210
@@ -345,7 +352,13 @@ jobs:
           # be ONE vncdo call. Maximized on 1280x800: Next ~ (1155,772).
           vd key super-Up; sleep 3
           shot 01d-maximized
-          next() { vd move 1155 772 click 1; sleep "${1:-6}"; }
+          # ADVANCE BY KEYBOARD, NOT BY PIXEL. Calamares underlines the N in its
+          # "Next" button (visible in run 31510234422's 01c screenshot), so Alt+N
+          # is the button's real accelerator and works wherever the window sits —
+          # no dependence on the maximize above having worked, and no dependence
+          # on a hardcoded 1155,772 that silently misses when the window opens at
+          # a different size or position (a prior run had Next at ~879,570).
+          next() { vd key alt-n; sleep "${1:-6}"; }
           next 5;  shot 02a-locale       # Welcome  -> Locale
           next 5;  shot 02b-keyboard     # Locale   -> Keyboard
           next 6;  shot 02-partition     # Keyboard -> Partition

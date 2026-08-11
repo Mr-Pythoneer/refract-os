@@ -43,6 +43,21 @@ DESKTOP_FILE=/usr/share/applications/install-refract-os.desktop
 if [ -f "/root$DESKTOP_FILE" ] && [ -n "$USERNAME" ]; then
     chroot /root install -d -o "$USERNAME" -g "$USERNAME" "/home/$USERNAME/Desktop"
     chroot /root install -D -o "$USERNAME" -g "$USERNAME" "$DESKTOP_FILE" "/home/$USERNAME/Desktop/$(basename "$DESKTOP_FILE")"
+    # Mark it trusted + executable, or GNOME renders it as an UNTRUSTED launcher:
+    # the raw filename "install-refract-os.desktop" under a generic icon with a red
+    # X badge, which does nothing useful on a double-click. Confirmed visually in
+    # install-smoke run 31510234422's 00-desktop screenshot, the first run that
+    # ever reached a live desktop. casper's own 25adduser does exactly this for
+    # ubiquity's launcher (`gio set ... metadata::trusted true`) — this hook copied
+    # the file but never inherited that step, so the icon has always been broken.
+    # dbus-run-session because gio needs a session bus, and gio is only meaningful
+    # if both binaries exist in the image; guarded so a missing one is not fatal.
+    chroot /root chmod +x "/home/$USERNAME/Desktop/$(basename "$DESKTOP_FILE")" 2>/dev/null || true
+    if [ -x /root/usr/bin/dbus-run-session ] && [ -x /root/usr/bin/gio ]; then
+        chroot /root sudo -i -u "$USERNAME" dbus-run-session -- \
+            gio set "/home/$USERNAME/Desktop/$(basename "$DESKTOP_FILE")" \
+            metadata::trusted true 2>/dev/null || true
+    fi
 fi
 
 # LIVE AUTOLOGIN — without this the ISO boots to a GDM prompt nobody can get
