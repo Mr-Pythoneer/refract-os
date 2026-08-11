@@ -357,8 +357,14 @@ jobs:
           # spots. CRITICAL: vncdo is stateless per invocation — a separate `move`
           # then `click` reconnects with the cursor reset to (0,0); move+click MUST
           # be ONE vncdo call. Maximized on 1280x800: Next ~ (1155,772).
-          vd key super-Up; sleep 3
-          shot 01d-maximized
+          # NO MAXIMIZE. `vd key super-Up` does not work here — run 31515575564
+          # logged "WARN: vncdo 'key super-Up' failed/timed out" and run
+          # 31510234422 hung on it for the full 40-minute budget. Calamares opens
+          # at a deterministic centred geometry on this 1280x800 display
+          # (window x≈128-1152, y≈124-740, identical across every run), so the
+          # coordinates below are taken from that real, observed layout rather
+          # than from a maximized window that never materialises.
+          shot 01d-window
           # ADVANCE BY KEYBOARD, NOT BY PIXEL. Calamares underlines the N in its
           # "Next" button (visible in run 31510234422's 01c screenshot), so Alt+N
           # is the button's real accelerator and works wherever the window sits —
@@ -382,13 +388,30 @@ jobs:
           # confirm Next actually became enabled before advancing.
           vd move 324 220 click 1; sleep 2; shot 02c-erase-selected
           next 6;  shot 03-users         # Partition -> Users
-          # Users page: click the Name field (one call, maximized -> upper-centre),
-          # type; username auto-derives; Tab to the two password fields.
-          vd move 640 300 click 1
-          vd type "tester"; vd key tab; vd key tab
+          # Users page. Click "Your Full Name" at its REAL coordinate. This was
+          # 640,300 — a maximized-window position — while the window is never
+          # maximized (see above), so the click landed on dead space, nothing was
+          # focused, and every keystroke below went nowhere: run 31515575564
+          # reached this page with all four fields still empty and Next disabled.
+          #
+          # Tab order is Full Name -> login -> Computer Name -> Password ->
+          # Repeat Password, so Password is THREE tabs from Full Name, not two.
+          # The old two-tab version typed the password into Computer Name.
+          # login and Computer Name auto-derive from the full name, so they are
+          # tabbed through without typing.
+          vd move 417 203 click 1; sleep 1
+          vd type "tester"
+          vd key tab; vd key tab; vd key tab
           vd type "refractos1"; vd key tab; vd type "refractos1"; sleep 1
+          shot 03b-users-filled
           next 6;  shot 04-summary       # Users -> Summary
-          vd move 1155 772 click 1; sleep 3   # Install (bottom-right, now "Install")
+          # Summary -> Install. 1155,772 was another maximized-window coordinate:
+          # on the real centred window that point is OUTSIDE the dialog entirely
+          # (its buttons sit at y≈718, rightmost edge x≈1145), so the click hit
+          # the desktop behind and the install was never started. The primary
+          # button occupies the same slot as "Next" throughout the wizard —
+          # 1007,718 in the observed geometry — and reads "Install" here.
+          vd move 1007 718 click 1; sleep 3
           shot 04b-confirm
           # An "Install now?" confirm dialog may pop — its OK is also bottom-right.
           vd key tab; sleep 1; vd key enter
