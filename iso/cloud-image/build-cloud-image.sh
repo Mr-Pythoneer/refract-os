@@ -111,6 +111,85 @@ if [ -f "$MOUNT_DIR/tmp/cloud.list.chroot" ]; then
     '
 fi
 
+# ---------------------------------------------------------------------------
+# REFRACT IDENTITY. Everything above this point produces a stock Ubuntu noble
+# rootfs; without this block the script wrote out a file called
+# refract-os-cloud.qcow2 whose contents were plain Ubuntu — no os-release, no
+# hostname, no modes, no distro-modectl. Anyone who followed
+# docs/first-hardware-runbook.md got Ubuntu under a Refract filename.
+#
+# This is a deliberately SMALL identity layer, not a copy of the ISO pipeline's:
+# a cloud image is headless, so the splash/wallpaper/icon/GTK work in
+# iso/config/hooks/ is all inapplicable. What matters here is that the system
+# identifies as Refract and that the mode machinery is present and usable.
+# Keep VERSION_NUM/CODENAME in step with iso/build.sh — they are duplicated
+# because the two pipelines share no common file yet; unifying them is still
+# outstanding (see iso/cloud-image/README.md).
+echo "Baking in Refract OS identity (os-release, hostname, modes)..."
+VERSION_NUM="1.0"; VERSION_CODENAME="forge"
+_osrelease() {
+cat <<EOF
+NAME="Refract OS"
+PRETTY_NAME="Refract OS ${VERSION_NUM} (Cloud)"
+ID=refract
+ID_LIKE="ubuntu debian"
+VERSION="${VERSION_NUM} (Forge)"
+VERSION_ID="${VERSION_NUM}"
+VERSION_CODENAME=${VERSION_CODENAME}
+UBUNTU_CODENAME=noble
+HOME_URL="https://mr-pythoneer.github.io/refract-os/"
+SUPPORT_URL="https://github.com/Mr-Pythoneer/refract-os"
+BUG_REPORT_URL="https://github.com/Mr-Pythoneer/refract-os/issues"
+VARIANT="Cloud"
+EOF
+}
+_osrelease > "$MOUNT_DIR/etc/os-release"
+_osrelease > "$MOUNT_DIR/usr/lib/os-release"
+cat > "$MOUNT_DIR/etc/lsb-release" <<EOF
+DISTRIB_ID=Refract
+DISTRIB_RELEASE=${VERSION_NUM}
+DISTRIB_CODENAME=${VERSION_CODENAME}
+DISTRIB_DESCRIPTION="Refract OS ${VERSION_NUM}"
+EOF
+printf 'Refract OS %s (Cloud) \\n \\l\n\n' "$VERSION_NUM" > "$MOUNT_DIR/etc/issue"
+printf 'Refract OS %s\n' "$VERSION_NUM" > "$MOUNT_DIR/etc/issue.net"
+echo "refract" > "$MOUNT_DIR/etc/hostname"
+printf '127.0.0.1\tlocalhost\n127.0.1.1\trefract\n' > "$MOUNT_DIR/etc/hosts"
+# GRUB's menu title comes from GRUB_DISTRIBUTOR, and update-grub runs below.
+grep -q '^GRUB_DISTRIBUTOR=' "$MOUNT_DIR/etc/default/grub" 2>/dev/null \
+    && sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="Refract OS"/' "$MOUNT_DIR/etc/default/grub" \
+    || echo 'GRUB_DISTRIBUTOR="Refract OS"' >> "$MOUNT_DIR/etc/default/grub"
+
+# The mode machinery, laid out exactly as iso/build.sh does it so paths in the
+# docs and in distro-modectl's own PROFILE_DIR lookup resolve identically.
+_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+mkdir -p "$MOUNT_DIR/opt/distro" "$MOUNT_DIR/usr/local/bin" "$MOUNT_DIR/etc/refract"
+cp -a "$_repo_root/modes" "$_repo_root/drivers" "$MOUNT_DIR/opt/distro/"
+ln -sf /opt/distro/modes/modectl/distro-modectl "$MOUNT_DIR/usr/local/bin/distro-modectl"
+find "$MOUNT_DIR/opt/distro" -type f \( -name '*.sh' -o -name 'distro-*' \) -exec chmod +x {} +
+# A cloud instance is headless: 'server' is the mode that makes sense here, and
+# 'normal' is always-on and never listed (the loader force-appends it). Gaming,
+# AI and Creative are desktop modes and are deliberately not advertised.
+{
+    echo "# Refract OS — enabled optional modes (one per line; '#' comments ok)."
+    echo "# 'normal' is the always-on base desktop and is never listed here."
+    echo "server"
+} > "$MOUNT_DIR/etc/refract/enabled-modes"
+chmod 0644 "$MOUNT_DIR/etc/refract/enabled-modes"
+# Ubuntu's login banner and ads, same treatment as the ISO's identity hook.
+: > "$MOUNT_DIR/etc/legal" 2>/dev/null || true
+for _m in 00-header 10-help-text 50-motd-news 88-esm-announce \
+          91-release-upgrade 91-contract-ua-esm-status 92-unattended-upgrades; do
+    [ -e "$MOUNT_DIR/etc/update-motd.d/$_m" ] && chmod -x "$MOUNT_DIR/etc/update-motd.d/$_m" 2>/dev/null || true
+done
+mkdir -p "$MOUNT_DIR/etc/update-motd.d"
+cat > "$MOUNT_DIR/etc/update-motd.d/00-refract" <<'MOTD'
+#!/bin/sh
+printf '\n  Refract OS 1.0 (Cloud)  —  headless instance\n'
+printf '  switch look+behaviour:  distro-modectl switch server|normal\n\n'
+MOTD
+chmod +x "$MOUNT_DIR/etc/update-motd.d/00-refract"
+
 echo "Installing GRUB to $LOOP_DEV..."
 chroot "$MOUNT_DIR" grub-install --target=i386-pc "$LOOP_DEV"
 chroot "$MOUNT_DIR" update-grub

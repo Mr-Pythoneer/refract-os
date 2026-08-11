@@ -54,4 +54,26 @@ sudo ./build-cloud-image.sh [size_in_GB]   # default 4
 Designed and execution-tested at the control-flow level only (see above).
 First real run needs a Linux host with root + loop-device access — the
 same "needs Linux build host" gap as everything else in `iso/`, just for a
-qcow2 image instead of an ISO.
+qcow2 image instead of an ISO. **Nothing in CI runs this script**, so unlike
+the six ISO strains it has never been built by any automated pipeline.
+
+### Identity
+
+Until recently this script debootstrapped Ubuntu, installed a kernel, GRUB and
+`cloud-init`, and wrote the result out as `refract-os-cloud.qcow2` — with no
+Refract identity applied anywhere in it. The filename was the only Refract thing
+about the image: `/etc/os-release` said Ubuntu, the hostname was Ubuntu's
+default, and `distro-modectl` was not installed. Anyone following
+`docs/first-hardware-runbook.md` would have booted plain Ubuntu.
+
+It now bakes in a deliberately small identity layer: `os-release`, `lsb-release`,
+`issue`, hostname/hosts, `GRUB_DISTRIBUTOR`, the MOTD, the `/opt/distro` mode
+tree with `distro-modectl` on `PATH`, and an `enabled-modes` registry listing
+`server` (a cloud instance is headless, so the desktop modes are deliberately
+not advertised). The splash/wallpaper/icon/GTK work in `iso/config/hooks/` is
+intentionally *not* replicated — none of it applies to a headless image.
+
+**Known duplication:** the version number, codename and `os-release` body are
+written independently here and in `iso/build.sh`. The two pipelines share no
+common file, so those values must be changed in both places. Unifying them is
+outstanding work.

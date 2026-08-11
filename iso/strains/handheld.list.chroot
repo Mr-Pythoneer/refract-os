@@ -2,7 +2,9 @@
 ## set as workstation -- real differentiation is runtime/session config
 ## (on-screen keyboard, UI text scaling, Big Picture autostart), not a
 ## package-list difference, so it lives in handheld/setup-handheld-ui.sh
-## instead of here. Run that script post-install/first-login.
+## instead of here. build.sh stages that script into this strain's image at
+## /opt/distro/strains/handheld/ and links it onto PATH, so post-install (or at
+## first login) the command to run is simply:  distro-handheld-ui
 ubuntu-desktop-minimal
 flatpak
 gnome-shell-extensions

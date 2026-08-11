@@ -12,7 +12,7 @@ starting point for that class of machine.
 | `laptop` | GNOME | + `power-profiles-daemon` power management (NOT tlp — conflicts with p-p-d on 24.04), `thermald`, `fprintd` (fingerprint), Intel VAAPI + firmware |
 | `lowspec` | LXQt (`lubuntu-desktop`) | Lightest official Ubuntu DE; skips gamemode/mangohud/winetricks by default (added on-demand via `modes/gaming/setup/` if actually needed) |
 | `server` | none | Headless; relies on `modes/server/setup/*.sh` post-boot, same lean-image philosophy as the rest of `iso/` |
-| `handheld` | GNOME | Same package set as `workstation`; real differentiation is `handheld/setup-handheld-ui.sh` — on-screen keyboard, UI text scaling, Steam Big Picture autostart |
+| `handheld` | GNOME | Same package set as `workstation`; real differentiation is a session-level setup script, shipped on PATH as `distro-handheld-ui` — on-screen keyboard, UI text scaling, Steam Big Picture autostart |
 | `cloud` | none | `cloud-init` only. Real qcow2 delivery format: `iso/cloud-image/build-cloud-image.sh` (debootstrap + loop-device + grub-install + qemu-img convert), separate from this ISO pipeline entirely — see `iso/cloud-image/README.md` |
 
 ## Usage
@@ -32,7 +32,11 @@ shows up in the ISO's `--iso-application` string and the output filename
 
 `workstation`/`laptop`/`lowspec`/`server` are real package-selection
 differences. `handheld` now has real differentiation too, just not at the
-package-list level — see `handheld/setup-handheld-ui.sh`
+package-list level — `handheld/setup-handheld-ui.sh`, which build.sh stages
+into the handheld image at `/opt/distro/strains/handheld/` and puts on PATH as
+`distro-handheld-ui`. (Until that staging existed the script lived only in the
+git checkout, so the command these docs told users to run was not present on an
+installed handheld system at all, and handheld was byte-for-byte workstation.)
 (execution-tested: root/session guards, on-screen keyboard + text-scaling
 gsettings calls, and both the Steam-present and Steam-absent autostart
 branches, all with stubbed `gsettings`/`steam`). `cloud` is still

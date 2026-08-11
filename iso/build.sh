@@ -361,6 +361,22 @@ for bin in "${!DISTRO_BINS[@]}"; do
     [[ " ${OMITTED[*]} " == *" $binmode "* ]] && continue
     ln -sf "/opt/distro/${DISTRO_BINS[$bin]}/$bin" "$INCLUDES/usr/local/bin/$bin"
 done
+# The handheld strain's ONLY real differentiation. iso/strains/README.md and
+# handheld.list.chroot both tell the user that handheld differs from workstation
+# "at the session level, see handheld/setup-handheld-ui.sh" — but nothing ever
+# copied iso/strains/handheld/ into the image, so that script existed only in the
+# git checkout. On the installed system the documented command simply was not
+# there, and handheld was byte-for-byte workstation. Stage it, and put it on PATH
+# under the distro-* name every other user-facing CLI here uses, so the
+# instruction in the docs is one word the user can actually type.
+if [ "$STRAIN" = handheld ] && [ -f "$REPO_ROOT/iso/strains/handheld/setup-handheld-ui.sh" ]; then
+    mkdir -p "$INCLUDES/opt/distro/strains/handheld"
+    cp "$REPO_ROOT/iso/strains/handheld/setup-handheld-ui.sh" \
+       "$INCLUDES/opt/distro/strains/handheld/setup-handheld-ui.sh"
+    ln -sf /opt/distro/strains/handheld/setup-handheld-ui.sh \
+       "$INCLUDES/usr/local/bin/distro-handheld-ui"
+    echo "Staged handheld UI setup -> /opt/distro/strains/handheld + PATH as distro-handheld-ui."
+fi
 find "$INCLUDES/opt/distro" -type f \( -name "*.sh" -o -name "distro-*" \) -exec chmod +x {} +
 
 # ---------------------------------------------------------------------------
