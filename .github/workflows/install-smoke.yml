@@ -459,23 +459,25 @@ jobs:
           # launcher works since the trust fix) and dump the relevant lines rather
           # than guessing a fourth cause. casper's live user has passwordless
           # sudo, so `sudo` needs no password here.
-          if [ "$final_check_skip" != "1" ]; then
-            sz_now=$(qemu-img info -U --output=json target.qcow2 | python3 -c "import json,sys;print(json.load(sys.stdin)['actual-size'])")
-            if [ "$sz_now" -lt 2000000000 ]; then
-              echo "Install failed — pulling Calamares' session log from the guest."
-              vd move 791 481 click 1; sleep 2          # dismiss the Error dialog
-              vd move 509 754 click 1; sleep 8          # dock: Terminal
-              shot 07-terminal
-              vd type 'sudo grep -iE "unpackfs|rsync|mount" /root/.cache/calamares/session.log | tail -22'
-              vd key enter; sleep 5
-              shot 08-calamares-log
-              vd type 'sudo tail -25 /root/.cache/calamares/session.log'
-              vd key enter; sleep 5
-              shot 09-calamares-tail
-              vd type 'lsblk; echo ---; mount | grep -iE "calamares|cdrom|squash"'
-              vd key enter; sleep 4
-              shot 10-mounts
-            fi
+          # (No guard variable here. The first version tested an unset
+          # $final_check_skip under `set -u`, which aborted the step on an
+          # unbound variable before any of this ran — and before the PNG
+          # conversion below, which is why that run's artifact was still .ppm.)
+          sz_now=$(qemu-img info -U --output=json target.qcow2 | python3 -c "import json,sys;print(json.load(sys.stdin)['actual-size'])")
+          if [ "$sz_now" -lt 2000000000 ]; then
+            echo "Install failed — pulling Calamares' session log from the guest."
+            vd move 791 481 click 1; sleep 2          # dismiss the Error dialog
+            vd move 509 754 click 1; sleep 8          # dock: Terminal
+            shot 07-terminal
+            vd type 'sudo grep -iE "unpackfs|rsync|mount" /root/.cache/calamares/session.log | tail -22'
+            vd key enter; sleep 5
+            shot 08-calamares-log
+            vd type 'sudo tail -25 /root/.cache/calamares/session.log'
+            vd key enter; sleep 5
+            shot 09-calamares-tail
+            vd type 'lsblk; echo ---; mount | grep -iE "calamares|cdrom|squash"'
+            vd key enter; sleep 4
+            shot 10-mounts
           fi
           mon "quit" || true
           sudo apt-get install -y imagemagick >/dev/null 2>&1 || true
