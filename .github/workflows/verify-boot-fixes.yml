@@ -53,6 +53,47 @@ jobs:
           sudo mount -t squashfs -o loop,ro /mnt/iso/casper/filesystem.squashfs /mnt/sq
           echo "squashfs mounted."
 
+      - name: Assert casper-bottom scripts actually reached the live initrd
+        run: |
+          set -uo pipefail
+          # THE GAP THIS CLOSES: every existing casper-bottom assertion below only
+          # checks the SQUASHFS copy at
+          # $SQ/usr/share/initramfs-tools/scripts/casper-bottom/25-refract-install-icon
+          # — a plain file staged by includes.chroot. That copy exists unconditionally
+          # and proves nothing about whether the script is actually IN casper/initrd.img,
+          # the archive casper's live boot really executes scripts from. The two hooks
+          # that are supposed to embed it (0100-update-initramfs-for-casper.chroot,
+          # 0200-refract-identity.chroot) both call bare `update-initramfs -u` with no
+          # `-k` — which targets the RUNNING kernel (`uname -r`). Inside a live-build
+          # chroot that command runs via chroot(2), not a real kernel switch, so
+          # `uname -r` still reports the GITHUB RUNNER's kernel, not the chroot's
+          # installed generic-hwe-24.04 kernel — a version that has no
+          # /boot/vmlinuz-<ver> or /lib/modules/<ver> inside the chroot at all. If that
+          # theory is right, the rebuild silently targets nothing and casper/initrd.img
+          # never gets the current casper-bottom scripts, no matter how correct the
+          # source file is. This step tests that directly, on the real shipped initrd,
+          # instead of trusting the hook ran.
+          fail=0
+          sudo apt-get install -y initramfs-tools-core >/dev/null
+          sudo unmkinitramfs /mnt/iso/casper/initrd.img /tmp/initrd-extract
+          HIT=$(find /tmp/initrd-extract -path '*casper-bottom/25-refract-install-icon' 2>/dev/null | head -n1)
+          if [ -z "$HIT" ]; then
+            echo "  FAIL  25-refract-install-icon is NOT inside casper/initrd.img at all"
+            echo "        (the squashfs copy below will still show PASS — that only proves"
+            echo "         the source file exists, not that casper can run it at boot)"
+            fail=1
+          else
+            echo "  PASS  25-refract-install-icon found in the booted initrd: $HIT"
+            if grep -q 'AutomaticLoginEnable' "$HIT"; then
+              echo "  PASS  the embedded copy contains the autologin fix (AutomaticLoginEnable)"
+            else
+              echo "  FAIL  the embedded copy is STALE — no AutomaticLoginEnable in the initrd's copy"
+              echo "        (source tree has the fix; the initrd that actually boots does not)"
+              fail=1
+            fi
+          fi
+          [ "$fail" = 0 ] || { echo "INITRD IS STALE RELATIVE TO THE SOURCE TREE — DO NOT TRUST THE SQUASHFS-ONLY CHECKS BELOW."; exit 1; }
+
       - name: Assert every boot fix is physically in the image
         run: |
           set -uo pipefail
