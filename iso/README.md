@@ -113,14 +113,18 @@ A `workflow_dispatch`-only GitHub Actions workflow (strain chosen via a
 dropdown input) that actually runs `./build.sh` on a real Ubuntu runner —
 GitHub's `ubuntu-latest` runners have root and loop-device access, unlike
 this Mac, so this is genuinely the first place the full pipeline CAN run,
-not just another lint pass. Deliberately **not** wired to `push`/`schedule`:
-the pipeline has never succeeded even once yet, so an automatic nightly
-build would just be a guaranteed-red CI run with no information value
-until a manual run actually gets it working. **Not yet triggered** — this
-costs real CI minutes/runner time for a multi-stage live-build that may
-take well over an hour and is unverified, so it's left for an explicit,
-deliberate manual run rather than fired automatically as part of this
-session's work.
+not just another lint pass. It has since been run many times and builds all
+six strains green — the paragraph that used to sit here still said "the
+pipeline has never succeeded even once yet" and "**Not yet triggered**",
+which had been false for a long time and directly contradicted the Status
+section below.
+
+Still deliberately **not** wired to `push`/`schedule`, for the reason that
+outlived the original one: a full live-build is a multi-stage job measured in
+tens of minutes per strain, and six of them on every push would burn runner
+time to re-prove something a push rarely changes. Dispatch it when the image
+contents actually change — hooks, package lists, `build.sh`, branding — and
+rely on `tests`/`shellcheck` for everything else.
 
 ## Status
 
