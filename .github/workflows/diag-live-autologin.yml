@@ -1,23 +1,25 @@
 name: diag-live-autologin
 
-# ONE-OFF DIAGNOSTIC, not a permanent gate. Round 2.
+# ONE-OFF DIAGNOSTIC, not a permanent gate. Round 3.
 #
-# Round 1 (this same workflow) found autologin fails on BOTH independent paths:
-# GDM (custom.conf, added in d6800db) AND 0400-polish.chroot's completely
-# separate `agetty --autologin ubuntu` on tty3, which only fires when
-# `id -u ubuntu` succeeds at getty-start — so tty3 fell back to a plain login
-# prompt, meaning that check itself failed at boot. GDM also showed a blank
-# free-text Username FIELD rather than a clickable user tile, which is what GDM
-# renders when AccountsService has no normal user to list — not what it renders
-# for "autologin misconfigured but the account exists".
+# Rounds 1-2 (this same workflow) plus install-smoke's three timeouts converge
+# on: no "ubuntu" account exists on live boot at all (id -u ubuntu fails at
+# getty-start; manual login as ubuntu with a blank password gets the same
+# "Login incorrect" a genuinely nonexistent account gets). verify-boot-fixes'
+# dump of casper's REAL 25adduser script (package casper 1.498, confirmed
+# installed) showed the actual user-creation call is:
+#     chroot /root /usr/lib/user-setup/user-setup-apply > /dev/null
+# with NO `set -e` anywhere in the script — if that call fails, 25adduser just
+# keeps going silently. user-setup (which provides that binary) was also
+# confirmed installed during the build, so it isn't simply missing.
 #
-# Two failures sharing nothing but the literal string "ubuntu" points at one
-# question: does the live user actually get created at all, under ANY name.
-# This round answers that directly — attempt a manual login as ubuntu (blank
-# password, casper's live user standard), then root, then dump /etc/passwd's
-# tail from whichever shell (if either) succeeds. That tail reveals the REAL
-# live username if it exists under a different name, or confirms no live user
-# was created at all.
+# Rounds 1-2 hit a chicken-and-egg wall: diagnosing further needs a shell, and
+# the account needed to get one doesn't exist. This round sidesteps that with
+# initramfs-tools' own `break=bottom` debug hook — a real root shell dropped
+# INSIDE the live boot, right after casper-bottom scripts (including 25adduser)
+# have already run, no user account required at all. From there this manually
+# re-invokes user-setup-apply and captures its real exit code and output —
+# the most direct possible answer, rather than another guess.
 
 on:
   workflow_dispatch:
@@ -50,52 +52,54 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 qemu-utils socat python3-pip
+          sudo apt-get install -y qemu-system-x86 qemu-utils socat python3-pip libarchive-tools
           pipx install vncdotool 2>/dev/null || pip install --user vncdotool
           [ -e /dev/kvm ] && sudo chmod 666 /dev/kvm && echo "ACCEL=kvm" >> "$GITHUB_ENV" || echo "ACCEL=tcg" >> "$GITHUB_ENV"
+          mkdir -p extract && bsdtar -xf refract.iso -C extract casper/vmlinuz casper/initrd.img
+          ls -lh extract/casper/
 
-      - name: Boot live, try manual login as ubuntu then root, dump /etc/passwd
+      - name: Boot with break=bottom, inspect + re-run user-setup-apply directly
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
           mkdir -p shots
+          # break=bottom: initramfs-tools drops to /bin/sh right after casper-bottom
+          # scripts (25adduser among them) have run. console=tty0 (not ttyS0) so the
+          # break shell lands on the VGA framebuffer, where -vga std -vnc :0 and
+          # vncdo can see and type into it — same technique already proven for tty3.
           qemu-system-x86_64 -accel "$ACCEL" -m 4096 -smp 4 \
-            -cdrom refract.iso -boot d \
+            -kernel extract/casper/vmlinuz -initrd extract/casper/initrd.img \
+            -append "boot=casper break=bottom console=tty0" \
+            -cdrom refract.iso \
             -display none -vga std -vnc :0 \
             -monitor unix:mon.sock,server,nowait -pidfile qemu.pid -daemonize
           mon() { printf '%s\n' "$1" | socat - unix-connect:mon.sock >/dev/null; }
           shot() { mon "screendump $PWD/shots/$1.ppm"; sleep 1; }
           vd() { vncdo -s localhost:0 "$@"; }
 
-          echo "Waiting for GDM to settle (~3.5 min)..."
-          sleep 210
-          shot 00-gdm
-
-          vd key ctrl-alt-f3; sleep 8
-          shot 01-tty3-prompt
-
-          # Plain word, no shell metacharacters — round 1's typed text landed in
-          # the username FIELD (autologin never fired), so this is a fresh manual
-          # login attempt, not a command inside an already-open shell.
-          vd type 'ubuntu'; vd key enter; sleep 3
-          shot 02-ubuntu-username-sent
-
-          # casper's standard live user ships with an empty password; try blank.
+          echo "Waiting for the break=bottom shell (~60-90s)..."
+          sleep 75
+          shot 00-break-shell
+          # Confirm we actually got a shell, not still booting.
           vd key enter; sleep 3
-          shot 03-ubuntu-blank-password-result
+          shot 01-shell-confirm
 
-          # If that didn't produce a shell, retry clean as root (also try blank).
-          vd type 'root'; vd key enter; sleep 3
-          shot 04-root-username-sent
-          vd key enter; sleep 3
-          shot 05-root-blank-password-result
+          vd type 'cat /root/etc/passwd | tail -5'; vd key enter; sleep 2
+          shot 02-passwd-tail
 
-          # Whichever attempt succeeded (if either), this reveals the actual
-          # non-system accounts that exist on the live overlay right now — the
-          # real answer to "does a live user exist, and under what name".
-          vd type 'getent passwd 1000 1001 1002; cat /etc/passwd | tail -6'
-          vd key enter; sleep 3
-          shot 06-passwd-tail
+          vd type 'ls -la /root/usr/lib/user-setup/user-setup-apply'; vd key enter; sleep 2
+          shot 03-usersetup-binary-exists
+
+          # THE key check: manually re-run exactly what 25adduser runs, with the
+          # SAME debconf answers it would have set (username/password), and
+          # capture the real exit code instead of the silent no-`set -e` failure
+          # 25adduser itself would have hidden.
+          vd type 'chroot /root /usr/lib/user-setup/user-setup-apply; echo EXIT=$?'
+          vd key enter; sleep 6
+          shot 04-usersetup-manual-run
+
+          vd type 'cat /root/etc/casper.conf 2>&1'; vd key enter; sleep 2
+          shot 05-casper-conf
 
           mon "quit" || true
 
@@ -114,6 +118,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: diag-autologin-evidence-r2
+          name: diag-autologin-evidence-r3
           path: shots/
           retention-days: 7
