@@ -165,6 +165,34 @@ jobs:
           chk "English locale SURVIVES the locale excludes" \
               "test -d $SQ/usr/share/locale/en || test -d $SQ/usr/share/locale/en_GB || test -d $SQ/usr/share/locale/en@shaw"
           echo
+          # THE macOS LOOK. This is asserted because it silently vanished for
+          # months: WhiteSur's installer sources a lib that runs `set -Eeo
+          # pipefail` and then dies on `getent passwd ""` when USER is unset in the
+          # chroot, so it exited in milliseconds with no output. Icons shipped
+          # (their installer doesn't use that lib), the GTK theme did not, and the
+          # desktop defaults still NAMED WhiteSur-Dark — so GTK fell back to
+          # Adwaita and the headline look was simply absent, with nothing failing.
+          # Only build.sh's GNOME strains get this layer; server/cloud/lowspec have
+          # the hook stripped, so gate on the same $DESKTOP the rest of this job uses.
+          echo "=== macOS look (GNOME strains only) ==="
+          if [ "$DESKTOP" = gnome ]; then
+            chk "WhiteSur-Dark GTK theme installed (the look actually shipped)" \
+                "test -d $SQ/usr/share/themes/WhiteSur-Dark"
+            chk "WhiteSur GNOME Shell theme present (user-theme extension target)" \
+                "test -e $SQ/usr/share/themes/WhiteSur-Dark/gnome-shell/gnome-shell.css"
+            chk "WhiteSur icon theme installed" \
+                "test -d $SQ/usr/share/icons/WhiteSur-dark"
+            chk "Blur-my-Shell assembled (Normal mode's liquid glass)" \
+                "test -e $SQ/usr/share/gnome-shell/extensions/blur-my-shell@aunetx/extension.js"
+            # The defaults must name a theme that EXISTS. This is the assertion that
+            # would have caught the original bug on its own: a desktop pointed at a
+            # missing theme is indistinguishable from stock GNOME at a glance.
+            chk "gtk-theme default names an INSTALLED theme (no phantom theme)" \
+                "t=\$(sed -n \"s/^gtk-theme='\\(.*\\)'/\\1/p\" $SQ/usr/share/glib-2.0/schemas/99_refract.gschema.override | head -n1); [ -n \"\$t\" ] && test -d \"$SQ/usr/share/themes/\$t\""
+          else
+            skip "macOS-look assertions ($DESKTOP image — build.sh strips that layer)"
+          fi
+          echo
           echo "=== installed-package cross-check (filesystem.manifest) ==="
           MAN=/mnt/iso/casper/filesystem.manifest
           # Absence checks are universal — the legacy Intel DDX and the Ubuntu

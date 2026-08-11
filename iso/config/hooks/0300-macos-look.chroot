@@ -11,6 +11,26 @@ GTK_SHA="a83f467e4c16b1ed1c960f3d89e2472d9639477c"   # vinceliuice/WhiteSur-gtk-
 ICON_SHA="3cc051a4709e67921a9d47cd2a3e0111bbe5e2bd"  # vinceliuice/WhiteSur-icon-theme
 BMS_SHA="c9002511c7c8ad65931e3f875fe0ea93b8123394"   # aunetx/blur-my-shell
 
+# WHY THIS EXPORT IS LOAD-BEARING — it is the whole reason the macOS look never
+# shipped. WhiteSur's install.sh sources libs/lib-install.sh -> libs/lib-core.sh,
+# which begins `set -Eeo pipefail` and then, before printing anything:
+#
+#     MY_USERNAME="${SUDO_USER:-$(logname 2> /dev/null || echo "${USER}")}"
+#     MY_HOME=$(getent passwd "${MY_USERNAME}" | cut -d: -f6)
+#
+# Inside a live-build chroot there is no SUDO_USER, `logname` fails (no
+# controlling terminal, no utmp), and USER is not exported — so MY_USERNAME is
+# the EMPTY STRING. `getent passwd ""` matches no key and exits 2, and with
+# errexit+pipefail that kills the installer instantly, at source time, before a
+# single line of its own output. That is the silent ~27ms failure: the log showed
+# "installing WhiteSur GTK..." and then nothing, the `script -qfec` fallback died
+# the same way for the same reason, and every image shipped WhiteSur ICONS (whose
+# installer does not use these libs, which is exactly why icons always worked)
+# with NO WhiteSur GTK theme — while the schema/dconf defaults below still named
+# 'WhiteSur-Dark'. A desktop asking for a theme that was never installed silently
+# renders as stock Adwaita, which is why the "macOS look" was never visible.
+export USER=root LOGNAME=root HOME=/root
+
 command -v git >/dev/null 2>&1 || { echo "macos-look: git missing — skipping."; exit 0; }
 WORK="$(mktemp -d)"
 # shellcheck disable=SC2064
@@ -88,7 +108,31 @@ for t in WhiteSur WhiteSur-dark; do
         && gtk-update-icon-cache -qf "/usr/share/icons/$t" 2>/dev/null || true
 done
 
-[ -d /usr/share/themes/WhiteSur-Dark ] \
-    && echo "macos-look: WhiteSur-Dark GTK present — default desktop renders macOS-style." \
-    || echo "macos-look: WhiteSur-Dark GTK MISSING — desktop falls back to dark Yaru." >&2
+if [ -d /usr/share/themes/WhiteSur-Dark ]; then
+    echo "macos-look: WhiteSur-Dark GTK present — default desktop renders macOS-style."
+else
+    # Do not leave the defaults naming a theme that isn't installed. The glib
+    # override and the dconf db both hardcode gtk-theme='WhiteSur-Dark'; when the
+    # install fails, GTK silently falls back to Adwaita, so the desktop renders as
+    # stock GNOME while every config file, mode profile and doc insists it is
+    # macOS-styled. (The old message here claimed the fallback was "dark Yaru" —
+    # it never was; nothing pointed at Yaru.) Repoint the default at a theme that
+    # actually exists so the degraded state is coherent and legible.
+    echo "macos-look: WhiteSur-Dark GTK MISSING — repointing desktop defaults at an installed theme." >&2
+    _fb=""
+    for _c in Yaru-dark Adwaita-dark Adwaita; do
+        [ -d "/usr/share/themes/$_c" ] && { _fb="$_c"; break; }
+    done
+    if [ -n "$_fb" ]; then
+        for _f in /usr/share/glib-2.0/schemas/99_refract.gschema.override \
+                  /etc/dconf/db/local.d/00-refract; do
+            [ -f "$_f" ] && sed -i "s/'WhiteSur-Dark'/'$_fb'/g" "$_f" 2>/dev/null || true
+        done
+        command -v glib-compile-schemas >/dev/null 2>&1 && glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true
+        command -v dconf >/dev/null 2>&1 && dconf update 2>/dev/null || true
+        echo "macos-look: desktop gtk/shell theme default is now '$_fb'." >&2
+    else
+        echo "macos-look: no fallback theme found either — defaults left as-is." >&2
+    fi
+fi
 exit 0
