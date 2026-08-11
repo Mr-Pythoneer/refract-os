@@ -23,6 +23,33 @@ WORK="$(mktemp -d)"
 # shellcheck disable=SC2064
 trap "rm -rf '$WORK'" EXIT INT TERM
 
+# Claim keyd's group as a SYSTEM group (GID < 1000) BEFORE `make install` runs.
+#
+# THIS IS LOAD-BEARING, AND IT BROKE THE ENTIRE DISTRO. keyd's Makefile creates
+# its group itself, as a REGULAR group — so it took the first free GID >= 1000,
+# which on this image is exactly 1000. That is the GID casper hardcodes for the
+# live session user (user-setup sets passwd/user-uid 1000, per LP: #2004092), so
+# keyd silently stole it and casper's user creation died:
+#
+#     Begin: Adding live session user... ... fatal: The GID 1000 is already in use.
+#     usermod: user 'ubuntu' does not exist
+#     passwd: user 'ubuntu' does not exist
+#
+# casper's 25adduser has no `set -e`, so it sailed straight past that and the
+# boot continued with NO live user at all. Consequences, all of which were
+# chased separately before the cause was found: `id -u ubuntu` false, so
+# 0400-polish's tty3 agetty autologin never armed; GDM with no account to list,
+# rendering a bare username field that no password can satisfy; the live desktop
+# therefore unreachable; and install-smoke burning three consecutive 40-minute
+# timeouts waiting for a Calamares window that could never appear. A real X1
+# Carbon showed the same login screen.
+#
+# groupadd -r allocates from the system range (< 1000), leaving 1000 free for
+# casper. Pre-creating is enough: keyd's own group creation is idempotent
+# (`groupadd -f`-style), so it becomes a no-op and upstream is left unpatched.
+# Guarded with getent so a re-run is harmless.
+getent group keyd >/dev/null 2>&1 || groupadd -r keyd 2>/dev/null || true
+
 if git clone --depth 1 --branch "$KEYD_TAG" https://github.com/rvaiya/keyd.git "$WORK/keyd" >/dev/null 2>&1 \
    && make -C "$WORK/keyd" >/dev/null 2>&1 \
    && make -C "$WORK/keyd" install >/dev/null 2>&1; then

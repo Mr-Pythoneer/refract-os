@@ -198,6 +198,21 @@ jobs:
           chk "gnome-initial-setup binary is PURGED" \
               "! test -e $SQ/usr/libexec/gnome-initial-setup"
           fi   # end GNOME-only boot-fix assertions
+          echo "=== UID/GID 1000 is FREE for casper's live user (regression guard) ==="
+          # casper creates the live session user at UID/GID 1000 (user-setup sets
+          # passwd/user-uid 1000, per LP: #2004092). If ANY packaged user or group
+          # in the shipped image already holds 1000, user-setup-apply aborts with
+          # "fatal: The GID 1000 is already in use." and casper's 25adduser — which
+          # has no `set -e` — silently continues, producing a live image with NO
+          # live user: no autologin on any path, a GDM prompt with no account to
+          # list, and an unreachable desktop. That is exactly what keyd's Makefile
+          # did (it created a REGULAR group, taking 1000); 0410-keyd.chroot now
+          # pre-creates it with groupadd -r. This is the guard that makes a repeat
+          # impossible to ship unnoticed, from any package, on any strain.
+          chk "no group holds GID 1000 (casper's live user needs it)" \
+              "! awk -F: '\$3 == 1000' $SQ/etc/group | grep -q ."
+          chk "no user holds UID 1000 (casper's live user needs it)" \
+              "! awk -F: '\$3 == 1000' $SQ/etc/passwd | grep -q ."
           echo "=== firmware for the iGPU is present ==="
           # Not GNOME-gated: every strain needs i915 firmware for Intel graphics.
           chk "i915 DMC/GuC firmware dir present" \
