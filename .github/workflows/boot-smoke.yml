@@ -165,6 +165,18 @@ jobs:
             -append "boot=casper console=ttyS0,115200 systemd.show_status=true" \
             -cdrom refract.iso \
             -display none -serial "file:$PWD/serial.log" -pidfile "$PWD/qemu-b.pid" -daemonize
+          # Success markers — and why the two obvious-looking ones are NOT here.
+          # `\bgdm3?\b` used to be in this alternation, and it was a hole: it matches
+          # "Failed to start GNOME Display Manager (gdm3.service)" and
+          # "gdm3.service: Main process exited, status=1/FAILURE" exactly as happily
+          # as a successful start, so a live session whose display manager
+          # crash-looped reported PASS. A bare `login:` was the other: it matches
+          # "pam_unix(login:session):" anywhere mid-log, nowhere near a prompt.
+          # Both are positive-only now, and the console prompt is anchored to the
+          # start of a line so it is a real getty prompt ("refract login:").
+          GRAPHICAL='reached target graphical|started (gnome display manager|gdm)'
+          CONSOLE='^[[:alnum:]_.-]+ login:'
+          DM_FAIL='failed to start (gnome display manager|gdm)|gdm3?\.service: (main process exited|failed with result)|dependency failed for .*display manager'
           # Poll the serial log for boot-progress markers, up to 8 minutes.
           ok_casper=""; ok_systemd=""
           for i in $(seq 1 96); do
@@ -177,17 +189,35 @@ jobs:
             # casper-md5check / filesystem.squashfs / the /scripts/casper initramfs
             # stage only appear once casper is genuinely handling the live medium.
             grep -q -m1 -iE "casper-md5check|filesystem\.squashfs|/scripts/casper" serial.log 2>/dev/null && ok_casper=1
-            # systemd: require a LATE target, not a bare "reached target" (which
-            # fires for Swap / Local File Systems / Basic System on any half-boot).
-            # graphical.target + gdm + a login prompt are proof userspace is up.
-            grep -q -m1 -iE "reached target graphical|graphical\.target|started gnome display manager|\bgdm3?\b|login:" serial.log 2>/dev/null && ok_systemd=1
+            grep -q -iE "$GRAPHICAL" serial.log 2>/dev/null && ok_systemd=graphical
             [ -n "$ok_casper" ] && [ -n "$ok_systemd" ] && break
           done
+          # Headless strains (server/cloud) never reach graphical.target, so an
+          # anchored getty prompt is their correct proof that userspace came up.
+          # Checked only AFTER the loop on purpose: on a desktop the getty prompt
+          # often appears before gdm does, and accepting it inside the loop would
+          # break early and under-report a perfectly healthy graphical boot.
+          if [ -z "$ok_systemd" ] && grep -qE "$CONSOLE" serial.log 2>/dev/null; then ok_systemd=console; fi
+          # A display-manager failure invalidates a console-only pass: reaching a
+          # getty while gdm crash-loops is exactly the broken-desktop state this
+          # job exists to catch.
+          if grep -qiE "$DM_FAIL" serial.log 2>/dev/null; then
+            if [ "$ok_systemd" = graphical ]; then
+              echo "NOTE: a display-manager failure was logged but graphical.target was still reached (systemd restarted it) — see serial.log."
+            else
+              echo "display manager failed to start:"; grep -iE "$DM_FAIL" serial.log | head -5
+              ok_systemd=""
+            fi
+          fi
           kill "$(cat qemu-b.pid)" 2>/dev/null || true
           echo "=== serial.log tail ==="; tail -40 serial.log || true
           [ -n "$ok_casper" ]  || { echo "FAIL: no casper runtime marker in serial log — initramfs never found/mounted the live squashfs (a boot=casper cmdline echo alone no longer counts)." >&2; exit 1; }
-          [ -n "$ok_systemd" ] || { echo "FAIL: casper ran but systemd never reached the graphical target / a display manager / login prompt." >&2; exit 1; }
-          echo "PASS: kernel booted, casper mounted the live system, systemd reached the graphical userspace target."
+          [ -n "$ok_systemd" ] || { echo "FAIL: casper ran but systemd never reached the graphical target, a display manager, or a console login prompt." >&2; exit 1; }
+          if [ "$ok_systemd" = graphical ]; then
+            echo "PASS: kernel booted, casper mounted the live system, systemd reached the graphical userspace target."
+          else
+            echo "PASS (console): kernel booted, casper mounted the live system, systemd reached a console login prompt — no graphical target on this image."
+          fi
 
       - name: Upload boot evidence
         if: always()

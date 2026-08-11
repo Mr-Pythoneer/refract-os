@@ -387,6 +387,55 @@ jobs:
           echo "final target actual-size: $final"
           [ "$final" -gt 2000000000 ] || { echo "FAIL: target disk got <2GB — install did not copy the system." >&2; exit 1; }
 
+      - name: "Give the installed disk a serial console (test harness only)"
+        run: |
+          set -euo pipefail
+          # WHY THIS STEP HAD TO BE ADDED.
+          # The step below boots target.qcow2 with `-serial file:installed-serial.log`
+          # and greps that log for a userspace marker. But the INSTALLED system boots
+          # through its OWN GRUB, whose cmdline comes from /etc/default/grub —
+          # "quiet splash", with no console= at all. Nothing was ever written to
+          # ttyS0, so installed-serial.log was EMPTY on every run and the grep could
+          # never match. The assertion could only ever take its failure branch, which
+          # `continue-on-error` then swallowed into a green run: it has never once
+          # verified an install in either direction.
+          #
+          # Putting console= in the SHIPPED image would be wrong — users would get
+          # kernel spew aimed at a serial port they do not have — so the console is
+          # added HERE, to the throwaway test artifact, immediately before the test
+          # boot. Whether a system boots does not depend on which console it logs to.
+          cleanup() {
+            sudo umount /mnt/installed 2>/dev/null || true
+            sudo qemu-nbd --disconnect /dev/nbd0 >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          sudo modprobe nbd max_part=16
+          sudo qemu-nbd --connect=/dev/nbd0 target.qcow2
+          # Partition nodes appear asynchronously after connect.
+          for _ in $(seq 1 20); do [ -e /dev/nbd0p1 ] && break; sleep 1; done
+          lsblk -no NAME,SIZE,FSTYPE /dev/nbd0 || true
+          # Root is the largest ext4 partition: the ESP is vfat and swap is swap.
+          root_part=$(lsblk -bnro NAME,FSTYPE,SIZE /dev/nbd0 \
+                        | awk '$2=="ext4" {print $3" /dev/"$1}' | sort -rn | head -n1 | awk '{print $2}')
+          [ -n "$root_part" ] || { echo "FAIL: no ext4 partition on the installed disk — the partition/unpackfs steps never produced a root filesystem." >&2; exit 1; }
+          echo "installed root filesystem: $root_part"
+          sudo mkdir -p /mnt/installed
+          sudo mount "$root_part" /mnt/installed
+          # Two things worth asserting while the target is mounted, both of which
+          # fail EARLIER and far more legibly than a silent no-boot would.
+          [ -f /mnt/installed/boot/grub/grub.cfg ] \
+            || { echo "FAIL: installed root has no /boot/grub/grub.cfg — the bootloader module never ran." >&2; exit 1; }
+          grep -q 'Refract' /mnt/installed/etc/os-release \
+            || { echo "FAIL: the installed /etc/os-release is not Refract — unpackfs copied the wrong tree." >&2; exit 1; }
+          sed -n '1,3p' /mnt/installed/etc/os-release
+          # Append the console to every kernel line, and drop quiet/splash: with
+          # `quiet` in place systemd prints no target lines at all, so even a perfect
+          # boot would log nothing for the next step to match on.
+          sudo sed -i -E 's|^([[:space:]]*linux[[:space:]].*)$|\1 console=ttyS0,115200|; s|[[:space:]]+quiet\b||g; s|[[:space:]]+splash\b||g' \
+            /mnt/installed/boot/grub/grub.cfg
+          echo "=== patched kernel lines ==="
+          grep -E '^[[:space:]]*linux[[:space:]]' /mnt/installed/boot/grub/grub.cfg | head -n5
+
       - name: "Boot the INSTALLED disk (no ISO) and assert userspace"
         run: |
           set -euo pipefail
@@ -394,20 +443,42 @@ jobs:
             -drive file=target.qcow2,format=qcow2,if=virtio \
             -display none -serial "file:$PWD/installed-serial.log" \
             -pidfile "$PWD/qemu2.pid" -daemonize
+          # LATE markers only: a bare "reached target" fires for Swap / Local File
+          # Systems on any half-booted system. `\bgdm3?\b` and a bare `login:` were
+          # in this alternation and are gone — the first matches "Failed to start
+          # GNOME Display Manager" and "gdm3.service: Main process exited" as
+          # readily as a successful start, the second matches "pam_unix(login:
+          # session):" anywhere mid-log. See the same fix in boot-smoke.yml.
+          GRAPHICAL='reached target graphical|started (gnome display manager|gdm)'
+          CONSOLE='^[[:alnum:]_.-]+ login:'
+          DM_FAIL='failed to start (gnome display manager|gdm)|gdm3?\.service: (main process exited|failed with result)|dependency failed for .*display manager'
           ok=""
           for i in $(seq 1 80); do
             sleep 5
-            # LATE marker only: the installed disk must reach the GRAPHICAL target
-            # (or a display manager / login prompt) — a bare "reached target" fires
-            # for Swap / Local File Systems on any half-booted system and would
-            # green-light a box that never actually gets a desktop or a login.
-            grep -qiE "reached target graphical|graphical\.target|started gnome display manager|\bgdm3?\b|login:" installed-serial.log 2>/dev/null && ok=1 && break
+            grep -qiE "$GRAPHICAL" installed-serial.log 2>/dev/null && { ok=graphical; break; }
           done
+          # Headless strains never reach graphical.target; an anchored getty prompt
+          # is their proof of userspace. Checked after the loop, not inside it: on a
+          # desktop the getty prompt often lands before gdm and would break early.
+          if [ -z "$ok" ] && grep -qE "$CONSOLE" installed-serial.log 2>/dev/null; then ok=console; fi
+          if grep -qiE "$DM_FAIL" installed-serial.log 2>/dev/null; then
+            if [ "$ok" = graphical ]; then
+              echo "NOTE: a display-manager failure was logged but graphical.target was still reached — see the serial log."
+            else
+              echo "display manager failed to start on the installed disk:"; grep -iE "$DM_FAIL" installed-serial.log | head -n5
+              ok=""
+            fi
+          fi
           kill "$(cat qemu2.pid)" 2>/dev/null || true
           echo "=== installed-disk serial tail ==="; tail -40 installed-serial.log || true
           if [ -n "$ok" ]; then
-            echo "PASS: the installed disk boots to a graphical / login userspace with no ISO attached."
-            echo "INSTALL VERIFY PASSED: installed disk reached the graphical target with no ISO attached." >> "$GITHUB_STEP_SUMMARY"
+            if [ "$ok" = graphical ]; then
+              echo "PASS: the installed disk reaches the graphical target with no ISO attached."
+              echo "INSTALL VERIFY PASSED: installed disk reached the graphical target with no ISO attached." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "PASS (console): the installed disk reaches a console login prompt with no ISO attached; this image has no graphical target."
+              echo "INSTALL VERIFY PASSED (console): installed disk reached a getty login prompt with no ISO attached." >> "$GITHUB_STEP_SUMMARY"
+            fi
           else
             # This job is continue-on-error, so a bare `exit 1` here is neutralised to
             # a GREEN run — a totally broken install would then masquerade as verified.
