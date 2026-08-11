@@ -449,6 +449,34 @@ jobs:
             prev="$sz"
           done
           shot 06-final
+          # ON FAILURE, READ CALAMARES' OWN LOG FROM INSIDE THE GUEST.
+          # The installer reports only a one-line summary in its error dialog
+          # ("rsync failed with error code 11"), which names the symptom and not
+          # the cause — exit 11 is rsync's generic file-I/O error and could be the
+          # source mount, the destination mount, or permissions. Calamares writes
+          # a full session log; it runs under pkexec, so that log is in ROOT's
+          # cache. Open the dock Terminal (the desktop is functional now, and its
+          # launcher works since the trust fix) and dump the relevant lines rather
+          # than guessing a fourth cause. casper's live user has passwordless
+          # sudo, so `sudo` needs no password here.
+          if [ "$final_check_skip" != "1" ]; then
+            sz_now=$(qemu-img info -U --output=json target.qcow2 | python3 -c "import json,sys;print(json.load(sys.stdin)['actual-size'])")
+            if [ "$sz_now" -lt 2000000000 ]; then
+              echo "Install failed — pulling Calamares' session log from the guest."
+              vd move 791 481 click 1; sleep 2          # dismiss the Error dialog
+              vd move 509 754 click 1; sleep 8          # dock: Terminal
+              shot 07-terminal
+              vd type 'sudo grep -iE "unpackfs|rsync|mount" /root/.cache/calamares/session.log | tail -22'
+              vd key enter; sleep 5
+              shot 08-calamares-log
+              vd type 'sudo tail -25 /root/.cache/calamares/session.log'
+              vd key enter; sleep 5
+              shot 09-calamares-tail
+              vd type 'lsblk; echo ---; mount | grep -iE "calamares|cdrom|squash"'
+              vd key enter; sleep 4
+              shot 10-mounts
+            fi
+          fi
           mon "quit" || true
           sudo apt-get install -y imagemagick >/dev/null 2>&1 || true
           for f in shots/*.ppm; do convert "$f" "${f%.ppm}.png" 2>/dev/null && rm -f "$f" || true; done
