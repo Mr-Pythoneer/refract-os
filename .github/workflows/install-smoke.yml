@@ -405,16 +405,22 @@ jobs:
           vd type "refractos1"; vd key tab; vd type "refractos1"; sleep 1
           shot 03b-users-filled
           next 6;  shot 04-summary       # Users -> Summary
-          # Summary -> Install. 1155,772 was another maximized-window coordinate:
-          # on the real centred window that point is OUTSIDE the dialog entirely
-          # (its buttons sit at y≈718, rightmost edge x≈1145), so the click hit
-          # the desktop behind and the install was never started. The primary
-          # button occupies the same slot as "Next" throughout the wizard —
-          # 1007,718 in the observed geometry — and reads "Install" here.
-          vd move 1007 718 click 1; sleep 3
+          # Summary -> Install, BY ACCELERATOR. Two coordinate attempts failed
+          # here: 1155,772 (a maximized position, outside the real dialog) and
+          # then 1007,718, which is dead-centre on the button and still did not
+          # activate it — run 31516849743 sat on the Summary page for four more
+          # minutes with the cursor parked on Install. Alt+N has driven every
+          # other page of this wizard reliably, so use the same mechanism:
+          # Calamares underlines the accelerator on each button and this one
+          # reads "Install".
+          vd key alt-i; sleep 4
           shot 04b-confirm
-          # An "Install now?" confirm dialog may pop — its OK is also bottom-right.
-          vd key tab; sleep 1; vd key enter
+          # A confirm dialog may appear; Enter activates its default button.
+          # The previous version sent Tab first, which moved focus from Install
+          # to CANCEL (visible in that run's 06-final shot) — one Enter away from
+          # aborting the very install this job exists to perform. No blind Tab.
+          vd key enter; sleep 3
+          shot 04c-after-confirm
           echo "Installing (unpackfs copy + grub)... polling target disk growth"
           # An erase-disk install writes several GB; poll qcow2 actual size as a
           # progress proxy, up to 25 minutes.
