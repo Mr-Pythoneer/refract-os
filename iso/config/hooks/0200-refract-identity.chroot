@@ -77,14 +77,31 @@ SVG=/usr/share/refract/logo.svg
 # noble ships /usr/share/icons/gnome-logo-text-dark.svg, which resolves on
 # a dark-default desktop. So removing the key swapped a Refract mark for a
 # GNOME one. Blank those names too.
+# ONE traversal, not 2-per-name. This was a find over /usr/share/icons +
+# /usr/share/pixmaps for every name AND again for its .svg — 8 names x 2 = 16
+# full walks of a directory tree with tens of thousands of files, on every
+# build. Adding the gnome-logo names doubled that cost. Build the whole -iname
+# predicate first, walk once, and dispatch by extension: a PNG written into a
+# .svg filename renders as a broken image, so the extension still matters.
+# Also -exec ... {} + (batched) rather than {} \; (one cp per file).
+_pred=""
 for name in ubuntu-logo start-here distributor-logo ubuntu-logo-icon \
             gnome-logo gnome-logo-text gnome-logo-text-dark gnome-logo-dark; do
-    find /usr/share/icons /usr/share/pixmaps -type f \
-        \( -iname "${name}.png" -o -iname "${name}@2x.png" -o -iname "${name}-icon.png" \) \
-        -exec cp "$CL" {} \; 2>/dev/null || true
-    [ -f "$SVG" ] && find /usr/share/icons /usr/share/pixmaps -type f -iname "${name}.svg" \
-        -exec cp "$SVG" {} \; 2>/dev/null || true
+    for pat in "${name}.png" "${name}@2x.png" "${name}-icon.png" "${name}.svg"; do
+        _pred="$_pred -o -iname $pat"
+    done
 done
+_pred="${_pred# -o }"
+# shellcheck disable=SC2086  # $_pred is a deliberately word-split find predicate
+find /usr/share/icons /usr/share/pixmaps -type f \( $_pred \) \
+    -exec env CL="$CL" SVG="$SVG" sh -c '
+        for f do
+            case "$f" in
+                *.svg) [ -f "$SVG" ] && cp "$SVG" "$f" 2>/dev/null || true ;;
+                *)     cp "$CL" "$f" 2>/dev/null || true ;;
+            esac
+        done
+    ' sh {} + 2>/dev/null || true
 # No Refract distributor icon is installed (os-release sets no LOGO=), and the
 # GNOME fallback that would otherwise fill that gap is blanked by the loop above.
 rm -f /usr/share/icons/hicolor/256x256/apps/refract.png 2>/dev/null || true

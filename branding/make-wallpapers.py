@@ -70,13 +70,17 @@ def base_gradient():
     return grad.resize((W, H), Image.BILINEAR)
 
 
-def ray_layer(index, strength):
-    """One dispersed ray: a wedge widening from the prism point, blurred soft."""
+def ray_layer(index):
+    """One dispersed ray at FULL strength: a wedge from the prism, blurred soft.
+
+    Deliberately strength-free. Gaussian blur is a linear operator, so
+    blur(colour * k) == blur(colour) * k — rendering per (ray, strength) pair
+    meant 30 GaussianBlur(46) passes over a 2560x1440 image across the six
+    outputs, when 5 suffice. Callers scale the finished layer instead.
+    """
     import math
     name, colour = RAYS[index]
     layer = Image.new("RGB", (W, H), (0, 0, 0))
-    if strength <= 0:
-        return layer
     d = ImageDraw.Draw(layer)
 
     ang = math.radians(ANGLES[index])
@@ -94,7 +98,7 @@ def ray_layer(index, strength):
             (ex - nx * half_end,   ey - ny * half_end),
             (ox - nx * half_start, oy - ny * half_start),
         ],
-        fill=tuple(round(c * strength) for c in colour),
+        fill=colour,
     )
     layer = layer.filter(ImageFilter.GaussianBlur(46))
 
@@ -146,24 +150,51 @@ def dither(img, amount=1):
     value is therefore a release-shape decision, not a taste one — re-measure
     lowspec before touching it.
     """
-    rnd = random.Random(20260804)          # fixed seed: byte-identical rebuilds
-    noise = Image.new("L", (W, H))
-    noise.putdata([rnd.randint(0, amount) for _ in range(W * H)])
-    return ImageChops.add(img, Image.merge("RGB", (noise, noise, noise)))
+    return ImageChops.add(img, _noise(amount))
 
 
-def build(emphasis=None):
-    """emphasis=None -> all five balanced; otherwise that ray leads."""
-    img = base_gradient()
-    img = ImageChops.screen(img, incoming_beam())
+_NOISE_CACHE = {}
+
+
+def _noise(amount):
+    """The dither field, built once and reused for all six outputs.
+
+    The seed is fixed, so every call produced the IDENTICAL field — but it was
+    rebuilt each time, and that meant 3.7M random ints plus a putdata of the
+    same 3.7M pixels per image, six times over. Cache it: same bytes out, one
+    sixth of the work. (Keyed on amount so a changed dither strength still
+    regenerates rather than silently reusing the old field.)
+    """
+    if amount not in _NOISE_CACHE:
+        rnd = random.Random(20260804)      # fixed seed: byte-identical rebuilds
+        noise = Image.new("L", (W, H))
+        noise.putdata([rnd.randint(0, amount) for _ in range(W * H)])
+        _NOISE_CACHE[amount] = Image.merge("RGB", (noise, noise, noise))
+    return _NOISE_CACHE[amount]
+
+
+def _scaled(layer, k):
+    """layer * k, exploiting blur linearity so a ray is blurred only once."""
+    if k >= 1.0:
+        return layer
+    return layer.point(lambda v, k=k: int(v * k))
+
+
+def build(emphasis, cache):
+    """emphasis=None -> all five balanced; otherwise that ray leads.
+
+    `cache` holds the shared, emphasis-independent layers (background+beam and
+    each ray at full strength) so the six outputs recompute none of them.
+    """
+    img = cache["bg"].copy()
     for i, (name, _) in enumerate(RAYS):
         if emphasis is None:
-            s = 0.60                       # balanced full spectrum
+            k = 0.60                       # balanced full spectrum
         elif name == emphasis:
-            s = 0.95                       # this mode leads
+            k = 0.95                       # this mode leads
         else:
-            s = 0.16                       # others recede but stay present
-        img = ImageChops.screen(img, ray_layer(i, s))
+            k = 0.16                       # others recede but stay present
+        img = ImageChops.screen(img, _scaled(cache["rays"][i], k))
     return dither(img)
 
 
@@ -188,10 +219,16 @@ PREVIEW_MODES = ["gaming", "ai", "server", "creative"]
 
 def main():
     os.makedirs(OUT, exist_ok=True)
+    # Everything emphasis-independent, computed exactly once: the gradient with
+    # the incoming beam screened in, and each ray blurred at full strength.
+    cache = {
+        "bg": ImageChops.screen(base_gradient(), incoming_beam()),
+        "rays": [ray_layer(i) for i in range(len(RAYS))],
+    }
     targets = [("base", None)] + [(n, n) for n, _ in RAYS]
     rendered = {}
     for name, emphasis in targets:
-        img = build(emphasis)
+        img = build(emphasis, cache)
         rendered[name] = img
         path = os.path.join(OUT, f"{name}.png")
         img.save(path, optimize=True)

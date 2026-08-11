@@ -363,3 +363,52 @@ Three pieces of work after 12d, then a full re-audit of all of it.
   places, the `REFRACT_OMIT_MODES=ai` leak via the installer banner's baked-in "AI"
   chip, no baked default accent for a fresh install, and `--text-faint` contrast
   below WCAG AA. None user-blocking; tracked here rather than silently dropped.
+
+### 12f. Logo removal, install-blocker fix and cleanup (2026-08-08 → 2026-08-10)
+
+- [x] **Logo removed from the entire OS** (`f4dfa3e`) — no mark on the splash,
+  greeter, dock, About panel, or installer. Branding is the name as text. Image
+  slots are filled with a 1x1 transparent stand-in rather than deleted, because
+  those filenames (`ubuntu-logo`, `start-here`, `distributor-logo`, and GNOME's
+  `gnome-logo` fallback) are *Ubuntu's/GNOME's* — deleting them restores THEIR
+  logo, which is the opposite of the request.
+- [x] **THE INSTALL BLOCKER** (`c17c5f0`) — `settings.conf` ran 24 module entries
+  while only 6 configs shipped, and noble's `calamares` package provides no
+  defaults. `mount` silently continued with nothing mounted in the target (so
+  every later chrooted job ran in a bare chroot), `displaymanager` returned an
+  error tuple that ABORTS the install, and `bootloader` raised an uncaught
+  KeyError. All three now ship, from upstream's own defaults. This is the most
+  likely reason the installer had never completed an install.
+  - `bootloader.conf` keeps `efiBootloaderId: "ubuntu"` deliberately: Ubuntu's
+    `grubx64.efi` has its prefix compiled in, so `\EFI\refract` would boot to a
+    grub rescue prompt. Branding comes from `GRUB_DISTRIBUTOR`.
+  - `install-smoke` only ever checked `shipped - used`, so it was structurally
+    blind to this. The reverse assertion now exists.
+- [x] **Regression caught and fixed**: rewriting the splash to be text-only
+  deleted the LUKS passphrase callback with it, so encrypted installs showed a
+  silent black screen. Restored. Also added `plymouth-label` — with no logo, the
+  splash draws *everything* via `Image.Text`, which needs that plugin.
+- [x] **Backlog cleared** (`25c6530`) — lowspec dropped users at an SDDM greeter
+  (missing `lubuntu-installer-prompt`); the install icon was never created
+  (casper-bottom glob order put it before `25adduser`); `build.sh` had no CWD
+  guard and from the repo root would silently emit a stock Ubuntu image wearing
+  the Refract name; `verify-boot-fixes` red-X'd correct headless images;
+  `build-iso` deleted the release ISO *before* uploading its replacement; and the
+  accent stylesheet hardcoded white text (2.00:1 on Normal — below the 3:1 UI
+  floor), now per-profile `ACCENT_FG`.
+- [x] **Cleanup + efficiency**: the icon-blanking loop walked
+  `/usr/share/icons` 16 times per build (once per name per extension) — now one
+  traversal with batched `-exec +`. `make-wallpapers.py` 20.1s → 15.7s with
+  byte-identical output, by caching the blur layers and the dither field (the
+  seed was fixed, so the field was identical every time and rebuilt anyway).
+  Dropped `logo-clean.png`, `logo-small.png` and `fastfetch.jsonc` — all
+  generated or tracked with no consumer left after the logo removal.
+- [ ] **NOT YET PROVEN.** None of the above has been through a build. The
+  Calamares fix in particular is inferred from reading upstream module source,
+  not observed — no install has been attempted since. Published ISOs still date
+  from `e3c0ec7` and predate every fix here.
+- [ ] **Deferred** (needs a wider pass than one session): a full efficiency audit
+  of build time / ISO size / boot time; the WhiteSur GTK installer failing
+  silently in 27ms so the macOS look ships as icons only while dconf points at a
+  missing theme; `handheld` shipping no `setup-handheld-ui.sh` despite docs
+  telling users to run it; the cloud qcow2 containing no Refract at all.

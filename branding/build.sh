@@ -115,13 +115,11 @@ cropped.save(os.environ["DEST_PNG"])
 rasterize "$SRC/logo.svg" 512 512 "logo.png"
 rasterize "$SRC/welcome.svg" 1024 460 "welcome.png"
 rasterize "$SRC/logo.svg" 256 256 "favicon.png"
-# logo-clean.png + logo-small.png are consumed by iso/build.sh (Plymouth splash,
-# /usr/share/refract, GDM greeter, fastfetch). They used to be hand-made 720px
-# PNGs with the logo anchored in the TOP-LEFT of an oversized transparent canvas,
-# which is why the boot splash + login logo rendered up-and-left of center.
-# Generate them here from the SVG so the content is centered/tight like the rest.
-rasterize "$SRC/logo.svg" 512 512 "logo-clean.png"
-rasterize "$SRC/logo.svg" 200 200 "logo-small.png"
+# logo-clean.png / logo-small.png are NOT generated any more. They existed for the
+# Plymouth splash, /usr/share/refract and the GDM greeter — every one of which is
+# now logo-free, so iso/build.sh copies blank.png into those slots instead and
+# nothing read these two. Rasterizing them cost two qlmanage renders per run and
+# 128 KB of tracked binary for no consumer.
 
 # The 1x1 transparent stand-in shipped wherever the OS needs an image slot to
 # resolve but render nothing (Calamares branding keys, and the Ubuntu-owned
