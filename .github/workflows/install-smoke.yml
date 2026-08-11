@@ -241,14 +241,21 @@ jobs:
           sudo umount root || true
 
   install:
-    # Best-effort: this drives Calamares' GUI over VNC, which is inherently fragile
-    # in CI (non-deterministic window position, no accessibility hooks). The
-    # DETERMINISTIC installer verification is the `inspect` job (assembly + unpackfs
-    # source + the config). A human clicking through Calamares once (see
-    # docs/utm-guide.md) is the realistic end-to-end check. So this job must not
-    # red-X the workflow, and it fails fast if the drive clearly didn't start.
+    # This drives Calamares' GUI over VNC. It used to be `continue-on-error: true`
+    # on the grounds that GUI-driving is inherently fragile in CI — but that
+    # traded a flaky red for something worse: a SILENT GREEN. Run 31514253124
+    # copied nothing at all (target disk stayed at 200 KB, the step's own
+    # assertion printed "FAIL: target disk got <2GB — install did not copy the
+    # system"), and the run still reported success because this flag swallowed
+    # the job's failure. It is exactly the false-green this file's own comments
+    # warn about further down, and it nearly got the install reported as working.
+    #
+    # The drive is far more deterministic now — Alt+N uses Calamares' real button
+    # accelerator instead of hardcoded pixels, every vncdo call is bounded so one
+    # bad poke cannot stall the job, and the partition scheme is chosen
+    # explicitly. A genuine harness flake should be read and fixed, not hidden.
+    # `inspect` remains the deterministic assembly check and runs independently.
     if: ${{ inputs.phase != 'inspect' }}
-    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -361,8 +368,20 @@ jobs:
           next() { vd key alt-n; sleep "${1:-6}"; }
           next 5;  shot 02a-locale       # Welcome  -> Locale
           next 5;  shot 02b-keyboard     # Locale   -> Keyboard
-          next 6;  shot 02-partition     # Keyboard -> Partition
-          next 6;  shot 03-users         # Partition (erase-disk default) -> Users
+          next 6;  shot 02-partition     # Keyboard -> Partition (scheme CHOICE page)
+          # PICK A SCHEME EXPLICITLY. partition.conf sets
+          # initialPartitioningChoice: none on purpose, so no radio is
+          # preselected and Next stays DISABLED until a human consciously
+          # chooses — deliberate, to avoid pre-arming a wipe-the-disk default on
+          # a machine that may already have an OS. Run 31514253124 proved the
+          # harness never honoured that: the wizard sat on this page with Next
+          # greyed out until the fail-fast bail, and stray keystrokes from the
+          # Users step later flipped it into the manual partition editor. The
+          # comment here used to claim an "erase-disk default" that does not
+          # exist. Click "Erase disk" (radio at the top of the choice list), then
+          # confirm Next actually became enabled before advancing.
+          vd move 324 220 click 1; sleep 2; shot 02c-erase-selected
+          next 6;  shot 03-users         # Partition -> Users
           # Users page: click the Name field (one call, maximized -> upper-centre),
           # type; username auto-derives; Tab to the two password fields.
           vd move 640 300 click 1
@@ -518,16 +537,15 @@ jobs:
               echo "INSTALL VERIFY PASSED (console): installed disk reached a getty login prompt with no ISO attached." >> "$GITHUB_STEP_SUMMARY"
             fi
           else
-            # This job is continue-on-error, so a bare `exit 1` here is neutralised to
-            # a GREEN run — a totally broken install would then masquerade as verified.
-            # Surface a loud, distinct marker on the run's summary page so the failure
-            # can't hide behind the green check, THEN fail this step (continue-on-error
-            # still keeps the overall run green; we are only refusing to OVERSTATE it).
+            # continue-on-error has been REMOVED from this job, so this exit now
+            # genuinely red-Xes the run instead of being swallowed into a green
+            # check. The step summary stays: it names the failure precisely on the
+            # run's front page, which is faster to read than the serial tail.
             echo "FAIL: installed disk did not reach the graphical target / a display manager / login prompt — grub/unpackfs/fstab problem." >&2
             {
               echo "## ⚠️ INSTALL VERIFY FAILED"
               echo "The installed disk booted but never reached the graphical target, a display manager, or a login prompt."
-              echo "This run's green status is due to \`continue-on-error\` on the flaky VNC-driven install job — treat the install as **UNVERIFIED**. See the installed-disk serial tail in the step log and the \`install-smoke-evidence\` artifact."
+              echo "See the installed-disk serial tail in the step log and the \`install-smoke-evidence\` artifact."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
