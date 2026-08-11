@@ -1,16 +1,31 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 460">
   <!-- Calamares welcome banner — the first thing anyone sees of Refract OS.
 
-       LOGO-FREE by request. This previously drew the prism mark at banner scale
-       (beam entering, five rays leaving). All of it is gone: the OS now ships no
-       Refract mark anywhere, in any surface, and branding is the product NAME as
-       text only. The mode chips stay because they are a functional legend for
-       the five modes, not a logo — each is just the mode's colour beside its
-       name, and the same five hexes are used by the wallpapers, the mode cards
-       on the website and distro-modectl's per-mode ACCENT.
+       LOGO-FREE by request. This once drew the prism mark at banner scale (beam
+       entering, five rays leaving). All of it is gone: the OS ships no Refract
+       mark on any surface, and branding is the product NAME as text only.
+
+       NO MODE LEGEND, AND NO MODE COUNT — deliberately, because this image is a
+       BAKED PNG and the mode set is a BUILD-TIME VARIABLE. build-iso.yml offers
+       a checkbox per optional mode and advertises an unchecked one as "provably
+       absent"; build.sh then physically strips that mode from the package
+       lists, the staged tree and the Calamares packagechooser. But nothing can
+       strip a rasterized banner, so a REFRACT_OMIT_MODES=ai image still opened
+       its installer on "Local-first AI." beside an "AI" chip — contradicting the
+       build on screen one — and every omitted build still claimed "Five modes."
+       Variant PNGs would need one per subset (2^4 = 16) and would drift the
+       moment a mode is added; rasterizing at build time would put an SVG
+       renderer in the ISO pipeline for one image. Saying nothing that can go
+       stale is the fix that cannot regress.
+
+       Nothing is lost by it: the packagechooser page two steps later IS the mode
+       legend, with real descriptions, and it is already filtered to the modes
+       this image actually contains. The subtitle below is true of every build,
+       whichever modes it ships, and matches the MOTD's phrasing so the installer
+       and the first shell login say the same thing.
 
        Background matches the wallpapers' near-black so installer, desktop and
-       login still read as one system without a mark tying them together. -->
+       login read as one system without a mark tying them together. -->
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%"   stop-color="#0e1016"/>
@@ -20,24 +35,13 @@
 
   <rect width="1024" height="460" fill="url(#bg)"/>
 
-  <!-- Wordmark. Inter is the OS's own UI font; the fallbacks are what a macOS
-       build host will actually rasterize with (see branding/build.sh). -->
-  <text x="72" y="200" font-family="Inter, SF Pro Display, Helvetica Neue, Helvetica, Arial, sans-serif"
+  <!-- Wordmark + subtitle, as one optically centred block (the legend used to
+       carry the lower half; without it the old y=200 baseline sat high and left
+       the banner bottom-heavy with empty space). Inter is the OS's own UI font;
+       the fallbacks are what a macOS build host actually rasterizes with, see
+       branding/build.sh. -->
+  <text x="72" y="228" font-family="Inter, SF Pro Display, Helvetica Neue, Helvetica, Arial, sans-serif"
         font-size="66" font-weight="700" fill="#f2f3f5" letter-spacing="-2">Refract OS</text>
-  <text x="74" y="240" font-family="Inter, SF Pro Display, Helvetica Neue, Helvetica, Arial, sans-serif"
-        font-size="21" fill="#9297a0">One install. Five modes. Local-first AI.</text>
-
-  <!-- Mode legend: colour swatch + name, in dispersion order. -->
-  <g font-family="Inter, SF Pro Display, Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#6c717a">
-    <rect x="74" y="286" width="10" height="10" rx="2.5" fill="#ff5a52"/>
-    <text x="92" y="295.5">Gaming</text>
-    <rect x="74" y="310" width="10" height="10" rx="2.5" fill="#ffa23d"/>
-    <text x="92" y="319.5">Normal</text>
-    <rect x="74" y="334" width="10" height="10" rx="2.5" fill="#7bc043"/>
-    <text x="92" y="343.5">Server</text>
-    <rect x="216" y="286" width="10" height="10" rx="2.5" fill="#4a9df0"/>
-    <text x="234" y="295.5">AI</text>
-    <rect x="216" y="310" width="10" height="10" rx="2.5" fill="#e857a0"/>
-    <text x="234" y="319.5">Creative</text>
-  </g>
+  <text x="74" y="268" font-family="Inter, SF Pro Display, Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="21" fill="#9297a0">One install, switchable modes for whatever this machine is for.</text>
 </svg>

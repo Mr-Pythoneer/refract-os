@@ -49,7 +49,18 @@ Presentation
             width: presentation.width * 0.7
             horizontalAlignment: Text.Center
             wrapMode: Text.WordWrap
-            text: qsTr("One install, switchable modes tuned to whatever this machine is for -- plus broad, practical Windows app and game compatibility.")
+            // Mode-agnostic ON PURPOSE — build.sh strips the per-mode slides below
+            // for an omitted mode but CANNOT strip this one, so anything it claims
+            // must hold for every build. The old text ended "-- plus broad,
+            // practical Windows app and game compatibility", which is a Gaming-mode
+            // claim on the one slide Gaming's absence cannot remove: a -nogaming
+            // image promised Windows game support it provably did not have. It was
+            // not even true of a full build, since no strain bakes Wine in at all
+            // (libwine is ~647 MB; modes/gaming/setup/03-install-wine-staging.sh
+            // installs it on demand). The gaming slide below already makes the
+            // claim, correctly scoped and correctly stripped. Same sentence as the
+            // welcome banner and the MOTD, so all three surfaces agree.
+            text: qsTr("One install, switchable modes for whatever this machine is for.")
             color: "#cccccc"
         }
     }
