@@ -123,6 +123,27 @@ jobs:
           echo
           echo "=== /etc/casper.conf as shipped (casper's own config the scripts read) ==="
           cat /mnt/sq/etc/casper.conf 2>/dev/null || echo "(no /etc/casper.conf in the squashfs)"
+          echo
+          # THE ACTUAL BLOCKER, captured verbatim from a break=bottom shell in the
+          # live boot (diag-live-autologin round 3):
+          #     Begin: Adding live session user... ... fatal: The GID 1000 is already in use.
+          #     usermod: user 'ubuntu' does not exist
+          #     passwd: user 'ubuntu' does not exist
+          # casper's 25adduser has no `set -e`, so it continued and the account was
+          # never created — which is why id -u ubuntu fails, GDM shows a bare
+          # username field with no account tile, both autologin paths are dead, and
+          # install-smoke burned three 40-minute timeouts. user-setup hardcodes
+          # passwd/user-uid 1000 (per LP: #2004092), so whoever holds GID 1000 in
+          # the shipped image wins and the live user loses. Identify the squatter.
+          echo "=== WHO HOLDS UID/GID 1000 IN THE SHIPPED SQUASHFS ==="
+          echo "--- group entries with gid 1000 ---"
+          awk -F: '$3 == 1000' /mnt/sq/etc/group 2>/dev/null || true
+          echo "--- passwd entries with uid 1000 ---"
+          awk -F: '$3 == 1000' /mnt/sq/etc/passwd 2>/dev/null || true
+          echo "--- all non-system groups (gid >= 1000) ---"
+          awk -F: '$3 >= 1000 && $3 < 65534' /mnt/sq/etc/group 2>/dev/null || true
+          echo "--- all non-system users (uid >= 1000) ---"
+          awk -F: '$3 >= 1000 && $3 < 65534' /mnt/sq/etc/passwd 2>/dev/null || true
 
       - name: Assert every boot fix is physically in the image
         run: |
