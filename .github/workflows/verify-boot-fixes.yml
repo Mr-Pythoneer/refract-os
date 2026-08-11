@@ -94,6 +94,36 @@ jobs:
           fi
           [ "$fail" = 0 ] || { echo "INITRD IS STALE RELATIVE TO THE SOURCE TREE — DO NOT TRUST THE SQUASHFS-ONLY CHECKS BELOW."; exit 1; }
 
+      - name: Diagnostic — dump casper's real live-user-creation script
+        run: |
+          set -uo pipefail
+          # DIAGNOSTIC ONLY, not an assertion (always exits 0). install-smoke and
+          # two rounds of manual VM login (diag-live-autologin) both proved: no
+          # "ubuntu" account exists on live boot (id -u ubuntu fails; manual login
+          # as ubuntu with a blank password gets "Login incorrect", the same
+          # result a genuinely nonexistent account gets; root, which IS correctly
+          # locked, gets the identical message, so that result alone doesn't
+          # distinguish "no such user" from "locked" — but id -u failing does).
+          # The `casper` .deb (build log: "Setting up casper (1.498)") ships the
+          # REAL 25adduser script that is supposed to create that account — dump
+          # its actual logic so the exact runtime condition it needs can be read
+          # directly instead of guessed again.
+          F=/mnt/sq/usr/share/initramfs-tools/scripts/casper-bottom/25adduser
+          if [ -e "$F" ]; then
+            echo "=== casper's real 25adduser (package casper 1.498) ==="
+            cat "$F"
+          else
+            echo "casper's 25adduser is NOT in the squashfs at all — the package installed"
+            echo "(build log confirms 'Setting up casper (1.498)') but did not ship this script,"
+            echo "or something removed it after install. This would fully explain the missing user."
+          fi
+          echo
+          echo "=== every other casper-bottom script that ships (ours + casper's own) ==="
+          ls -la /mnt/sq/usr/share/initramfs-tools/scripts/casper-bottom/ 2>/dev/null || echo "directory missing entirely"
+          echo
+          echo "=== /etc/casper.conf as shipped (casper's own config the scripts read) ==="
+          cat /mnt/sq/etc/casper.conf 2>/dev/null || echo "(no /etc/casper.conf in the squashfs)"
+
       - name: Assert every boot fix is physically in the image
         run: |
           set -uo pipefail
