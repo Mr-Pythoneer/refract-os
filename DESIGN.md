@@ -205,10 +205,15 @@ overlay.** This is what "strain" means here, see `iso/strains/`:
   `modes/gaming/setup/` if actually needed on that hardware)
 - `server` — no DE at all, relies on `modes/server/setup/*.sh` post-boot
 - `handheld` — Steam-Deck-class x86_64 devices; same packages as
-  workstation for now, touch/gamepad-first UI tuning not yet built
-- `cloud` — `cloud-init`, no DE; its delivery format should eventually be
-  a qcow2/raw cloud image rather than an installer ISO — not built, this
-  strain currently only covers the package-selection half
+  workstation, with the touch/gamepad-first tuning done at the session
+  level instead: on-screen keyboard, UI text scaling and Steam Big Picture
+  autostart, shipped on PATH as `distro-handheld-ui`
+- `cloud` — `cloud-init`, no DE. Its delivery format is a qcow2 cloud image
+  rather than an installer ISO: `iso/cloud-image/build-cloud-image.sh`
+  (debootstrap + loop device + grub-install + `qemu-img convert`), which
+  applies a headless Refract identity layer. Written and control-flow
+  tested, but **no CI job runs it**, so unlike the six ISO strains it has
+  never been built end to end
 
 **Tier 2 — different CPU architecture. A categorically separate
 engineering effort, not "one more strain":** ARM64 (Raspberry Pi-class),
