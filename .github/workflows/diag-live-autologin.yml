@@ -1,0 +1,114 @@
+name: diag-live-autologin
+
+# ONE-OFF DIAGNOSTIC, not a permanent gate. install-smoke's install job has
+# timed out three times running (40m17s, 40m19s, twice more) on an unchanged
+# GDM Username/Password prompt, including after d6800db added live autologin —
+# and verify-boot-fixes' initrd extraction (added in this same session) proved
+# the autologin code genuinely reaches casper/initrd.img, ruling out staleness.
+# So the code runs; GDM still isn't honoring it. Rather than guess again and
+# burn another ~45-minute rebuild, this boots the ALREADY-BUILT ISO, switches
+# off GDM's VT to the OTHER autologin path this image already ships —
+# 0400-polish.chroot's `agetty --autologin ubuntu` on tty3, unrelated to GDM and
+# proven simpler — and reads the real post-boot /etc/gdm3/custom.conf plus GDM's
+# own journal straight off the running system. Reuses the exact QEMU+VNC+
+# vncdotool recipe install-smoke already relies on for typing into the guest.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: "build-iso run id to fetch the ISO from"
+        required: true
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Download the built ISO
+        run: |
+          set -euo pipefail
+          gh run download "${{ inputs.build_run_id }}" --repo "${{ github.repository }}" \
+            -p 'refract-os-*' -D iso-dl
+          iso=$(find iso-dl -name '*.iso' | head -n1)
+          [ -n "$iso" ] || { echo "No .iso in run ${{ inputs.build_run_id }}'s artifacts." >&2; exit 1; }
+          mv "$iso" refract.iso
+          ls -lh refract.iso
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Prepare QEMU + vncdotool
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils socat python3-pip
+          pipx install vncdotool 2>/dev/null || pip install --user vncdotool
+          [ -e /dev/kvm ] && sudo chmod 666 /dev/kvm && echo "ACCEL=kvm" >> "$GITHUB_ENV" || echo "ACCEL=tcg" >> "$GITHUB_ENV"
+
+      - name: Boot live, switch to tty3, dump the real on-disk gdm3 state
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          mkdir -p shots
+          qemu-system-x86_64 -accel "$ACCEL" -m 4096 -smp 4 \
+            -cdrom refract.iso -boot d \
+            -display none -vga std -vnc :0 \
+            -monitor unix:mon.sock,server,nowait -pidfile qemu.pid -daemonize
+          mon() { printf '%s\n' "$1" | socat - unix-connect:mon.sock >/dev/null; }
+          shot() { mon "screendump $PWD/shots/$1.ppm"; sleep 1; }
+          vd() { vncdo -s localhost:0 "$@"; }
+
+          echo "Waiting for GDM to settle (~3.5 min)..."
+          sleep 210
+          shot 00-gdm
+
+          # tty3 has its OWN autologin (0400-polish.chroot: agetty --autologin
+          # ubuntu on tty3), independent of GDM's autologin — proven simpler,
+          # unaffected by whatever is stopping GDM specifically. Ctrl+Alt+F3
+          # switches the virtual console the same way it would on real hardware.
+          vd key ctrl-alt-f3; sleep 8
+          shot 01-tty3
+
+          # A shell prompt (not another login) confirms tty3's autologin works,
+          # which also confirms $USERNAME/user creation is fine in general —
+          # narrowing the GDM failure to GDM itself, not casper/user setup.
+          vd type 'echo TTY3-SHELL-CHECK-$(whoami)'; vd key enter; sleep 2
+          shot 02-whoami
+
+          vd type 'cat /etc/gdm3/custom.conf'; vd key enter; sleep 2
+          shot 03-custom-conf
+
+          vd type 'cat /etc/gdm3/daemon.conf'; vd key enter; sleep 2
+          shot 04-daemon-conf
+
+          vd type 'journalctl -u gdm -b --no-pager 2>&1 | grep -iE "auto|login|fail" | tail -15'
+          vd key enter; sleep 3
+          shot 05-gdm-journal-grep
+
+          vd type 'systemctl status gdm --no-pager -l 2>&1 | head -15'
+          vd key enter; sleep 2
+          shot 06-gdm-status
+
+          mon "quit" || true
+
+      - name: Convert screenshots to PNG
+        if: always()
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y imagemagick >/dev/null 2>&1 || true
+          for f in shots/*.ppm; do
+            [ -e "$f" ] || continue
+            convert "$f" "${f%.ppm}.png" && rm -f "$f" || true
+          done
+          ls -lh shots/ || true
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diag-autologin-evidence
+          path: shots/
+          retention-days: 7
