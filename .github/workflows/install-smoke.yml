@@ -404,7 +404,16 @@ jobs:
           vd key tab; vd key tab; vd key tab
           vd type "refractos1"; vd key tab; vd type "refractos1"; sleep 1
           shot 03b-users-filled
-          next 6;  shot 04-summary       # Users -> Summary
+          # THE MODES PAGE. settings.conf puts a packagechooser ("Modes":
+          # Gaming/AI/Server/Creative) between Users and Summary, and this drive
+          # never knew it existed — run 31517998141 sat on it for the rest of the
+          # job while the harness believed it was on Summary pressing Install.
+          # It ships with NOTHING preselected ("Please pick a product from the
+          # list"), same deliberate no-default stance as the partition page.
+          # Pick the first entry; any is fine for a smoke test.
+          next 6;  shot 03c-modes        # Users -> Modes (packagechooser)
+          vd move 343 173 click 1; sleep 2; shot 03d-mode-picked   # "Gaming"
+          next 6;  shot 04-summary       # Modes -> Summary
           # Summary -> Install, BY ACCELERATOR. Two coordinate attempts failed
           # here: 1155,772 (a maximized position, outside the real dialog) and
           # then 1007,718, which is dead-centre on the button and still did not
