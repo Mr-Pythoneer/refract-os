@@ -342,6 +342,23 @@ chmod 0644 "$INCLUDES/etc/refract/enabled-modes"
 # own location (see modes/modectl/distro-modectl's PROFILE_DIR), so it must
 # stay next to that directory rather than be flattened into /usr/local/bin.
 ln -sf /opt/distro/modes/modectl/distro-modectl "$INCLUDES/usr/local/bin/distro-modectl"
+# distro-layoutctl — desktop LAYOUT (how it looks), orthogonal to modes (what the
+# machine is tuned FOR). Same staging shape: real file under /opt/distro, symlink
+# into PATH.
+ln -sf /opt/distro/modes/layouts/distro-layoutctl "$INCLUDES/usr/local/bin/distro-layoutctl"
+# First-login applier. shellprocess@layout can only WRITE /etc/refract/layout —
+# at install time the target has no user session and therefore no dconf to apply
+# the appearance into. This autostart entry applies it once, when a session
+# first exists, and stamps itself so it never overrides a later manual switch.
+mkdir -p "$INCLUDES/usr/local/lib/refract" "$INCLUDES/etc/skel/.config/autostart"
+install -m 0755 "$REPO_ROOT/modes/layouts/firstlogin/apply-layout-once" \
+    "$INCLUDES/usr/local/lib/refract/apply-layout-once"
+install -m 0644 "$REPO_ROOT/modes/layouts/firstlogin/refract-layout.desktop" \
+    "$INCLUDES/etc/skel/.config/autostart/refract-layout.desktop"
+# Ship the default so a LIVE session (never installed, so no shellprocess ran)
+# still has a layout to apply rather than falling back by accident.
+mkdir -p "$INCLUDES/etc/refract"
+echo refract > "$INCLUDES/etc/refract/layout"
 # Symlink every user-facing distro-* CLI into PATH. These resolve their own
 # real dir through the symlink (readlink) so relative config/profiles/compat-db
 # lookups work. Paths are the /opt/distro layout the rsync above produces.

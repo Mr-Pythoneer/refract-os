@@ -26,3 +26,10 @@ mangohud  #@omit-if-no:gaming
 ## in an OS whose whole pitch is a macOS-familiar desktop. GNOME core, open
 ## source, ~2 MB. lowspec is excluded on purpose: lubuntu-desktop ships its own.
 file-roller
+## papirus-icon-theme — the icon set for the Refract, Classic and Minimal
+## layouts. The macOS layout uses MacTahoe; the other three needed an icon theme
+## that is neither an Apple imitation nor stock Adwaita, and Papirus is the
+## obvious open-source choice. Also load-bearing after the debloat pass: Yaru's
+## icons were purged, so without this the non-macOS layouts would fall back to
+## Adwaita's sparse set and look unfinished.
+papirus-icon-theme

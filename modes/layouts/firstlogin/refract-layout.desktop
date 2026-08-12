@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Refract layout
+Comment=Apply the desktop layout chosen during installation
+Exec=/usr/local/lib/refract/apply-layout-once
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

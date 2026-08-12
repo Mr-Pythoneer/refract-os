@@ -11,8 +11,8 @@ primary-color='#0b0b0d'
 
 [org/gnome/desktop/interface]
 color-scheme='prefer-dark'
-gtk-theme='MacTahoe-Dark'
-icon-theme='MacTahoe-dark'
+gtk-theme='Adwaita-dark'
+icon-theme='Papirus-Dark'
 enable-hot-corners=true
 
 [org/gnome/shell]
@@ -38,10 +38,10 @@ blur=true
 blur=false
 
 [org/gnome/shell/extensions/user-theme]
-name='MacTahoe-Dark'
+name=''
 
 [org/gnome/shell/extensions/dash-to-dock]
-dock-position='BOTTOM'
+dock-position='LEFT'
 extend-height=false
 dock-fixed=false
 autohide=true

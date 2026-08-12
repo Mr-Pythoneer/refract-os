@@ -419,11 +419,16 @@ apply_theme() {
         run_as_user gsettings set org.gnome.desktop.background picture-options 'zoom' 2>/dev/null || true
     fi
     run_as_user gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
-    # Keep the macOS (WhiteSur) look consistent across ALL modes — do not revert
-    # to Yaru. MacTahoe-Dark ships system-wide via iso 0300-macos-look.chroot.
-    run_as_user gsettings set org.gnome.desktop.interface gtk-theme 'MacTahoe-Dark' 2>/dev/null || true
-    run_as_user gsettings set org.gnome.desktop.interface icon-theme 'MacTahoe-dark' 2>/dev/null || true
-    run_as_user gsettings set org.gnome.shell.extensions.user-theme name 'MacTahoe-Dark' 2>/dev/null || true
+    # THEME IS THE LAYOUT'S JOB, NOT THE MODE'S. This used to hardcode
+    # MacTahoe-Dark on every mode switch, which meant a user who chose the
+    # Refract, Classic or Minimal layout had it silently reverted to macOS the
+    # first time they changed mode. Modes decide what the machine is tuned FOR;
+    # layouts decide how it LOOKS. Re-apply the ACTIVE layout instead, so a mode
+    # switch preserves the look the user actually picked.
+    if command -v distro-layoutctl >/dev/null 2>&1; then
+        _layout=$(tr -d '[:space:]' < /etc/refract/layout 2>/dev/null || echo refract)
+        distro-layoutctl switch "${_layout:-refract}" >/dev/null 2>&1 || true
+    fi
     apply_accent
     # Liquid glass (frosted blur via the Blur-my-Shell extension): Normal ONLY.
     if command -v gnome-extensions >/dev/null 2>&1; then

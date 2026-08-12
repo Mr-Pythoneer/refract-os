@@ -34,8 +34,12 @@ dynamic-workspaces=true
 edge-tiling=true
 
 [org/gnome/desktop/wm/preferences]
-# macOS-style window controls on the LEFT (close, minimize, maximize).
-button-layout='close,minimize,maximize:'
+# Window controls on the RIGHT — GNOME's native placement, which is what the
+# default 'refract' layout uses. This used to hardcode macOS's left-hand
+# traffic-light order for everyone; it is now a per-LAYOUT setting that
+# distro-layoutctl writes, so choosing the macOS layout still moves them left
+# while the other three keep GNOME's placement.
+button-layout='appmenu:minimize,maximize,close'
 action-middle-click-titlebar='minimize'
 resize-with-right-button=true
 

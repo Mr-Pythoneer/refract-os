@@ -1,0 +1,18 @@
+#!/bin/sh
+# Apply the layout chosen in the installer — once, on first graphical login.
+#
+# WHY THIS EXISTS. The installer's shellprocess@layout can only WRITE
+# /etc/refract/layout: at install time the target system has no user session, so
+# there is no dconf/gsettings to write the appearance into. Nothing applies the
+# choice until a real session exists — which first happens here.
+#
+# Runs ONCE. The stamp file means a user who later runs `distro-layoutctl
+# switch` by hand is never overridden on their next login by the installer's
+# original choice.
+stamp="$HOME/.config/refract-layout-applied"
+[ -e "$stamp" ] && exit 0
+layout=$(tr -d '[:space:]' < /etc/refract/layout 2>/dev/null || echo refract)
+[ -n "$layout" ] || layout=refract
+command -v distro-layoutctl >/dev/null 2>&1 || exit 0
+distro-layoutctl switch "$layout" >/dev/null 2>&1 || true
+mkdir -p "$(dirname "$stamp")" && : > "$stamp"

@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+# distro-layoutctl — choose how the Refract OS desktop LOOKS.
+#
+# WHY THIS IS SEPARATE FROM distro-modectl. Modes answer "what is this machine
+# FOR" (gaming, ai, server, creative, normal) and change behaviour: CPU
+# governor, services, GPU profile, which apps are pinned. Layouts answer "how
+# should the desktop LOOK" — panel position, dock style, window controls, theme.
+# They are orthogonal: Refract layout in Gaming mode is a perfectly sensible
+# combination, and so is macOS layout in Server mode. Folding layout into mode
+# would have forced five look choices onto five purpose choices.
+#
+# The default is 'refract', NOT 'macos'. That is deliberate. The macOS look was
+# the original default and it carries a permanent maintenance cost: GTK4 and
+# libadwaita apps ignore GTK themes, so imitating another OS means fighting the
+# toolkit on every GNOME release. The Refract, Classic and Minimal layouts all
+# use Adwaita — which IS what libadwaita renders natively — so their appearance
+# cannot break that way. macOS stays available for people who want it, as an
+# explicit choice rather than something everyone inherits.
+set -uo pipefail
+
+LAYOUT_DIR="${LAYOUT_DIR:-/opt/distro/modes/layouts/profiles}"
+STATE_FILE="/etc/refract/layout"
+VALID=(refract classic macos minimal)
+
+die() { echo "distro-layoutctl: $*" >&2; exit 1; }
+
+usage() {
+    cat <<'USAGE'
+distro-layoutctl — switch the desktop layout.
+
+  distro-layoutctl list              show available layouts
+  distro-layoutctl status            show the active layout
+  distro-layoutctl switch <layout>   apply a layout to the current user
+  distro-layoutctl -h | --help       this text
+
+Layouts: refract (default), classic, macos, minimal.
+
+Layouts change how the desktop LOOKS. Modes (distro-modectl) change what the
+machine is tuned FOR. They are independent — any layout works with any mode.
+USAGE
+}
+
+# The user whose GNOME session we are theming. Under sudo, $SUDO_USER is the
+# human; without it, whoever invoked us. Getting this wrong writes the settings
+# into root's dconf, where no one will ever see them — the same trap
+# distro-modectl documents.
+target_user() { printf '%s' "${SUDO_USER:-${USER:-$(id -un)}}"; }
+
+run_as_user() {
+    local u; u="$(target_user)"
+    if [ "$(id -un)" = "$u" ]; then "$@"
+    else sudo -u "$u" env DISPLAY="${DISPLAY:-:0}" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "$u")/bus" "$@"
+    fi
+}
+
+gset() { run_as_user gsettings set "$@" 2>/dev/null || true; }
+
+list_layouts() {
+    for l in "${VALID[@]}"; do
+        local f="$LAYOUT_DIR/$l.conf"
+        [ -r "$f" ] || continue
+        # shellcheck disable=SC1090
+        ( . "$f"; printf '  %-9s %s\n' "$l" "${LAYOUT_DESC:-}" )
+    done
+}
+
+active_layout() {
+    [ -r "$STATE_FILE" ] && tr -d '[:space:]' < "$STATE_FILE" || echo refract
+}
+
+apply_layout() {
+    local layout="$1" f="$LAYOUT_DIR/$1.conf"
+    [ -r "$f" ] || die "unknown layout '$layout' (try: distro-layoutctl list)"
+    # shellcheck disable=SC1090
+    . "$f"
+
+    command -v gsettings >/dev/null 2>&1 || die "gsettings not found — is this a GNOME session?"
+    if ! run_as_user true 2>/dev/null; then
+        echo "NOTE: no reachable desktop session for $(target_user); recording the choice only." >&2
+    fi
+
+    gset org.gnome.desktop.interface color-scheme 'prefer-dark'
+    [ -n "${GTK_THEME:-}" ]  && gset org.gnome.desktop.interface gtk-theme  "$GTK_THEME"
+    [ -n "${ICON_THEME:-}" ] && gset org.gnome.desktop.interface icon-theme "$ICON_THEME"
+    [ -n "${BUTTON_LAYOUT:-}" ] && gset org.gnome.desktop.wm.preferences button-layout "$BUTTON_LAYOUT"
+
+    # An EMPTY shell theme means "GNOME's own", which the user-theme extension
+    # expresses as the empty string — not as unsetting the key.
+    gset org.gnome.shell.extensions.user-theme name "${SHELL_THEME:-}"
+
+    if command -v gnome-extensions >/dev/null 2>&1; then
+        case "${DOCK_POSITION:-OFF}" in
+            OFF)
+                run_as_user gnome-extensions disable ubuntu-dock@ubuntu.com 2>/dev/null || true
+                run_as_user gnome-extensions disable dash-to-dock@micxgx.gmail.com 2>/dev/null || true ;;
+            *)
+                run_as_user gnome-extensions enable ubuntu-dock@ubuntu.com 2>/dev/null || true
+                gset org.gnome.shell.extensions.dash-to-dock dock-position "$DOCK_POSITION"
+                gset org.gnome.shell.extensions.dash-to-dock extend-height "${DOCK_EXTENDED:-false}"
+                # A floating dock is dash-to-dock's non-fixed, auto-hiding form;
+                # a taskbar is the opposite — pinned, always visible, full width.
+                gset org.gnome.shell.extensions.dash-to-dock dock-fixed "$([ "${DOCK_FLOATING:-true}" = true ] && echo false || echo true)"
+                gset org.gnome.shell.extensions.dash-to-dock autohide "${DOCK_FLOATING:-true}"
+                gset org.gnome.shell.extensions.dash-to-dock intellihide "${DOCK_FLOATING:-true}"
+                gset org.gnome.shell.extensions.dash-to-dock show-apps-at-top "$([ "${DOCK_EXTENDED:-false}" = true ] && echo true || echo false)" ;;
+        esac
+        # Liquid glass. This is a LAYOUT baseline, but distro-modectl may turn it
+        # off afterwards for a performance mode (Gaming/AI/Creative want every
+        # GPU cycle). Layout sets the default; mode gets the last word.
+        if [ "${LIQUID_GLASS:-false}" = "true" ]; then
+            run_as_user gnome-extensions enable blur-my-shell@aunetx 2>/dev/null || true
+        else
+            run_as_user gnome-extensions disable blur-my-shell@aunetx 2>/dev/null || true
+        fi
+    fi
+
+    if [ "$(id -u)" = 0 ]; then
+        mkdir -p "$(dirname "$STATE_FILE")"
+        printf '%s\n' "$layout" > "$STATE_FILE"
+    else
+        sudo mkdir -p "$(dirname "$STATE_FILE")" 2>/dev/null || true
+        printf '%s\n' "$layout" | sudo tee "$STATE_FILE" >/dev/null 2>&1 || true
+    fi
+    echo "Layout is now '${LAYOUT_NAME:-$layout}'. Some apps need a restart to pick up the theme."
+}
+
+case "${1:-}" in
+    list)              list_layouts ;;
+    status)            a="$(active_layout)"; echo "Active layout: $a"; list_layouts | grep -E "^  $a " || true ;;
+    switch)            [ $# -ge 2 ] || die "usage: distro-layoutctl switch <layout>"; apply_layout "$2" ;;
+    -h|--help|help|"") usage ;;
+    *)                 die "unknown command '$1' (try --help)" ;;
+esac

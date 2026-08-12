@@ -11,11 +11,11 @@ primary-color='#0b0b0d'
 
 [org.gnome.desktop.interface]
 color-scheme='prefer-dark'
-gtk-theme='MacTahoe-Dark'
-icon-theme='MacTahoe-dark'
+gtk-theme='Adwaita-dark'
+icon-theme='Papirus-Dark'
 
 [org.gnome.shell.extensions.dash-to-dock]
-dock-position='BOTTOM'
+dock-position='LEFT'
 extend-height=false
 dock-fixed=false
 autohide=true
