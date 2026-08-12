@@ -26,7 +26,7 @@ trap 'rm -rf "$WORKDIR"' EXIT
 # previously aborted this whole script under set -e). To update the theme,
 # bump these SHAs to a newer reviewed upstream commit.
 declare -A PINS=(
-    [WhiteSur-gtk-theme]="a83f467e4c16b1ed1c960f3d89e2472d9639477c"
+    [MacTahoe-gtk-theme]="5df7f86eb787e1f7054f377e2c318b8af873d705"
     # Icons are MacTahoe (macOS 26 "Liquid Glass"), not WhiteSur's 2020 Big Sur
     # set. Same author, same install interface. Keep this SHA in sync with
     # ICON_SHA in iso/config/hooks/0300-macos-look.chroot — the image and this
@@ -53,11 +53,11 @@ clone_pinned() {
     fi
 }
 
-clone_pinned WhiteSur-gtk-theme
+clone_pinned MacTahoe-gtk-theme
 clone_pinned MacTahoe-icon-theme
 
 echo -e "\033[36mInstalling GTK + GNOME Shell theme...\033[0m"
-"$WORKDIR/WhiteSur-gtk-theme/install.sh" -d "$HOME/.themes"
+"$WORKDIR/MacTahoe-gtk-theme/install.sh" --silent-mode -d "$HOME/.themes"
 
 echo -e "\033[36mInstalling icon theme...\033[0m"
 "$WORKDIR/MacTahoe-icon-theme/install.sh" -d "$HOME/.icons"

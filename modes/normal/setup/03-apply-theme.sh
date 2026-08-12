@@ -26,7 +26,7 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
     exit 1
 fi
 
-THEME_NAME="${1:-WhiteSur-Dark}"
+THEME_NAME="${1:-MacTahoe-Dark}"
 
 sudo apt-get update
 sudo apt-get install -y gnome-shell-extensions gnome-tweaks

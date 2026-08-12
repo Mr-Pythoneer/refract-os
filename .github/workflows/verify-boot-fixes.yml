@@ -145,6 +145,42 @@ jobs:
           echo "--- all non-system users (uid >= 1000) ---"
           awk -F: '$3 >= 1000 && $3 < 65534' /mnt/sq/etc/passwd 2>/dev/null || true
 
+      - name: Bloat report — what actually ships, by size
+        run: |
+          set -uo pipefail
+          # DIAGNOSTIC, always exits 0. The package LISTS are lean (base is 11
+          # packages), but ubuntu-desktop-minimal pulls a large Recommends tree
+          # and that is where bloat actually hides. Report the real contents of
+          # the shipped squashfs so "no bloat" is a measurement, not a claim.
+          SQ=/mnt/sq
+          echo "=== total installed packages ==="
+          wc -l < /mnt/iso/casper/filesystem.manifest
+          echo
+          echo "=== 40 largest installed packages (KB, from the image's own dpkg status) ==="
+          awk -F': ' '
+            /^Package: /       { pkg=$2 }
+            /^Installed-Size: /{ size=$2; print size"\t"pkg }
+          ' "$SQ/var/lib/dpkg/status" 2>/dev/null | sort -rn | head -40
+          echo
+          echo "=== 25 largest directories under /usr (MB) ==="
+          sudo du -sm "$SQ"/usr/* 2>/dev/null | sort -rn | head -25
+          echo
+          echo "=== KNOWN BLOAT SUSPECTS — present or absent? ==="
+          # Things a "bare bones, no bloat" desktop should NOT be shipping.
+          # snapd matters most: Ubuntu's default Firefox is a snap, which drags in
+          # snapd plus its mount units and a slow first-launch, and is the single
+          # most common thing people call bloat on an Ubuntu derivative.
+          for p in snapd firefox thunderbird libreoffice-core rhythmbox cheese \
+                   shotwell aisleriot gnome-mahjongg gnome-mines gnome-sudoku \
+                   simple-scan cups printer-driver-gutenprint ubuntu-pro-client \
+                   popularity-contest whoopsie apport unattended-upgrades; do
+            if grep -qE "^${p}[[:space:]]" /mnt/iso/casper/filesystem.manifest; then
+              echo "  PRESENT  $p"
+            else
+              echo "  absent   $p"
+            fi
+          done
+
       - name: Assert every boot fix is physically in the image
         run: |
           set -uo pipefail
@@ -289,16 +325,16 @@ jobs:
           # pipefail` and then dies on `getent passwd ""` when USER is unset in the
           # chroot, so it exited in milliseconds with no output. Icons shipped
           # (their installer doesn't use that lib), the GTK theme did not, and the
-          # desktop defaults still NAMED WhiteSur-Dark — so GTK fell back to
+          # desktop defaults still NAMED MacTahoe-Dark — so GTK fell back to
           # Adwaita and the headline look was simply absent, with nothing failing.
           # Only build.sh's GNOME strains get this layer; server/cloud/lowspec have
           # the hook stripped, so gate on the same $DESKTOP the rest of this job uses.
           echo "=== macOS look (GNOME strains only) ==="
           if [ "$DESKTOP" = gnome ]; then
-            chk "WhiteSur-Dark GTK theme installed (the look actually shipped)" \
-                "test -d $SQ/usr/share/themes/WhiteSur-Dark"
-            chk "WhiteSur GNOME Shell theme present (user-theme extension target)" \
-                "test -e $SQ/usr/share/themes/WhiteSur-Dark/gnome-shell/gnome-shell.css"
+            chk "MacTahoe-Dark GTK theme installed (the look actually shipped)" \
+                "test -d $SQ/usr/share/themes/MacTahoe-Dark"
+            chk "MacTahoe GNOME Shell theme present (user-theme extension target)" \
+                "test -e $SQ/usr/share/themes/MacTahoe-Dark/gnome-shell/gnome-shell.css"
             chk "MacTahoe (macOS 26) icon theme installed" \
                 "test -d $SQ/usr/share/icons/MacTahoe-dark"
             chk "Blur-my-Shell assembled (Normal mode's liquid glass)" \

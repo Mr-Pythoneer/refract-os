@@ -420,10 +420,10 @@ apply_theme() {
     fi
     run_as_user gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
     # Keep the macOS (WhiteSur) look consistent across ALL modes — do not revert
-    # to Yaru. WhiteSur-Dark ships system-wide via iso 0300-macos-look.chroot.
-    run_as_user gsettings set org.gnome.desktop.interface gtk-theme 'WhiteSur-Dark' 2>/dev/null || true
+    # to Yaru. MacTahoe-Dark ships system-wide via iso 0300-macos-look.chroot.
+    run_as_user gsettings set org.gnome.desktop.interface gtk-theme 'MacTahoe-Dark' 2>/dev/null || true
     run_as_user gsettings set org.gnome.desktop.interface icon-theme 'MacTahoe-dark' 2>/dev/null || true
-    run_as_user gsettings set org.gnome.shell.extensions.user-theme name 'WhiteSur-Dark' 2>/dev/null || true
+    run_as_user gsettings set org.gnome.shell.extensions.user-theme name 'MacTahoe-Dark' 2>/dev/null || true
     apply_accent
     # Liquid glass (frosted blur via the Blur-my-Shell extension): Normal ONLY.
     if command -v gnome-extensions >/dev/null 2>&1; then
@@ -434,7 +434,7 @@ apply_theme() {
             run_as_user gnome-extensions disable blur-my-shell@aunetx 2>/dev/null || true
         fi
     fi
-    echo "Applied ${MODE_NAME} look: macOS-style (WhiteSur-Dark)${WALLPAPER:+ + wallpaper}, liquid-glass=${LIQUID_GLASS:-false}."
+    echo "Applied ${MODE_NAME} look: macOS-style (MacTahoe-Dark)${WALLPAPER:+ + wallpaper}, liquid-glass=${LIQUID_GLASS:-false}."
 }
 
 confirm_or_abort() {

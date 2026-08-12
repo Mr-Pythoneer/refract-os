@@ -323,7 +323,7 @@ jobs:
           echo "=================================================================="
           echo "VISUAL PROOF: the uploaded screenshots (03-gaming / 04-ai / 05-server)"
           echo "show the SAME running GNOME desktop with the per-mode WALLPAPER changed"
-          echo "by each 'distro-modectl switch' (the WhiteSur theme stays constant)."
+          echo "by each 'distro-modectl switch' (the MacTahoe theme stays constant)."
           echo "NOT proven here (hardware-only, needs a real GPU box / Pi):"
           echo "  * in-game FPS from performance governor + pinned GPU clocks"
           echo "  * LLM tokens/sec + model load in AI mode (needs Ollama + model)"

@@ -11,7 +11,7 @@ primary-color='#0b0b0d'
 
 [org.gnome.desktop.interface]
 color-scheme='prefer-dark'
-gtk-theme='WhiteSur-Dark'
+gtk-theme='MacTahoe-Dark'
 icon-theme='MacTahoe-dark'
 
 [org.gnome.shell.extensions.dash-to-dock]

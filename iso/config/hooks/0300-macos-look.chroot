@@ -1,18 +1,19 @@
 #!/bin/sh
-# Refract OS macOS look — WhiteSur GTK + icon themes SYSTEM-WIDE + the Blur-my-Shell
+# Refract OS macOS look — MacTahoe GTK + icon themes SYSTEM-WIDE + the Blur-my-Shell
 # extension (the frosted "liquid glass" used by Normal mode). Runs in the chroot
-# AS ROOT — which matters: WhiteSur's installer writes temp assets that fail as a
+# AS ROOT — which matters: vinceliuice's installers write temp assets that fail as a
 # non-root user (that's why it silently no-op'd on bare CI runners). Failure-
 # tolerant: these are cosmetic, so a hiccup logs and the ISO still builds (the
 # desktop just falls back to dark Yaru / no blur).
 #
 # Pinned upstream commits (fetch-by-SHA, verified before use):
-GTK_SHA="a83f467e4c16b1ed1c960f3d89e2472d9639477c"   # vinceliuice/WhiteSur-gtk-theme
+GTK_SHA="5df7f86eb787e1f7054f377e2c318b8af873d705"   # vinceliuice/MacTahoe-gtk-theme (macOS 26)
 ICON_SHA="db9a4f8b236d3c559326f041d75d5173de118c45"  # vinceliuice/MacTahoe-icon-theme (macOS 26 Liquid Glass)
 BMS_SHA="c9002511c7c8ad65931e3f875fe0ea93b8123394"   # aunetx/blur-my-shell
 
 # WHY THIS EXPORT IS LOAD-BEARING — it is the whole reason the macOS look never
-# shipped. WhiteSur's install.sh sources libs/lib-install.sh -> libs/lib-core.sh,
+# shipped. These installers (WhiteSur then MacTahoe — same author, same libs)
+# source libs/lib-install.sh -> libs/lib-core.sh,
 # which begins `set -Eeo pipefail` and then, before printing anything:
 #
 #     MY_USERNAME="${SUDO_USER:-$(logname 2> /dev/null || echo "${USER}")}"
@@ -24,10 +25,10 @@ BMS_SHA="c9002511c7c8ad65931e3f875fe0ea93b8123394"   # aunetx/blur-my-shell
 # errexit+pipefail that kills the installer instantly, at source time, before a
 # single line of its own output. That is the silent ~27ms failure: the log showed
 # "installing WhiteSur GTK..." and then nothing, the `script -qfec` fallback died
-# the same way for the same reason, and every image shipped WhiteSur ICONS (whose
+# the same way for the same reason, and every image shipped the ICONS (whose
 # installer does not use these libs, which is exactly why icons always worked)
 # with NO WhiteSur GTK theme — while the schema/dconf defaults below still named
-# 'WhiteSur-Dark'. A desktop asking for a theme that was never installed silently
+# 'MacTahoe-Dark'. A desktop asking for a theme that was never installed silently
 # renders as stock Adwaita, which is why the "macOS look" was never visible.
 export USER=root LOGNAME=root HOME=/root
 
@@ -48,8 +49,8 @@ clone_pin() {  # url sha dir
 
 # --- WhiteSur GTK: install to a temp dir (NOT a system dir → avoids the script's
 #     internal sudo path), then copy in. stderr is intentionally VISIBLE now. ---
-if clone_pin https://github.com/vinceliuice/WhiteSur-gtk-theme.git "$GTK_SHA" "$WORK/ws-gtk"; then
-    echo "macos-look: installing WhiteSur GTK + GNOME Shell theme..."
+if clone_pin https://github.com/vinceliuice/MacTahoe-gtk-theme.git "$GTK_SHA" "$WORK/mt-gtk"; then
+    echo "macos-look: installing MacTahoe GTK + GNOME Shell theme (macOS 26)..."
     mkdir -p "$WORK/ws-out"
     # --silent-mode is REQUIRED here, not cosmetic. lib-core.sh's start_animation()
     # runs `setterm -cursor off` to hide the cursor behind its spinner, and setterm
@@ -66,15 +67,15 @@ if clone_pin https://github.com/vinceliuice/WhiteSur-gtk-theme.git "$GTK_SHA" "$
     # Its full_sudo() check only tests that /root is writable, which it is here.
     # The old `script -qfec` pseudo-TTY fallback is gone — it failed identically,
     # because the problem was never the absence of a pty.
-    if bash "$WORK/ws-gtk/install.sh" --silent-mode -d "$WORK/ws-out" 2>&1; then
+    if bash "$WORK/mt-gtk/install.sh" --silent-mode -d "$WORK/ws-out" 2>&1; then
         :
     else
         # Do not guess a third time. Re-run under a shell trace and print the tail,
         # so the build log names the exact command that failed instead of leaving
         # another silent death to be reverse-engineered from upstream source.
-        echo "macos-look: WhiteSur GTK install failed — re-running traced to identify the failing command." >&2
-        bash -x "$WORK/ws-gtk/install.sh" --silent-mode -d "$WORK/ws-out" >"$WORK/ws-trace.log" 2>&1 || true
-        echo "--- last 40 lines of the traced WhiteSur run ---" >&2
+        echo "macos-look: MacTahoe GTK install failed — re-running traced to identify the failing command." >&2
+        bash -x "$WORK/mt-gtk/install.sh" --silent-mode -d "$WORK/ws-out" >"$WORK/ws-trace.log" 2>&1 || true
+        echo "--- last 40 lines of the traced MacTahoe run ---" >&2
         tail -n 40 "$WORK/ws-trace.log" >&2 || true
         echo "--- end trace (desktop falls back to an installed theme, see below) ---" >&2
     fi
@@ -137,17 +138,17 @@ for t in MacTahoe MacTahoe-dark; do
         && gtk-update-icon-cache -qf "/usr/share/icons/$t" 2>/dev/null || true
 done
 
-if [ -d /usr/share/themes/WhiteSur-Dark ]; then
-    echo "macos-look: WhiteSur-Dark GTK present — default desktop renders macOS-style."
+if [ -d /usr/share/themes/MacTahoe-Dark ]; then
+    echo "macos-look: MacTahoe-Dark GTK present — default desktop renders macOS-style."
 else
     # Do not leave the defaults naming a theme that isn't installed. The glib
-    # override and the dconf db both hardcode gtk-theme='WhiteSur-Dark'; when the
+    # override and the dconf db both hardcode gtk-theme='MacTahoe-Dark'; when the
     # install fails, GTK silently falls back to Adwaita, so the desktop renders as
     # stock GNOME while every config file, mode profile and doc insists it is
     # macOS-styled. (The old message here claimed the fallback was "dark Yaru" —
     # it never was; nothing pointed at Yaru.) Repoint the default at a theme that
     # actually exists so the degraded state is coherent and legible.
-    echo "macos-look: WhiteSur-Dark GTK MISSING — repointing desktop defaults at an installed theme." >&2
+    echo "macos-look: MacTahoe-Dark GTK MISSING — repointing desktop defaults at an installed theme." >&2
     _fb=""
     for _c in Yaru-dark Adwaita-dark Adwaita; do
         [ -d "/usr/share/themes/$_c" ] && { _fb="$_c"; break; }
@@ -155,7 +156,7 @@ else
     if [ -n "$_fb" ]; then
         for _f in /usr/share/glib-2.0/schemas/99_refract.gschema.override \
                   /etc/dconf/db/local.d/00-refract; do
-            [ -f "$_f" ] && sed -i "s/'WhiteSur-Dark'/'$_fb'/g" "$_f" 2>/dev/null || true
+            [ -f "$_f" ] && sed -i "s/'MacTahoe-Dark'/'$_fb'/g" "$_f" 2>/dev/null || true
         done
         command -v glib-compile-schemas >/dev/null 2>&1 && glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true
         command -v dconf >/dev/null 2>&1 && dconf update 2>/dev/null || true
