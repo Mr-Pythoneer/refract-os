@@ -19,3 +19,10 @@ mangohud  #@omit-if-no:gaming
 ## Gaming nothing and is the single biggest win in getting every ISO under
 ## GitHub's 2 GiB single-file cap (so releases ship one Etcher-flashable file
 ## instead of split parts). Don't re-add it.
+## file-roller (Archive Manager) — WITHOUT THIS, DOUBLE-CLICKING A .zip DOES
+## NOTHING. Measured from the shipped image's own .desktop catalog: no archive
+## handler of any kind was present, so extracting an archive meant opening a
+## terminal. That is the single biggest "this feels like Linux, not macOS" gap
+## in an OS whose whole pitch is a macOS-familiar desktop. GNOME core, open
+## source, ~2 MB. lowspec is excluded on purpose: lubuntu-desktop ships its own.
+file-roller

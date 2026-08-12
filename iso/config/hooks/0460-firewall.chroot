@@ -1,0 +1,47 @@
+#!/bin/sh
+# Refract OS firewall — ufw, default-deny inbound, enabled at boot.
+#
+# The image measurably shipped with NO firewall: verify-boot-fixes' security
+# posture check found ufw AND firewalld both absent. On the desktop strains that
+# is merely sloppy; on server and cloud, which install openssh-server and expose
+# :22, it means a machine reachable from the network with nothing in front of it.
+#
+# ORDER OF OPERATIONS IS LOAD-BEARING. The SSH allow rule is added BEFORE the
+# firewall is enabled. Doing it the other way round — enable default-deny, then
+# add the rule — is the classic way to lock yourself out of a remote box between
+# the two commands, and on a freshly installed server the owner may have no
+# console at all to recover with.
+set -e
+
+command -v ufw >/dev/null 2>&1 || { echo "firewall: ufw not installed — skipping."; exit 0; }
+
+# Sensible desktop/server defaults: nothing in, everything out.
+ufw --force default deny incoming  >/dev/null 2>&1 || true
+ufw --force default allow outgoing >/dev/null 2>&1 || true
+
+# SSH FIRST, and only where sshd actually ships (server + cloud strains).
+# Desktop strains have no sshd, so no port is opened for them — a firewall that
+# opens 22 on a laptop that never listens on it is worse than useless.
+if dpkg -s openssh-server >/dev/null 2>&1; then
+    ufw allow OpenSSH >/dev/null 2>&1 || ufw allow 22/tcp >/dev/null 2>&1 || true
+    echo "firewall: allowed OpenSSH (this strain ships sshd)."
+else
+    echo "firewall: no sshd on this strain — no inbound ports opened."
+fi
+
+# `ufw enable` tries to load rules into a live netfilter, which a build chroot
+# does not have; it can fail there while still being the right thing to run.
+# What actually matters for the shipped image is ENABLED=yes in ufw.conf plus
+# the unit being enabled, so both are asserted explicitly rather than assumed
+# from the exit status of a command that cannot fully succeed in a chroot.
+ufw --force enable >/dev/null 2>&1 || true
+if [ -f /etc/ufw/ufw.conf ]; then
+    if grep -q '^ENABLED=' /etc/ufw/ufw.conf; then
+        sed -i 's/^ENABLED=.*/ENABLED=yes/' /etc/ufw/ufw.conf
+    else
+        echo 'ENABLED=yes' >> /etc/ufw/ufw.conf
+    fi
+fi
+systemctl enable ufw >/dev/null 2>&1 || true
+
+echo "firewall: ufw enabled — default deny inbound, allow outbound."

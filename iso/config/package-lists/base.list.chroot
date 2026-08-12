@@ -54,3 +54,11 @@ rsync
 ## some code paths, by calling unsquashfs. Pinned alongside rsync so the same
 ## class of silent exit-127 cannot bite on the other branch.
 squashfs-tools
+## ufw — the image shipped with NO firewall of any kind (measured: ufw and
+## firewalld both absent from the built image). That is indefensible on the
+## server and cloud strains, which install openssh-server and expose :22 to the
+## network. Ubuntu's standard, open source, ~1 MB. Configured and enabled by
+## iso/config/hooks/0460-firewall.chroot, which allows SSH FIRST on any strain
+## that ships sshd — enabling a default-deny firewall without that rule would
+## lock the owner out of their own server on first boot.
+ufw

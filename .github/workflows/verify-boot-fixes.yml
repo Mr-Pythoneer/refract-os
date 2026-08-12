@@ -211,7 +211,7 @@ jobs:
           ls "$SQ"/usr/share/applications/*.desktop 2>/dev/null | wc -l
           echo
           echo "=== security posture (is anything AV-like present?) ==="
-          for p in clamav clamav-daemon apparmor ufw firewalld rkhunter chkrootkit; do
+          for p in clamav clamav-daemon apparmor ufw firewalld rkhunter chkrootkit file-roller; do
             if [ -e "$SQ/usr/sbin/$p" ] || [ -e "$SQ/usr/bin/$p" ] || grep -qE "^${p}[[:space:]]" /mnt/iso/casper/filesystem.manifest 2>/dev/null; then
               echo "  PRESENT  $p"
             else
