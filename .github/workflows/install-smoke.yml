@@ -328,6 +328,7 @@ jobs:
             -cdrom refract.iso -boot d \
             -drive file=target.qcow2,format=qcow2,if=virtio \
             -display none -vga std -vnc :0 \
+            -serial "file:$PWD/live-serial.log" \
             -monitor unix:mon.sock,server,nowait -pidfile qemu.pid -daemonize
           mon() { printf '%s\n' "$1" | socat - unix-connect:mon.sock >/dev/null; }
           shot() { mon "screendump $PWD/shots/$1.ppm"; }
@@ -476,17 +477,36 @@ jobs:
             # desktop, no window manager, and no app launch.
             vd key ctrl-alt-f3; sleep 8
             shot 07-terminal
-            vd type 'sudo grep -iE "unpackfs|rsync|mount" /root/.cache/calamares/session.log | tail -22'
-            vd key enter; sleep 5
-            shot 08-calamares-log
-            vd type 'sudo tail -25 /root/.cache/calamares/session.log'
-            vd key enter; sleep 5
-            shot 09-calamares-tail
-            vd type 'lsblk; echo ---; mount | grep -iE "calamares|cdrom|squash"'
+            # PUSH THE FULL LOG OUT AS TEXT, not screenshots. Reading a 500-line
+            # log through 1280x800 VNC screenshots loses everything above the
+            # fold, and vncdo cannot even type a '|' (it sends a backslash — an
+            # earlier attempt produced `grep ... \ tail -22` and failed). The VM
+            # has a serial port wired to live-serial.log on the runner, so `cp`
+            # to /dev/ttyS0 delivers the whole thing verbatim, no pipes needed.
+            vd type 'sudo cp /root/.cache/calamares/session.log /dev/ttyS0'
+            vd key enter; sleep 8
+            shot 08-log-dumped
+            # Disk state at the moment of failure. lsblk showed vda with NO
+            # partitions, so the partition module never created one — these
+            # commands capture exactly what it did and did not do.
+            vd type 'sudo sfdisk -l /dev/vda > /dev/ttyS0 2>&1'
             vd key enter; sleep 4
-            shot 10-mounts
+            vd type 'lsblk -f > /dev/ttyS0 2>&1'
+            vd key enter; sleep 4
+            vd type 'sudo blkid > /dev/ttyS0 2>&1'
+            vd key enter; sleep 4
+            shot 09-disk-state
           fi
           mon "quit" || true
+          if [ -s live-serial.log ]; then
+            echo "===== CALAMARES SESSION LOG + DISK STATE (via serial) ====="
+            # Trim the boot chatter; the interesting part starts once Calamares
+            # begins logging. Keep it generous — the partition module runs early.
+            tail -c 200000 live-serial.log
+            echo "===== END SERIAL CAPTURE ====="
+          else
+            echo "NOTE: live-serial.log is empty — the guest wrote nothing to ttyS0."
+          fi
           sudo apt-get install -y imagemagick >/dev/null 2>&1 || true
           for f in shots/*.ppm; do convert "$f" "${f%.ppm}.png" 2>/dev/null && rm -f "$f" || true; done
           # Sanity: the target must have received real data.
