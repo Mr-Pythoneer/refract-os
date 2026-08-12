@@ -94,8 +94,18 @@ if clone_pin https://github.com/vinceliuice/MacTahoe-gtk-theme.git "$GTK_SHA" "$
     # in /root would theme root's apps and nobody else's.
     if [ -d /root/.config/gtk-4.0 ]; then
         mkdir -p /etc/skel/.config
-        rm -rf /etc/skel/.config/gtk-4.0
-        cp -a /root/.config/gtk-4.0 /etc/skel/.config/
+        # DO NOT rm -rf the directory: iso/build.sh also writes
+        # /etc/skel/.config/gtk-4.0/gtk.css (the per-mode accent bake), and
+        # wiping the dir would silently delete the accent on every build where
+        # this succeeds. Copy the theme's files in ALONGSIDE it, and keep the
+        # accent gtk.css as the one that wins — the default layout is Refract,
+        # which wants Adwaita plus the prism accent, not MacTahoe. The macOS
+        # layout re-applies its own theming through distro-layoutctl at login.
+        cp -a /root/.config/gtk-4.0/assets /etc/skel/.config/gtk-4.0/ 2>/dev/null || true
+        for _f in gtk-Dark.css gtk-Light.css gtk-dark.css; do
+            [ -e "/root/.config/gtk-4.0/$_f" ] \
+                && cp -a "/root/.config/gtk-4.0/$_f" /etc/skel/.config/gtk-4.0/ 2>/dev/null || true
+        done
         echo "macos-look: libadwaita (GTK4) config staged into /etc/skel — window controls now match across toolkits."
     else
         echo "macos-look: no GTK4/libadwaita config produced — GNOME apps will keep default window buttons." >&2

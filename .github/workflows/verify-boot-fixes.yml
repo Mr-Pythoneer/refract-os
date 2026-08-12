@@ -435,8 +435,14 @@ jobs:
                 "test -e $SQ/etc/skel/.config/autostart/refract-layout.desktop && test -x $SQ/usr/local/lib/refract/apply-layout-once"
             chk "Papirus icons present (non-macOS layouts need them)" \
                 "test -d $SQ/usr/share/icons/Papirus-Dark"
-            chk "GTK4/libadwaita config staged (window controls match across toolkits)" \
-                "test -e $SQ/etc/skel/.config/gtk-4.0/gtk.css"
+            # Assert the THEME's own asset dir, not gtk.css. gtk.css is written
+            # unconditionally by build.sh's accent bake (search: "Baked Normal's
+            # accent"), so testing for it passed on a file a different feature
+            # always creates — a vacuous PASS that reported the libadwaita config
+            # as present while the build log said "no GTK4/libadwaita config
+            # produced". assets/ comes only from install.sh -l.
+            chk "MacTahoe libadwaita assets staged (GTK4 apps themed)" \
+                "test -d $SQ/etc/skel/.config/gtk-4.0/assets"
             chk "Blur-my-Shell assembled (Normal mode's liquid glass)" \
                 "test -e $SQ/usr/share/gnome-shell/extensions/blur-my-shell@aunetx/extension.js"
             # The defaults must name a theme that EXISTS. This is the assertion that
