@@ -1,0 +1,88 @@
+#!/bin/sh
+# Refract OS debloat — remove what this distro provably never uses.
+#
+# Driven by a MEASURED report, not vibes: verify-boot-fixes' bloat step lists the
+# shipped image's largest packages straight out of its own dpkg status. The
+# classic Ubuntu app bloat is already absent (thunderbird, libreoffice,
+# rhythmbox, cheese, shotwell, the four GNOME games, simple-scan,
+# popularity-contest all confirmed missing). What remained was Canonical's
+# service layer plus assets this distro replaced but never removed.
+#
+# EVERY purge here is GUARDED. apt-get purge happily takes reverse-dependencies
+# with it, and a wrong guess ships an image with no desktop — the exact class of
+# silent, catastrophic breakage this project has already been bitten by. So each
+# candidate is SIMULATED first, and skipped if apt reports it would also remove
+# anything on the protect list. A skipped package logs loudly and stays.
+set -e
+
+# Anything whose removal would break boot, login, graphics, networking or the
+# installer. If a purge would take one of these, the purge is refused.
+GUARD='^(gnome-shell|gdm3|nautilus|ubuntu-session|ubuntu-desktop-minimal|lubuntu-desktop|xserver-xorg-core|network-manager|casper|calamares|plymouth|systemd|dbus|linux-image-.*|linux-modules-.*|mesa-.*|libgl1.*|libglx-.*|libegl1.*)$'
+
+purged_kb=0
+try_purge() {
+    for p in "$@"; do
+        dpkg -s "$p" >/dev/null 2>&1 || continue
+        # Simulate. `Remv <pkg>` lines are exactly what apt would remove.
+        removed=$(DEBIAN_FRONTEND=noninteractive apt-get -s purge -y "$p" 2>/dev/null \
+                    | awk '/^Remv /{print $2}')
+        if printf '%s\n' "$removed" | grep -qE "$GUARD"; then
+            echo "debloat: KEEPING $p — purging it would also remove:" >&2
+            printf '%s\n' "$removed" | grep -E "$GUARD" | sed 's/^/debloat:     /' >&2
+            continue
+        fi
+        sz=$(awk -v pkg="$p" '
+            /^Package: /{ p=$2 } /^Installed-Size: /{ if (p==pkg) { print $2; exit } }
+        ' /var/lib/dpkg/status 2>/dev/null || echo 0)
+        if DEBIAN_FRONTEND=noninteractive apt-get purge -y "$p" >/dev/null 2>&1; then
+            purged_kb=$((purged_kb + ${sz:-0}))
+            echo "debloat: purged $p (${sz:-?} KB)"
+        else
+            echo "debloat: could not purge $p — left in place." >&2
+        fi
+    done
+}
+
+# 1) CANONICAL SERVICE LAYER. ubuntu-pro-client is the important one: it is not
+#    merely unused, it ADVERTISES. A live boot's own MOTD printed
+#      "Expanded Security Maintenance for Applications is not enabled."
+#      "Enable ESM Apps ... See https://ubuntu.com/esm or run: sudo pro status"
+#    inside Refract OS, despite 0200-refract-identity.chroot disabling the stock
+#    MOTD scripts — pro installs its own. That is both bloat and an Ubuntu
+#    branding leak in a distro whose whole identity layer exists to remove them.
+#    whoopsie and apport ship crash data to Canonical from a machine whose owner
+#    never opted in; neither has any function in this OS.
+try_purge ubuntu-pro-client ubuntu-advantage-tools whoopsie apport
+
+# 2) ASSETS THIS DISTRO REPLACED BUT KEPT PAYING FOR. Yaru's icon theme is dead
+#    weight now that MacTahoe ships as the default icon theme, and Ubuntu's
+#    wallpapers are dead weight next to branding/make-wallpapers.py's set. Both
+#    are guarded above: if the desktop metapackage genuinely depends on either,
+#    the purge is refused rather than silently shipping a broken desktop.
+try_purge yaru-theme-icon ubuntu-wallpapers-noble ubuntu-wallpapers
+
+# 3) LEFTOVER BUILD TOOLING. 0410-keyd.chroot compiles keyd from source and then
+#    purges "gcc make" — but `gcc` is only the metapackage, so the actual
+#    compiler survived: the shipped image still carried gcc-13-x86-64-linux-gnu
+#    (61 MB) and cpp-13-x86-64-linux-gnu (31 MB). Nothing on a desktop image
+#    needs a C compiler at runtime.
+try_purge gcc-13-x86-64-linux-gnu cpp-13-x86-64-linux-gnu
+
+# 4) UNUSED SPEECH DATA. pocketsphinx-en-us (37 MB) is an offline acoustic model
+#    pulled in transitively; nothing in this OS does speech recognition.
+try_purge pocketsphinx-en-us
+
+# DELIBERATELY NOT TOUCHED, and why — each is a product decision, not a cleanup:
+#   snapd + firefox  — Firefox IS the browser, and on Ubuntu it is a snap, so
+#                      removing snapd removes the browser. Needs an explicit
+#                      call on what ships instead (deb Firefox? Chromium?).
+#   cups             — printing is a real feature a desktop is expected to have.
+#   ibus-data        — input methods; removing it breaks typing in non-Latin
+#                      scripts. Size is not a good enough reason to break i18n.
+#   libllvm18/19/20  — three copies is genuinely suspect, but mesa links one of
+#                      them and getting this wrong breaks graphics. Needs a real
+#                      dependency trace, not a guess.
+#   unattended-upgrades — security updates. Bloat is not a reason to stop
+#                      patching a machine.
+
+echo "debloat: reclaimed approximately $((purged_kb / 1024)) MB."
