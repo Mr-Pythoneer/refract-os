@@ -95,8 +95,13 @@ jobs:
           sleep 210
           shot 00-desktop
           vd key super;  sleep 3; shot 01-overview
-          # App grid: the 9-dots is the rightmost dock icon (dock centered at bottom).
-          vd key esc; sleep 2; vd move 831 763; vd click 1; sleep 3; shot 02-app-grid
+          # App grid. move+click MUST be ONE vncdo call — vncdo is stateless per
+          # invocation, so a separate `move` then `click` reconnects with the
+          # cursor reset to (0,0) and clicks the top-left corner instead of the
+          # dock. (Same bug install-smoke was bitten by; noted in its comments.)
+          # Dock icons sit at y=754 on this 1280x800 display; the 9-dots grid is
+          # the rightmost at x=833.
+          vd key esc; sleep 2; vd move 833 754 click 1; sleep 3; shot 02-app-grid
           vd key esc; sleep 2
 
           # Terminal -> show the OS identity from /etc/os-release.
@@ -115,7 +120,20 @@ jobs:
           vd key super; sleep 2; vd type "Files"; sleep 2; vd key enter; sleep 6
           shot 07-files
 
-          shot 08-final
+          # Chrome — now the default browser (Firefox and snapd were removed).
+          vd key super; sleep 2; vd type "Chrome"; sleep 3; vd key enter; sleep 15
+          shot 08-chrome
+
+          # Back to a terminal to show the security posture and that the bloat is
+          # really gone, not just claimed in a build log.
+          vd key super; sleep 2; vd type "Terminal"; sleep 2; vd key enter; sleep 8
+          vd type "sudo ufw status verbose 2>&1 | head -8"; vd key enter; sleep 4
+          shot 09-firewall
+          vd type "which google-chrome-stable file-roller; snap --version 2>&1 | head -2"
+          vd key enter; sleep 4
+          shot 10-browser-and-bloat
+
+          shot 11-final
           mon "quit" || true
           for f in shots/*.ppm; do convert "$f" "${f%.ppm}.png" 2>/dev/null && rm -f "$f" || true; done
           ls -lh shots/ || true
