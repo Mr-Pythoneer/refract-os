@@ -417,16 +417,32 @@ jobs:
           vd key tab; vd key tab; vd key tab
           vd type "refractos1"; vd key tab; vd type "refractos1"; sleep 1
           shot 03b-users-filled
-          # THE MODES PAGE. settings.conf puts a packagechooser ("Modes":
-          # Gaming/AI/Server/Creative) between Users and Summary, and this drive
-          # never knew it existed — run 31517998141 sat on it for the rest of the
-          # job while the harness believed it was on Summary pressing Install.
-          # It ships with NOTHING preselected ("Please pick a product from the
-          # list"), same deliberate no-default stance as the partition page.
-          # Pick the first entry; any is fine for a smoke test.
-          next 6;  shot 03c-modes        # Users -> Modes (packagechooser)
-          vd move 343 173 click 1; sleep 2; shot 03d-mode-picked   # "Gaming"
-          next 6;  shot 04-summary       # Modes -> Summary
+          # TWO packagechooser PAGES SIT BETWEEN USERS AND SUMMARY, not one.
+          # settings.conf shows packagechooser@layout ("Look") and THEN
+          # packagechooser@modes ("Modes"). This drive knew only about Modes and
+          # broke the moment the Look page landed (58ad1a2): run 31579769018
+          # stopped dead on Look with Next greyed out, and every screenshot from
+          # 04-summary onward was byte-identical because the screen never changed
+          # again. The Calamares log confirms it — the last entry is
+          # setBootLoaderInstallPath, then nothing.
+          #
+          # THE COORDINATE ALSO HAD TO MOVE. The old click was (343,173), which
+          # lands ONE ROW ABOVE the first list item: rows start at y≈174 and the
+          # first ("Refract"/"Gaming") sits at y≈180. It selected nothing, and
+          # because `next` just presses Alt+N and never checks the page actually
+          # advanced, the harness sailed on believing it was on Summary. y=182 is
+          # solidly inside the first row — measured off run 31579769018's
+          # 03d-mode-picked.png, where the cursor is visibly ON "Refract" with
+          # nothing highlighted.
+          #
+          # Look is mode:required-turned-optional, so a skipped page yields the
+          # Refract default; the click is still made deliberately, so this test
+          # exercises a REAL selection rather than passing only via the fallback.
+          next 6;  shot 03c-look          # Users -> Look (packagechooser@layout)
+          vd move 350 182 click 1; sleep 2; shot 03d-look-picked   # "Refract"
+          next 6;  shot 03e-modes         # Look  -> Modes (packagechooser@modes)
+          vd move 350 182 click 1; sleep 2; shot 03f-mode-picked   # "Gaming"
+          next 6;  shot 04-summary        # Modes -> Summary
           # Summary -> Install, BY ACCELERATOR. Two coordinate attempts failed
           # here: 1155,772 (a maximized position, outside the real dialog) and
           # then 1007,718, which is dead-centre on the button and still did not
