@@ -17,7 +17,12 @@ set -e
 
 # Anything whose removal would break boot, login, graphics, networking or the
 # installer. If a purge would take one of these, the purge is refused.
-GUARD='^(gnome-shell|gdm3|nautilus|ubuntu-session|ubuntu-desktop-minimal|lubuntu-desktop|xserver-xorg-core|network-manager|casper|calamares|plymouth|systemd|dbus|linux-image-.*|linux-modules-.*|mesa-.*|libgl1.*|libglx-.*|libegl1.*)$'
+# NOTE: the desktop METApackages (ubuntu-desktop-minimal, lubuntu-desktop) are
+# deliberately NOT guarded. They hold dependencies and nothing else — losing one
+# removes no actual software, and guarding them would block every purge below,
+# since the metapackage depends on firefox, yaru-theme-icon and so on. What must
+# survive is the real components, which is what this list protects.
+GUARD='^(gnome-shell|gdm3|nautilus|ubuntu-session|xserver-xorg-core|network-manager|casper|calamares|plymouth|systemd|dbus|linux-image-.*|linux-modules-.*|mesa-.*|libgl1.*|libglx-.*|libegl1.*)$'
 
 purged_kb=0
 try_purge() {
@@ -72,10 +77,30 @@ try_purge gcc-13-x86-64-linux-gnu cpp-13-x86-64-linux-gnu
 #    pulled in transitively; nothing in this OS does speech recognition.
 try_purge pocketsphinx-en-us
 
+# 5) FIREFOX + SNAPD. The project owner chose Google Chrome as the default
+#    browser, installed as a real .deb from Google's apt repo by
+#    0450-chrome.chroot. With Chrome present, Firefox has no reason to ship —
+#    and because Ubuntu's Firefox is a SNAP, removing it also lets snapd go
+#    (129 MB, plus its mount units and the sluggish first-launch that is the
+#    single most common thing people call bloat on an Ubuntu derivative).
+#
+#    STRICTLY CONDITIONAL. 0450 writes /etc/refract-chrome-installed only when
+#    google-chrome-stable is genuinely on disk. If Chrome failed to install (a
+#    network hiccup fetching Google's key, say), this is skipped entirely rather
+#    than shipping an image with NO browser at all — which would be a far worse
+#    outcome than a little bloat.
+if [ -e /etc/refract-chrome-installed ] && [ -x /usr/bin/google-chrome-stable ]; then
+    try_purge firefox snapd
+    # snapd leaves its state behind; without this the space is not actually
+    # reclaimed and the empty mount points linger on the installed system.
+    rm -rf /var/lib/snapd /var/cache/snapd /snap 2>/dev/null || true
+    echo "debloat: Firefox and snapd removed (Chrome is the browser)."
+else
+    echo "debloat: KEEPING firefox and snapd — Chrome is not installed, so removing" >&2
+    echo "debloat:   Firefox would leave this image with no browser at all." >&2
+fi
+
 # DELIBERATELY NOT TOUCHED, and why — each is a product decision, not a cleanup:
-#   snapd + firefox  — Firefox IS the browser, and on Ubuntu it is a snap, so
-#                      removing snapd removes the browser. Needs an explicit
-#                      call on what ships instead (deb Firefox? Chromium?).
 #   cups             — printing is a real feature a desktop is expected to have.
 #   ibus-data        — input methods; removing it breaks typing in non-Latin
 #                      scripts. Size is not a good enough reason to break i18n.

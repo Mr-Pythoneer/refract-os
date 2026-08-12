@@ -1,0 +1,76 @@
+#!/bin/sh
+# Google Chrome as the default browser, from Google's own apt repo.
+#
+# PRODUCT DECISION, made explicitly by the project owner with the tradeoff
+# stated: Chrome is the most-used browser by a wide margin, and shipping the
+# real thing (rather than Chromium) means Widevine DRM works out of the box, so
+# Netflix / Spotify / Disney+ play without the user hunting for a fix. The costs
+# were named and accepted: Chrome is proprietary, it talks to Google by default,
+# and this adds a Google apt source to every installed system.
+#
+# WHY THE .deb REPO AND NOT THE SNAP OR CHROMIUM:
+#   * Ubuntu's `chromium-browser` is a SNAP. Installing it would drag snapd back
+#     in, which is exactly what 0500-debloat.chroot removes.
+#   * Google's apt repo is a real deb source, so Chrome updates through apt like
+#     everything else and needs no snapd at all.
+#
+# Runs BEFORE 0500-debloat.chroot (which purges firefox + snapd) on purpose:
+# the machine is never left without a browser, even if this hook fails.
+# Failure-tolerant — a network hiccup must not fail the whole ISO build; the
+# guard at the end reports loudly and Firefox survives if Chrome did not land.
+set -e
+
+command -v curl >/dev/null 2>&1 || { echo "chrome: curl missing — skipping."; exit 0; }
+
+KEYRING=/usr/share/keyrings/google-chrome.gpg
+LIST=/etc/apt/sources.list.d/google-chrome.list
+
+# Signed-by, not apt-key: apt-key is deprecated and a repo key added that way is
+# trusted for EVERY source on the system, not just Google's. Scoping the key to
+# this one list file is the difference between "Chrome can update itself" and
+# "Google can sign any package on this machine".
+install -d /usr/share/keyrings
+if curl -fsSL --retry 3 --max-time 60 https://dl.google.com/linux/linux_signing_key.pub \
+     | gpg --dearmor -o "$KEYRING" 2>/dev/null; then
+    chmod 0644 "$KEYRING"
+    printf 'deb [arch=amd64 signed-by=%s] https://dl.google.com/linux/chrome/deb/ stable main\n' \
+        "$KEYRING" > "$LIST"
+    DEBIAN_FRONTEND=noninteractive apt-get update >/dev/null 2>&1 || true
+    if DEBIAN_FRONTEND=noninteractive apt-get install -y google-chrome-stable >/dev/null 2>&1; then
+        echo "chrome: installed google-chrome-stable from Google's apt repo."
+        # Make it the system default so xdg-open, mail links and "open in
+        # browser" from any app land in Chrome rather than a browser that is
+        # about to be purged.
+        if [ -e /usr/bin/google-chrome-stable ]; then
+            update-alternatives --install /usr/bin/x-www-browser x-www-browser \
+                /usr/bin/google-chrome-stable 200 2>/dev/null || true
+            update-alternatives --set x-www-browser /usr/bin/google-chrome-stable 2>/dev/null || true
+            update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser \
+                /usr/bin/google-chrome-stable 200 2>/dev/null || true
+            update-alternatives --set gnome-www-browser /usr/bin/google-chrome-stable 2>/dev/null || true
+        fi
+        # Default handler for http/https and html, system-wide.
+        cat > /usr/share/applications/defaults.list <<'EOF'
+[Default Applications]
+x-scheme-handler/http=google-chrome.desktop
+x-scheme-handler/https=google-chrome.desktop
+text/html=google-chrome.desktop
+EOF
+        cp /usr/share/applications/defaults.list /usr/share/applications/mimeapps.list
+    else
+        echo "chrome: apt install failed — Firefox stays as the browser." >&2
+        rm -f "$LIST"
+    fi
+else
+    echo "chrome: could not fetch Google's signing key — Firefox stays." >&2
+fi
+
+# Hard signal for the debloat hook and for anyone reading the build log: if
+# Chrome is NOT here, 0500 must not remove Firefox.
+if [ -x /usr/bin/google-chrome-stable ]; then
+    : > /etc/refract-chrome-installed
+    echo "chrome: default browser is Google Chrome."
+else
+    rm -f /etc/refract-chrome-installed
+    echo "chrome: NOT installed — leaving Firefox in place as the only browser." >&2
+fi
