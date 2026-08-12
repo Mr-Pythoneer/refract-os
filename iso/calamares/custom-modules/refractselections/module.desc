@@ -1,0 +1,5 @@
+---
+type:       "job"
+name:       "refractselections"
+interface:  "python"
+script:     "main.py"

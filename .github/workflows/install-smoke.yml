@@ -120,6 +120,21 @@ jobs:
           chk "branding present"                            '[ -d /mnt/sq/etc/calamares/branding/refractos ]'
           chk "install .desktop launcher present"           '[ -f /mnt/sq/usr/share/applications/install-refract-os.desktop ]'
           chk "distro-modectl symlink in PATH"              '[ -L /mnt/sq/usr/local/bin/distro-modectl ]'
+          # The refractselections python job. A module named in the sequence but
+          # absent from the image is fatal at Calamares STARTUP, and finding that
+          # out costs a 13-minute install run — assert it here, where it costs 90
+          # seconds. main.py is byte-compiled too: a syntax error in it would
+          # otherwise surface as a failed job at the very end of an install that
+          # has already written the target filesystem.
+          chk "refractselections module.desc present"       '[ -f /mnt/sq/etc/calamares/custom-modules/refractselections/module.desc ]'
+          chk "refractselections main.py present"           '[ -f /mnt/sq/etc/calamares/custom-modules/refractselections/main.py ]'
+          chk "refractselections main.py compiles"          'python3 -m py_compile /mnt/sq/etc/calamares/custom-modules/refractselections/main.py'
+          chk "modules-search covers custom-modules"        'grep -q "custom-modules" /mnt/sq/etc/calamares/settings.conf'
+          # These two could never work (shellprocess has no gs[] expansion) and
+          # are gone; fail if anything reintroduces them.
+          chk "no shellprocess_layout.conf (impossible config)" '[ ! -e /mnt/sq/etc/calamares/modules/shellprocess_layout.conf ]'
+          chk "no shellprocess_modes.conf (impossible config)"  '[ ! -e /mnt/sq/etc/calamares/modules/shellprocess_modes.conf ]'
+          chk "no gs[] expansion used in any shellprocess conf" '! grep -rl "gs\[" /mnt/sq/etc/calamares/modules/ 2>/dev/null | grep -q .'
           chk "distro scripts rsynced into /opt/distro"     '[ -f /mnt/sq/opt/distro/modes/modectl/distro-modectl ]'
 
           # The unpackfs SOURCE must be exactly where the squashfs lives on the
