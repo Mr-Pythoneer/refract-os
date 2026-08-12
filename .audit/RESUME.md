@@ -196,18 +196,59 @@ exactly 40m17s were not cancellations — that is `timeout-minutes: 40` expiring
 
 ---
 
+## The install now partitions, mounts and unpacks — confirmed
+
+`install-smoke` 31581430815 and 31583279255: target disk 200,704 →
+**5,959,311,360 bytes**, then plateaus. That is partition → mount → verifyroot →
+unpackfs all working. The `partitionLayout` fix is proven end to end; Calamares'
+queue now shows `CreatePartitionJob` + `SetPartFlagsJob` alongside the table job,
+where every earlier run queued the table alone.
+
+Two further walls were hit and fixed after it:
+
+- **The Look page blocked the wizard.** Adding a second packagechooser
+  (`58ad1a2`) broke the VNC harness, which knew only about Modes and clicked one
+  row too high (y=173; first row is y≈180). Fixed, plus `mode: required` →
+  `optional` with `default: refract`, because a page you cannot leave without
+  choosing means the "default" had no meaning.
+- **`shellprocess` has no `gs[...]` expansion.** `shellprocess_layout.conf` and
+  `shellprocess_modes.conf` could NEVER have worked. `CommandList.cpp`'s
+  `get_gs_expander()` inserts exactly ROOT, USER and LANG; upstream's
+  `shellprocess.conf` says so. The `gs[]` form was borrowed from
+  `contextualprocess.conf`, where those names are GlobalStorage keys — a
+  different module's schema. Both configs are deleted and replaced by the python
+  job `iso/calamares/custom-modules/refractselections/`. Worst property of that
+  bug: it fires after unpackfs, so it aborted an install whose filesystem was
+  already written.
+
 ## Pick up here
 
-1. **Verify the install.** Build `31577472078` → `install-smoke`. First thing to
-   grep in the new serial log is `switching to default layout` (means the YAML
-   was rejected and it relapsed into the broken fallback). If the partition is
-   created, the next observables are `verifyroot` passing and `unpackfs` running
-   against a real ext4 root; likeliest next failures are `bootloader`
-   (grub-install), then `fstab`/`grubcfg`.
-2. **Then: full fan-out bug check** for review — explicitly requested.
-3. **Then: small stuff.** Dock Terminal never launches; duplicate installer
+1. **Read build `31584911337`** (dispatched, left running — free and remote) and
+   then run `install-smoke` against it with `phase=both`. This is the first
+   build carrying the `refractselections` python module. The `inspect` job now
+   asserts the module is present, byte-compiles, is covered by `modules-search`,
+   and that no conf reintroduces `gs[]` — so a packaging mistake fails in 90
+   seconds instead of a 13-minute install.
+2. **Expected next failure, if any:** `bootloader` (grub-install) or
+   `fstab`/`grubcfg`. Everything before them is now proven.
+3. **Bug check is HALF DONE and resumable.** Run `wf_aa1a7503-4fc`. 6 of 8
+   finders banked 18 raw findings; `installer-chain` and `ai-modes-runtime`
+   never returned, and most verifiers died. Resume with
+   `Workflow({scriptPath: '<session>/workflows/scripts/refract-bug-check-wf_aa1a7503-4fc.js',
+   resumeFromRunId: 'wf_aa1a7503-4fc'})` — completed agents replay from cache.
+   One finding IS fully verified and worth acting on: **every UEFI menu entry in
+   `iso/build.sh` hardcodes `console=ttyS0,115200`**, a CI debug console, in
+   shipped ISOs. The refuter confirmed the mechanism and correctly downgraded the
+   severity (BIOS boots already expose a passwordless tty3 by design, so it is an
+   extra access channel, not a UEFI-only hole).
+4. **Cause of the half-finished run: local network, not the workflow.** 36 agents
+   died on `API Error: Unable to connect to API: SSL certificate hostname
+   mismatch`, in bursts. Something on this machine is intercepting TLS (VPN,
+   proxy, or security software). Re-run when that is quiet.
+5. **Then: small stuff.** Dock Terminal never launches; duplicate installer
    entries; `docs/utm-guide.md` omits the Modes page; welcome image cropped left;
-   MacTahoe libadwaita `-l` failure (above).
+   MacTahoe libadwaita `-l` failure (above); layout preview PNGs are schematics
+   and could be replaced with real screenshot-tour captures.
 4. **User-owned, not ours:** issue 2 is the user booting an installed disk;
    issue 3 (republish all six strains) waits on that verdict.
 5. **Releases have not updated since Aug 3** despite `publish_release=true` — the
