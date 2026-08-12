@@ -62,3 +62,14 @@ squashfs-tools
 ## that ships sshd — enabling a default-deny firewall without that rule would
 ## lock the owner out of their own server on first boot.
 ufw
+## cryptsetup + cryptsetup-initramfs — the installer OFFERS full-disk encryption
+## ("Encrypt system" on the Calamares partition page, with luksGeneration: luks1
+## in partition.conf) but cryptsetup was NOT in the image. Anyone ticking that
+## box got a failed install, or an installed system with no way to unlock its own
+## root at boot. Measured, not guessed: verify-boot-fixes' installer-toolchain
+## check reported "installer tool MISSING: cryptsetup" while every other
+## partition tool (mkfs.ext4/vfat/btrfs, mkswap, parted, sgdisk, wipefs) passed.
+## cryptsetup-initramfs is the half people forget — without it the initramfs has
+## no unlock hook and an encrypted install boots to a dead prompt.
+cryptsetup
+cryptsetup-initramfs
