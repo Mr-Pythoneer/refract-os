@@ -67,7 +67,14 @@ if clone_pin https://github.com/vinceliuice/MacTahoe-gtk-theme.git "$GTK_SHA" "$
     # Its full_sudo() check only tests that /root is writable, which it is here.
     # The old `script -qfec` pseudo-TTY fallback is gone — it failed identically,
     # because the problem was never the absence of a pty.
-    if bash "$WORK/mt-gtk/install.sh" --silent-mode -d "$WORK/ws-out" 2>&1; then
+    # -l/--libadwaita is what makes the window controls CONSISTENT. GTK4/
+    # libadwaita apps (Settings, Files, Text Editor, Disks — most of GNOME 46)
+    # deliberately ignore GTK themes, so they rendered GNOME's default monochrome
+    # close/minimise/maximise buttons while GTK3 apps like Terminal showed
+    # MacTahoe's traffic lights. Two toolkits, two button styles, one desktop —
+    # visible side by side in the screenshot tour. -l writes a gtk-4.0 config
+    # that libadwaita DOES read, so both toolkits agree.
+    if bash "$WORK/mt-gtk/install.sh" --silent-mode -l -d "$WORK/ws-out" 2>&1; then
         :
     else
         # Do not guess a third time. Re-run under a shell trace and print the tail,
@@ -80,6 +87,19 @@ if clone_pin https://github.com/vinceliuice/MacTahoe-gtk-theme.git "$GTK_SHA" "$
         echo "--- end trace (desktop falls back to an installed theme, see below) ---" >&2
     fi
     cp -a "$WORK/ws-out/." /usr/share/themes/ 2>/dev/null || true
+    # install.sh -l writes the GTK4 config into $HOME/.config/gtk-4.0, and this
+    # hook runs with HOME=/root — so stage it into /etc/skel, which is the ONLY
+    # place that reaches both the live session user (casper builds that account
+    # from /etc/skel) and every account the installer creates later. Leaving it
+    # in /root would theme root's apps and nobody else's.
+    if [ -d /root/.config/gtk-4.0 ]; then
+        mkdir -p /etc/skel/.config
+        rm -rf /etc/skel/.config/gtk-4.0
+        cp -a /root/.config/gtk-4.0 /etc/skel/.config/
+        echo "macos-look: libadwaita (GTK4) config staged into /etc/skel — window controls now match across toolkits."
+    else
+        echo "macos-look: no GTK4/libadwaita config produced — GNOME apps will keep default window buttons." >&2
+    fi
 fi
 
 # --- MacTahoe icons: the macOS 26 (Tahoe) "Liquid Glass" icon set. ---
