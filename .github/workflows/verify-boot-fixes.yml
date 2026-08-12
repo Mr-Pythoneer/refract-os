@@ -313,6 +313,27 @@ jobs:
               "test -x $SQ/usr/bin/rsync"
           chk "unsquashfs present (unpackfs' squashfs path)" \
               "test -x $SQ/usr/bin/unsquashfs"
+          # THE FULL INSTALLER TOOLCHAIN. rsync being absent (exit 127) proved
+          # this class of bug is real and completely invisible to config checks:
+          # Calamares shells out to a set of binaries, and a missing one fails
+          # MID-INSTALL after the disk has already been written to. The partition
+          # module is the current suspect — the target root never mounts, which
+          # is what a failed mkfs would look like — so assert every tool the
+          # partition/mount/bootloader path needs, not just the one that already
+          # bit us. Each is a plausible silent exit-127.
+          for _t in mkfs.ext4:sbin mkfs.vfat:sbin mkfs.btrfs:sbin mkswap:sbin \
+                    parted:sbin partprobe:sbin blkid:sbin wipefs:sbin \
+                    sgdisk:sbin cryptsetup:sbin grub-install:sbin \
+                    mount:bin umount:bin mountpoint:bin lsblk:bin findmnt:bin; do
+            _n="${_t%%:*}"
+            if [ -x "$SQ/usr/sbin/$_n" ] || [ -x "$SQ/sbin/$_n" ] \
+               || [ -x "$SQ/usr/bin/$_n" ] || [ -x "$SQ/bin/$_n" ]; then
+              echo "  PASS  installer tool present: $_n"
+            else
+              echo "  FAIL  installer tool MISSING: $_n — Calamares will exit 127 mid-install"
+              fail=1
+            fi
+          done
           echo "=== UID/GID 1000 is FREE for casper's live user (regression guard) ==="
           # casper creates the live session user at UID/GID 1000 (user-setup sets
           # passwd/user-uid 1000, per LP: #2004092). If ANY packaged user or group
