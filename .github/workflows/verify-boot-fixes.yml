@@ -188,6 +188,37 @@ jobs:
             fi
           done
 
+      - name: App catalog — every user-visible application that ships
+        run: |
+          set +e
+          set -u
+          # The real answer to "what apps are installed": the .desktop entries a
+          # user actually sees in the app grid. Package lists do not answer this
+          # (metapackages hide it), and neither does dpkg (libraries dominate).
+          # NoDisplay=true / Hidden=true entries are filtered out — those are
+          # MIME handlers and helpers, not apps someone can launch.
+          SQ=/mnt/sq
+          echo "=== user-visible applications ==="
+          for f in "$SQ"/usr/share/applications/*.desktop; do
+            [ -e "$f" ] || continue
+            grep -qiE '^(NoDisplay|Hidden)[[:space:]]*=[[:space:]]*true' "$f" && continue
+            name=$(grep -m1 '^Name=' "$f" | cut -d= -f2-)
+            comment=$(grep -m1 '^Comment=' "$f" | cut -d= -f2-)
+            printf '%-34s | %s\n' "${name:-$(basename "$f" .desktop)}" "${comment:-—}"
+          done | sort
+          echo
+          echo "=== count ==="
+          ls "$SQ"/usr/share/applications/*.desktop 2>/dev/null | wc -l
+          echo
+          echo "=== security posture (is anything AV-like present?) ==="
+          for p in clamav clamav-daemon apparmor ufw firewalld rkhunter chkrootkit; do
+            if [ -e "$SQ/usr/sbin/$p" ] || [ -e "$SQ/usr/bin/$p" ] || grep -qE "^${p}[[:space:]]" /mnt/iso/casper/filesystem.manifest 2>/dev/null; then
+              echo "  PRESENT  $p"
+            else
+              echo "  absent   $p"
+            fi
+          done
+
       - name: Assert every boot fix is physically in the image
         run: |
           set -uo pipefail
