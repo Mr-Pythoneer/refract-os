@@ -147,7 +147,14 @@ jobs:
 
       - name: Bloat report — what actually ships, by size
         run: |
-          set -uo pipefail
+          # NO pipefail here. GitHub runs `run:` steps under `bash -e`, and every
+          # pipeline below ends in `head`, which closes the pipe early and SIGPIPEs
+          # its producer — with pipefail that is a non-zero status and errexit kills
+          # the step mid-report (exit 2, observed on run 31558595245 after the
+          # package-size table had already printed). Diagnostics must never fail
+          # the job they are diagnosing.
+          set +e
+          set -u
           # DIAGNOSTIC, always exits 0. The package LISTS are lean (base is 11
           # packages), but ubuntu-desktop-minimal pulls a large Recommends tree
           # and that is where bloat actually hides. Report the real contents of
