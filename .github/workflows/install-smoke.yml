@@ -466,8 +466,15 @@ jobs:
           sz_now=$(qemu-img info -U --output=json target.qcow2 | python3 -c "import json,sys;print(json.load(sys.stdin)['actual-size'])")
           if [ "$sz_now" -lt 2000000000 ]; then
             echo "Install failed — pulling Calamares' session log from the guest."
-            vd move 791 481 click 1; sleep 2          # dismiss the Error dialog
-            vd move 509 754 click 1; sleep 8          # dock: Terminal
+            # Use tty3, NOT the dock Terminal. Clicking the dock icon never
+            # produced a window (run 31547959495: the icon highlights, no
+            # terminal appears, and every keystroke lands on the desktop — the
+            # 10-mounts shot shows the install launcher selected by the typing).
+            # tty3 carries its own getty autologin from 0400-polish.chroot, which
+            # only ever failed before because no live user existed; the GID-1000
+            # fix created that account, so this path works now and needs no
+            # desktop, no window manager, and no app launch.
+            vd key ctrl-alt-f3; sleep 8
             shot 07-terminal
             vd type 'sudo grep -iE "unpackfs|rsync|mount" /root/.cache/calamares/session.log | tail -22'
             vd key enter; sleep 5
