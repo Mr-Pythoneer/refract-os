@@ -12,7 +12,7 @@ primary-color='#0b0b0d'
 [org/gnome/desktop/interface]
 color-scheme='prefer-dark'
 gtk-theme='WhiteSur-Dark'
-icon-theme='WhiteSur-dark'
+icon-theme='MacTahoe-dark'
 enable-hot-corners=true
 
 [org/gnome/shell]

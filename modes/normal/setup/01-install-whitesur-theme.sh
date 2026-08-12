@@ -27,7 +27,11 @@ trap 'rm -rf "$WORKDIR"' EXIT
 # bump these SHAs to a newer reviewed upstream commit.
 declare -A PINS=(
     [WhiteSur-gtk-theme]="a83f467e4c16b1ed1c960f3d89e2472d9639477c"
-    [WhiteSur-icon-theme]="3cc051a4709e67921a9d47cd2a3e0111bbe5e2bd"
+    # Icons are MacTahoe (macOS 26 "Liquid Glass"), not WhiteSur's 2020 Big Sur
+    # set. Same author, same install interface. Keep this SHA in sync with
+    # ICON_SHA in iso/config/hooks/0300-macos-look.chroot — the image and this
+    # installed-system path must not drift to different icon revisions.
+    [MacTahoe-icon-theme]="db9a4f8b236d3c559326f041d75d5173de118c45"
 )
 
 clone_pinned() {
@@ -50,13 +54,13 @@ clone_pinned() {
 }
 
 clone_pinned WhiteSur-gtk-theme
-clone_pinned WhiteSur-icon-theme
+clone_pinned MacTahoe-icon-theme
 
 echo -e "\033[36mInstalling GTK + GNOME Shell theme...\033[0m"
 "$WORKDIR/WhiteSur-gtk-theme/install.sh" -d "$HOME/.themes"
 
 echo -e "\033[36mInstalling icon theme...\033[0m"
-"$WORKDIR/WhiteSur-icon-theme/install.sh" -d "$HOME/.icons"
+"$WORKDIR/MacTahoe-icon-theme/install.sh" -d "$HOME/.icons"
 
 echo -e "\033[32m\nThemes installed under ~/.themes and ~/.icons.\033[0m"
 echo "Apply with 03-apply-theme.sh (optionally reposition the dock with 02-configure-dock.sh), or set the theme via GNOME Tweaks manually."

@@ -105,7 +105,7 @@ find /usr/share/icons /usr/share/pixmaps -type f \( $_pred \) \
 # No Refract distributor icon is installed (os-release sets no LOGO=), and the
 # GNOME fallback that would otherwise fill that gap is blanked by the loop above.
 rm -f /usr/share/icons/hicolor/256x256/apps/refract.png 2>/dev/null || true
-for theme in hicolor Yaru WhiteSur WhiteSur-dark; do
+for theme in hicolor Yaru MacTahoe MacTahoe-dark; do
     [ -d "/usr/share/icons/$theme" ] && command -v gtk-update-icon-cache >/dev/null 2>&1 \
         && gtk-update-icon-cache -f "/usr/share/icons/$theme" 2>/dev/null || true
 done

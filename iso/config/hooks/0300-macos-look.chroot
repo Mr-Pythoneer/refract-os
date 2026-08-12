@@ -8,7 +8,7 @@
 #
 # Pinned upstream commits (fetch-by-SHA, verified before use):
 GTK_SHA="a83f467e4c16b1ed1c960f3d89e2472d9639477c"   # vinceliuice/WhiteSur-gtk-theme
-ICON_SHA="3cc051a4709e67921a9d47cd2a3e0111bbe5e2bd"  # vinceliuice/WhiteSur-icon-theme
+ICON_SHA="db9a4f8b236d3c559326f041d75d5173de118c45"  # vinceliuice/MacTahoe-icon-theme (macOS 26 Liquid Glass)
 BMS_SHA="c9002511c7c8ad65931e3f875fe0ea93b8123394"   # aunetx/blur-my-shell
 
 # WHY THIS EXPORT IS LOAD-BEARING — it is the whole reason the macOS look never
@@ -81,10 +81,22 @@ if clone_pin https://github.com/vinceliuice/WhiteSur-gtk-theme.git "$GTK_SHA" "$
     cp -a "$WORK/ws-out/." /usr/share/themes/ 2>/dev/null || true
 fi
 
-# --- WhiteSur icons (these install cleanly) ---
-if clone_pin https://github.com/vinceliuice/WhiteSur-icon-theme.git "$ICON_SHA" "$WORK/ws-icon"; then
-    echo "macos-look: installing WhiteSur icon theme..."
-    "$WORK/ws-icon/install.sh" -d /usr/share/icons \
+# --- MacTahoe icons: the macOS 26 (Tahoe) "Liquid Glass" icon set. ---
+# Replaces WhiteSur's icons, which are the Big Sur look from 2020. Same author
+# (vinceliuice), so the install interface matches what this hook already drives.
+# Unlike the WhiteSur GTK installer next door, install.sh here is self-contained
+# — `set -eo pipefail` with NO sourced lib — so it has neither of the two
+# landmines that kept the GTK theme from ever shipping (the empty-$USER
+# `getent passwd ""` trip, and start_animation's `setterm` needing a TTY). It
+# needs only cp/sed/ln/mkdir/mv/rm and gtk-update-icon-cache, all present here.
+#
+# Installs MacTahoe, MacTahoe-light and MacTahoe-dark (default/blue variant).
+# The desktop defaults name MacTahoe-dark; keep those in sync — a name that does
+# not exist on disk is the "phantom theme" failure that hid the missing GTK
+# theme for months, and verify-boot-fixes now asserts against exactly that.
+if clone_pin https://github.com/vinceliuice/MacTahoe-icon-theme.git "$ICON_SHA" "$WORK/mt-icon"; then
+    echo "macos-look: installing MacTahoe (macOS 26 Liquid Glass) icon theme..."
+    "$WORK/mt-icon/install.sh" -d /usr/share/icons \
         || echo "macos-look: icon installer returned non-zero (continuing)." >&2
 fi
 
@@ -109,18 +121,18 @@ if clone_pin https://github.com/aunetx/blur-my-shell.git "$BMS_SHA" "$WORK/bms";
 fi
 
 # BLANK the Ubuntu "swirl" (start-here / ubuntu-logo) INSIDE the freshly
-# installed WhiteSur icon themes — the 0200 identity hook ran before WhiteSur
+# installed MacTahoe icon themes — the 0200 identity hook ran before WhiteSur
 # existed, so it couldn't reach these. $_CL/$_SVG are transparent 1x1 stand-ins
 # (see iso/build.sh): the OS ships no Refract mark, and leaving these untouched
-# would leave WhiteSur's own Ubuntu swirl showing instead.
+# would leave the theme's own Ubuntu swirl showing instead.
 _CL=/usr/share/refract/logo.png; _SVG=/usr/share/refract/logo.svg
 for _n in start-here ubuntu-logo distributor-logo; do
-    find /usr/share/icons/WhiteSur /usr/share/icons/WhiteSur-dark -type f -iname "${_n}.png" \
+    find /usr/share/icons/MacTahoe /usr/share/icons/MacTahoe-dark -type f -iname "${_n}.png" \
         -exec cp "$_CL" {} \; 2>/dev/null || true
-    [ -f "$_SVG" ] && find /usr/share/icons/WhiteSur /usr/share/icons/WhiteSur-dark -type f -iname "${_n}.svg" \
+    [ -f "$_SVG" ] && find /usr/share/icons/MacTahoe /usr/share/icons/MacTahoe-dark -type f -iname "${_n}.svg" \
         -exec cp "$_SVG" {} \; 2>/dev/null || true
 done
-for t in WhiteSur WhiteSur-dark; do
+for t in MacTahoe MacTahoe-dark; do
     [ -d "/usr/share/icons/$t" ] && command -v gtk-update-icon-cache >/dev/null 2>&1 \
         && gtk-update-icon-cache -qf "/usr/share/icons/$t" 2>/dev/null || true
 done

@@ -422,7 +422,7 @@ apply_theme() {
     # Keep the macOS (WhiteSur) look consistent across ALL modes — do not revert
     # to Yaru. WhiteSur-Dark ships system-wide via iso 0300-macos-look.chroot.
     run_as_user gsettings set org.gnome.desktop.interface gtk-theme 'WhiteSur-Dark' 2>/dev/null || true
-    run_as_user gsettings set org.gnome.desktop.interface icon-theme 'WhiteSur-dark' 2>/dev/null || true
+    run_as_user gsettings set org.gnome.desktop.interface icon-theme 'MacTahoe-dark' 2>/dev/null || true
     run_as_user gsettings set org.gnome.shell.extensions.user-theme name 'WhiteSur-Dark' 2>/dev/null || true
     apply_accent
     # Liquid glass (frosted blur via the Blur-my-Shell extension): Normal ONLY.

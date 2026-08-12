@@ -299,8 +299,8 @@ jobs:
                 "test -d $SQ/usr/share/themes/WhiteSur-Dark"
             chk "WhiteSur GNOME Shell theme present (user-theme extension target)" \
                 "test -e $SQ/usr/share/themes/WhiteSur-Dark/gnome-shell/gnome-shell.css"
-            chk "WhiteSur icon theme installed" \
-                "test -d $SQ/usr/share/icons/WhiteSur-dark"
+            chk "MacTahoe (macOS 26) icon theme installed" \
+                "test -d $SQ/usr/share/icons/MacTahoe-dark"
             chk "Blur-my-Shell assembled (Normal mode's liquid glass)" \
                 "test -e $SQ/usr/share/gnome-shell/extensions/blur-my-shell@aunetx/extension.js"
             # The defaults must name a theme that EXISTS. This is the assertion that

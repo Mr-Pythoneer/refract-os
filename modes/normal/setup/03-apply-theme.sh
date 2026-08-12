@@ -42,7 +42,7 @@ gsettings set org.gnome.desktop.interface gtk-theme "$THEME_NAME"
 # consistent with the system default (iso dconf/gschema) and every distro-modectl
 # mode switch — all of which set 'WhiteSur-dark'. Bare 'WhiteSur' here made the
 # first mode switch silently flip the icons.
-gsettings set org.gnome.desktop.interface icon-theme "WhiteSur-dark"
+gsettings set org.gnome.desktop.interface icon-theme "MacTahoe-dark"
 gsettings set org.gnome.shell.extensions.user-theme name "$THEME_NAME" 2>/dev/null || \
     echo "NOTE: org.gnome.shell.extensions.user-theme schema not available — User Themes extension may need a session restart to register. Try again after logging out and back in." >&2
 
