@@ -25,12 +25,28 @@ set -e
 GUARD='^(gnome-shell|gdm3|nautilus|ubuntu-session|xserver-xorg-core|network-manager|casper|calamares|plymouth|systemd|dbus|linux-image-.*|linux-modules-.*|mesa-.*|libgl1.*|libglx-.*|libegl1.*)$'
 
 purged_kb=0
+# Snapshot before touching anything, so the post-purge check below knows whether
+# this strain is even supposed to have a desktop (server/cloud legitimately do not).
+HAD_DESKTOP=""
+[ -x /usr/bin/gnome-shell ] && HAD_DESKTOP=1
 try_purge() {
     for p in "$@"; do
         dpkg -s "$p" >/dev/null 2>&1 || continue
-        # Simulate. `Remv <pkg>` lines are exactly what apt would remove.
+        # Simulate. apt prints `Purg <pkg>` for packages it will PURGE and
+        # `Remv <pkg>` for ones it merely removes — the first version of this
+        # matched only /^Remv / and was therefore blind to half of what apt was
+        # about to do. Match both.
         removed=$(DEBIAN_FRONTEND=noninteractive apt-get -s purge -y "$p" 2>/dev/null \
-                    | awk '/^Remv /{print $2}')
+                    | awk '/^(Remv|Purg) /{print $2}')
+        # Log the full cascade. The first version sent apt's output to /dev/null,
+        # so when this hook deleted the entire desktop there was no record of
+        # WHICH package took it — the build log showed only the successful
+        # purges. Never discard this again.
+        n_removed=$(printf '%s\n' "$removed" | grep -c . || true)
+        if [ "${n_removed:-0}" -gt 1 ]; then
+            echo "debloat: purging $p would also remove ${n_removed} package(s):"
+            printf '%s\n' "$removed" | sed 's/^/debloat:     /'
+        fi
         if printf '%s\n' "$removed" | grep -qE "$GUARD"; then
             echo "debloat: KEEPING $p — purging it would also remove:" >&2
             printf '%s\n' "$removed" | grep -E "$GUARD" | sed 's/^/debloat:     /' >&2
@@ -111,3 +127,27 @@ fi
 #                      patching a machine.
 
 echo "debloat: reclaimed approximately $((purged_kb / 1024)) MB."
+
+# POST-PURGE SAFETY NET — the whole reason this exists.
+# The first version of this hook removed the ENTIRE GNOME desktop: a workstation
+# image came out with no /usr/bin/gnome-shell, booting to a tty1 login prompt.
+# Worse, verify-boot-fixes detects the desktop FROM the image, so a missing
+# desktop read as "headless strain" and it SKIPPED every GNOME assertion and
+# reported success. Nothing anywhere caught it; it was found by looking at a
+# screenshot.
+#
+# A guard that only inspects apt's simulation is not enough — it evidently
+# missed this. So assert the OUTCOME: if this image had a desktop before the
+# purges, it must still have one after. Failing the build is strictly better
+# than shipping an ISO that boots to a text prompt.
+if [ -n "${HAD_DESKTOP:-}" ]; then
+    missing=""
+    [ -x /usr/bin/gnome-shell ] || missing="$missing gnome-shell"
+    [ -x /usr/sbin/gdm3 ] || [ -x /usr/bin/gdm3 ] || missing="$missing gdm3"
+    if [ -n "$missing" ]; then
+        echo "debloat: FATAL — the purges above destroyed the desktop. Missing:$missing" >&2
+        echo "debloat: refusing to ship a desktop image that boots to a text console." >&2
+        exit 1
+    fi
+    echo "debloat: desktop intact after purge (gnome-shell + gdm3 present)."
+fi

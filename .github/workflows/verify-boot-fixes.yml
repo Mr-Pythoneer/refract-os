@@ -244,6 +244,35 @@ jobs:
           elif [ -e "$SQ/usr/bin/startlxqt" ] || [ -e "$SQ/usr/bin/lxqt-session" ]; then DESKTOP=lxqt
           else DESKTOP=headless; fi
           echo "Detected desktop in this image: $DESKTOP"
+          # CROSS-CHECK THE DETECTION AGAINST THE STRAIN. Detecting the desktop
+          # from the image is right for strain-awareness, but on its own it turns
+          # a CATASTROPHE into a skip: when the debloat hook deleted GNOME from a
+          # workstation image, this job saw no /usr/bin/gnome-shell, concluded
+          # "headless", SKIPPED every desktop assertion, and reported SUCCESS. An
+          # image that boots to a tty1 login prompt passed its own verification.
+          # The strain name says what the image is SUPPOSED to be; if the two
+          # disagree, that is the bug, not a reason to skip.
+          STRAIN_HINT=$(find iso-dl -name '*.iso' | head -n1 | sed -E 's#.*refract-os-([a-z]+).*#\1#')
+          echo "Strain (from artifact name): ${STRAIN_HINT:-unknown}"
+          case "$STRAIN_HINT" in
+            workstation|laptop|handheld)
+              if [ "$DESKTOP" != gnome ]; then
+                echo "  FAIL  strain '$STRAIN_HINT' MUST ship GNOME but detected '$DESKTOP'" >&2
+                echo "        The desktop is missing from an image that requires one — every" >&2
+                echo "        assertion below would silently SKIP and this job would pass." >&2
+                exit 1
+              fi
+              echo "  PASS  strain '$STRAIN_HINT' correctly ships GNOME" ;;
+            lowspec)
+              if [ "$DESKTOP" != lxqt ]; then
+                echo "  FAIL  strain 'lowspec' MUST ship LXQt but detected '$DESKTOP'" >&2; exit 1
+              fi
+              echo "  PASS  strain 'lowspec' correctly ships LXQt" ;;
+            server|cloud)
+              echo "  PASS  strain '$STRAIN_HINT' is headless by design (detected '$DESKTOP')" ;;
+            *)
+              echo "  NOTE  could not infer strain from the artifact name — detection not cross-checked." ;;
+          esac
           echo
           echo "=== GDM forced to Xorg ==="
           if [ "$DESKTOP" != gnome ]; then
