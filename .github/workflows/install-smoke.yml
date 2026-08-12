@@ -500,6 +500,17 @@ jobs:
           mon "quit" || true
           if [ -s live-serial.log ]; then
             echo "===== CALAMARES SESSION LOG + DISK STATE (via serial) ====="
+            # THE ONE LINE TO GREP FIRST on any future partition failure.
+            # PartitionLayout::init() rejects a malformed entry SILENTLY as far
+            # as the user is concerned — it logs, clears the list, and drops back
+            # into the exact fallback whose indeterminate-bool bug produced zero
+            # partitions. Same visible symptom, different cause. Surface it.
+            if grep -qi "switching to default layout" live-serial.log 2>/dev/null; then
+              echo "!!! partitionLayout WAS REJECTED — Calamares fell back to the broken default path:"
+              grep -i -B2 -A2 "switching to default layout" live-serial.log | head -20
+            fi
+            grep -qi "size is invalid, skipping" live-serial.log 2>/dev/null \
+              && echo "!!! a layout entry had an invalid size — check the size: value" || true
             # Trim the boot chatter; the interesting part starts once Calamares
             # begins logging. Keep it generous — the partition module runs early.
             tail -c 200000 live-serial.log
