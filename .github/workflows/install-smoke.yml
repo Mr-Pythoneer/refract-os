@@ -492,31 +492,40 @@ jobs:
           # $final_check_skip under `set -u`, which aborted the step on an
           # unbound variable before any of this ran — and before the PNG
           # conversion below, which is why that run's artifact was still .ppm.)
+          # PULL THE SESSION LOG UNCONDITIONALLY. It used to be pulled only when
+          # the disk stayed under 2 GB, i.e. only on the failure this harness was
+          # originally written to chase. The moment partitioning started working,
+          # that branch stopped firing — and run 31581430815 copied a full 5.96 GB,
+          # passed this step, and STILL ended on "Installation Failed: The commands
+          # use variables that are not defined. Missing variables are:
+          # gs[packagechooser_layout]". The one artefact that would have named the
+          # cause was the log this block declined to fetch, because the install had
+          # gone "well enough". A diagnostic that only runs on the failure mode you
+          # already fixed is not a diagnostic. Always fetch it.
+          echo "Pulling Calamares' session log from the guest (always, pass or fail)."
+          # Use tty3, NOT the dock Terminal. Clicking the dock icon never
+          # produced a window (run 31547959495: the icon highlights, no
+          # terminal appears, and every keystroke lands on the desktop — the
+          # 10-mounts shot shows the install launcher selected by the typing).
+          # tty3 carries its own getty autologin from 0400-polish.chroot, which
+          # only ever failed before because no live user existed; the GID-1000
+          # fix created that account, so this path works now and needs no
+          # desktop, no window manager, and no app launch.
+          vd key ctrl-alt-f3; sleep 8
+          shot 07-terminal
+          # PUSH THE FULL LOG OUT AS TEXT, not screenshots. Reading a 500-line
+          # log through 1280x800 VNC screenshots loses everything above the
+          # fold, and vncdo cannot even type a '|' (it sends a backslash — an
+          # earlier attempt produced `grep ... \ tail -22` and failed). The VM
+          # has a serial port wired to live-serial.log on the runner, so `cp`
+          # to /dev/ttyS0 delivers the whole thing verbatim, no pipes needed.
+          vd type 'sudo cp /root/.cache/calamares/session.log /dev/ttyS0'
+          vd key enter; sleep 8
+          shot 08-log-dumped
+          # Disk state. Only interesting when the copy did not happen, and it
+          # costs ~15s of VNC typing, so keep this half conditional.
           sz_now=$(qemu-img info -U --output=json target.qcow2 | python3 -c "import json,sys;print(json.load(sys.stdin)['actual-size'])")
           if [ "$sz_now" -lt 2000000000 ]; then
-            echo "Install failed — pulling Calamares' session log from the guest."
-            # Use tty3, NOT the dock Terminal. Clicking the dock icon never
-            # produced a window (run 31547959495: the icon highlights, no
-            # terminal appears, and every keystroke lands on the desktop — the
-            # 10-mounts shot shows the install launcher selected by the typing).
-            # tty3 carries its own getty autologin from 0400-polish.chroot, which
-            # only ever failed before because no live user existed; the GID-1000
-            # fix created that account, so this path works now and needs no
-            # desktop, no window manager, and no app launch.
-            vd key ctrl-alt-f3; sleep 8
-            shot 07-terminal
-            # PUSH THE FULL LOG OUT AS TEXT, not screenshots. Reading a 500-line
-            # log through 1280x800 VNC screenshots loses everything above the
-            # fold, and vncdo cannot even type a '|' (it sends a backslash — an
-            # earlier attempt produced `grep ... \ tail -22` and failed). The VM
-            # has a serial port wired to live-serial.log on the runner, so `cp`
-            # to /dev/ttyS0 delivers the whole thing verbatim, no pipes needed.
-            vd type 'sudo cp /root/.cache/calamares/session.log /dev/ttyS0'
-            vd key enter; sleep 8
-            shot 08-log-dumped
-            # Disk state at the moment of failure. lsblk showed vda with NO
-            # partitions, so the partition module never created one — these
-            # commands capture exactly what it did and did not do.
             vd type 'sudo sfdisk -l /dev/vda > /dev/ttyS0 2>&1'
             vd key enter; sleep 4
             vd type 'lsblk -f > /dev/ttyS0 2>&1'
@@ -539,6 +548,14 @@ jobs:
             fi
             grep -qi "size is invalid, skipping" live-serial.log 2>/dev/null \
               && echo "!!! a layout entry had an invalid size — check the size: value" || true
+            # What each packagechooser actually wrote to GlobalStorage. Calamares
+            # logs `<instance-key> selected <value>` from Config::updateGlobalStorage,
+            # which is the ONLY direct evidence of the real key name and value —
+            # shellprocess_{layout,modes}.conf reference gs[packagechooser_layout] /
+            # gs[packagechooser_modes] and a mismatch fails the install AFTER the
+            # filesystem has been written, which is the worst possible moment.
+            echo "--- packagechooser -> GlobalStorage ---"
+            grep -iE "packagechooser|selected" live-serial.log 2>/dev/null | tail -20 || true
             # Trim the boot chatter; the interesting part starts once Calamares
             # begins logging. Keep it generous — the partition module runs early.
             tail -c 200000 live-serial.log
@@ -552,6 +569,22 @@ jobs:
           final=$(qemu-img info -U --output=json target.qcow2 | python3 -c "import json,sys;print(json.load(sys.stdin)['actual-size'])")
           echo "final target actual-size: $final"
           [ "$final" -gt 2000000000 ] || { echo "FAIL: target disk got <2GB — install did not copy the system." >&2; exit 1; }
+          # A BIG DISK IS NOT A SUCCESSFUL INSTALL, and treating it as one hid a
+          # real failure for a full run. 31581430815 copied 5.96 GB, satisfied the
+          # check above, and finished on an "Installation Failed" dialog: unpackfs
+          # had already written the filesystem when a LATER exec module
+          # (shellprocess@layout) died on an undefined GlobalStorage variable.
+          # Everything after unpackfs — layout, modes, displaymanager, grubcfg,
+          # bootloader, umount — runs after the bytes land, so every one of those
+          # can fail on a disk that looks perfectly full.
+          #
+          # Calamares logs a job failure explicitly; ask it, instead of inferring
+          # success from a byte count.
+          if [ -s live-serial.log ] && grep -qiE "Installation failed|Could not run command|job .* failed|ERROR: .*Job" live-serial.log; then
+            echo "FAIL: the install wrote its files but Calamares reported a FAILED job:" >&2
+            grep -iE -B3 -A6 "Installation failed|Could not run command|job .* failed" live-serial.log | tail -40 >&2
+            exit 1
+          fi
 
       - name: "Give the installed disk a serial console (test harness only)"
         run: |
