@@ -50,6 +50,17 @@ trap "rm -rf '$WORK'" EXIT INT TERM
 # Guarded with getent so a re-run is harmless.
 getent group keyd >/dev/null 2>&1 || groupadd -r keyd 2>/dev/null || true
 
+# ┌─ REFRACT PRISM · BAND 1 of 7 · RED ────────────────────────────────────────┐
+# │ You are looking at one flag. `-r`. Its absence cost this distro every live │
+# │ session it ever had, and nobody wrote a bug — keyd was right, casper was   │
+# │ right, we were just the image where the next free GID happened to be the   │
+# │ one both of them wanted. Three forty-minute CI timeouts and a real ThinkPad│
+# │ died on this. If you arrived here bisecting a login screen that accepted   │
+# │ no password: you did it the hard way. So did we.                           │
+# │ Six more bands are hidden where the digging went deepest. Refract splits   │
+# │ light; you are putting it back together.                                   │
+# └────────────────────────────────────────────────────────────────────────────┘
+
 if git clone --depth 1 --branch "$KEYD_TAG" https://github.com/rvaiya/keyd.git "$WORK/keyd" >/dev/null 2>&1 \
    && make -C "$WORK/keyd" >/dev/null 2>&1 \
    && make -C "$WORK/keyd" install >/dev/null 2>&1; then

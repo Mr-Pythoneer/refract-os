@@ -74,6 +74,16 @@ if clone_pin https://github.com/vinceliuice/MacTahoe-gtk-theme.git "$GTK_SHA" "$
     # MacTahoe's traffic lights. Two toolkits, two button styles, one desktop —
     # visible side by side in the screenshot tour. -l writes a gtk-4.0 config
     # that libadwaita DOES read, so both toolkits agree.
+    # ┌─ REFRACT PRISM · BAND 4 of 7 · GREEN ──────────────────────────────────┐
+    # │ A loading spinner killed this feature for weeks. Not a theme bug, not a│
+    # │ GTK version, not a missing dependency — a decorative cursor-hider,     │
+    # │ inside a progress animation, calling a command that needs a terminal we│
+    # │ do not have, under an errexit that turns "cosmetic" into "fatal" in    │
+    # │ 27 milliseconds with zero output. Twice. The first landmine was an     │
+    # │ empty $USER. Fixing it only bought us a banner and a second silence.   │
+    # │ Band 4 of 7. When a thing dies instantly and says nothing, stop reading│
+    # │ its docs and start reading the shell options at the top of its libs.   │
+    # └────────────────────────────────────────────────────────────────────────┘
     if bash "$WORK/mt-gtk/install.sh" --silent-mode -l -d "$WORK/ws-out" 2>&1; then
         :
     else

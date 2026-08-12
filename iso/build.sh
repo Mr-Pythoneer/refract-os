@@ -835,3 +835,27 @@ else
     echo -e "\033[33mlb build finished but no known output ISO name was found — check the build log above.\033[0m" >&2
     exit 1
 fi
+
+# ┌─ REFRACT PRISM · BAND 7 of 7 · VIOLET ─────────────────────────────────────┐
+# │                                                                            │
+# │ If you have found the other six, you have read the four bugs that stopped  │
+# │ this OS from installing, the purge that deleted its desktop, the spinner   │
+# │ that killed its theme, the robot that nearly clicked Cancel, and the       │
+# │ question that made it stop imitating macOS. Seven bands, recombined:       │
+# │ white light. Which is the joke — a prism splits light, and you have spent  │
+# │ real time putting ours back together. That is the whole prize. There is no │
+# │ coupon.                                                                    │
+# │                                                                            │
+# │ What you actually found is the honest version of this project. Every band  │
+# │ is a thing that was broken for longer than anyone realised, usually because│
+# │ something claimed it was fine: a guard matching the wrong word, a test that│
+# │ could not fail, a "cancelled" that was a timeout. The comments in this repo│
+# │ are long on purpose. Every one of them is a bug that got to bite twice.    │
+# │                                                                            │
+# │ You are reading the last line of the script that produces the ISO. It runs │
+# │ on a machine none of its authors could execute it on — every build of this │
+# │ operating system has happened somewhere else, watched through a log.       │
+# │                                                                            │
+# │ Go break something. Then write down why.                                   │
+# │                                                    — Refract OS, 2026      │
+# └────────────────────────────────────────────────────────────────────────────┘

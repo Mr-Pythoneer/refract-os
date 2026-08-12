@@ -16,6 +16,17 @@
 # use Adwaita — which IS what libadwaita renders natively — so their appearance
 # cannot break that way. macOS stays available for people who want it, as an
 # explicit choice rather than something everyone inherits.
+#
+# ┌─ REFRACT PRISM · BAND 6 of 7 · INDIGO ─────────────────────────────────────┐
+# │ This file exists because of one question, asked late and worth every hour  │
+# │ it cost: "do people even WANT the OS to look like macOS?"                  │
+# │ The honest answer was no — and the original ask had only ever been about   │
+# │ the glass. Everything above this line is the sound of a project stopping   │
+# │ imitating another operating system and starting to be one. Adwaita is not  │
+# │ a compromise here; it is the only theme GTK4 cannot ignore, which means    │
+# │ this look cannot rot on a GNOME release the way a clone always will.       │
+# │ Band 6 of 7. The rarest kind of bug is the one in the premise.             │
+# └────────────────────────────────────────────────────────────────────────────┘
 set -uo pipefail
 
 LAYOUT_DIR="${LAYOUT_DIR:-/opt/distro/modes/layouts/profiles}"

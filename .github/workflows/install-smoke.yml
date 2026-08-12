@@ -341,6 +341,18 @@ jobs:
           # screenshot, which is diagnosable, not as a silent 40-minute stall.
           vd() { timeout 45 vncdo -s localhost:0 "$@" || echo "WARN: vncdo '$*' failed/timed out" >&2; }
 
+          # ┌─ REFRACT PRISM · BAND 5 of 7 · BLUE ───────────────────────────┐
+          # │ Everything below is a robot clicking at pixels it cannot see,  │
+          # │ in a window whose position nobody promised, in an installer    │
+          # │ with no accessibility hooks. It once pressed Tab and Enter as a│
+          # │ "safe fallback" and landed on Cancel — one keystroke from      │
+          # │ aborting the install it existed to prove.                      │
+          # │ The deeper lesson is the one above: for four runs this job     │
+          # │ reported "cancelled" and we believed it. It was `timeout-      │
+          # │ minutes: 40` expiring. CI does not lie, but it will let you    │
+          # │ misread it for a week. Band 5 of 7.                            │
+          # └────────────────────────────────────────────────────────────────┘
+
           echo "Waiting for the live desktop (~3.5 min)..."
           sleep 210
           shot 00-desktop

@@ -128,6 +128,16 @@ fi
 
 echo "debloat: reclaimed approximately $((purged_kb / 1024)) MB."
 
+# ┌─ REFRACT PRISM · BAND 3 of 7 · YELLOW ─────────────────────────────────────┐
+# │ Here lies the entire GNOME desktop, removed 2026-08-12, 331 MB lighter and │
+# │ completely gone. Cause of death: `ubuntu-wallpapers`, which quietly        │
+# │ cascades to gnome-shell and gdm3. The guard below was watching — it just   │
+# │ matched `Remv` and apt had written `Purg`. One word, whole desktop.        │
+# │ Then verification PASSED the corpse, because a missing gnome-shell reads   │
+# │ as "headless strain, skip the GNOME checks". Nothing caught it. A human    │
+# │ looked at a screenshot. That is the entire detection story.                │
+# │ Band 3 of 7. Assertions about the OUTCOME, not the plan. Hence what follows│
+# └────────────────────────────────────────────────────────────────────────────┘
 # POST-PURGE SAFETY NET — the whole reason this exists.
 # The first version of this hook removed the ENTIRE GNOME desktop: a workstation
 # image came out with no /usr/bin/gnome-shell, booting to a tty1 login prompt.
