@@ -694,13 +694,30 @@ jobs:
           # thing that silently picks the wrong partition. defaultFileSystemType in
           # partition.conf is ext4, but accept the other rootable types it offers
           # so changing that setting doesn't quietly break this assertion.
-          root_part=$(sudo lsblk -bPo NAME,FSTYPE,SIZE /dev/nbd0 | awk '
-            { fs=""; sz=0; nm=""
-              if (match($0, /FSTYPE="[^"]*"/)) { fs=substr($0, RSTART+8, RLENGTH-9) }
-              if (match($0, /SIZE="[^"]*"/))   { sz=substr($0, RSTART+6, RLENGTH-7) + 0 }
-              if (match($0, /NAME="[^"]*"/))   { nm=substr($0, RSTART+6, RLENGTH-7) }
-              if (fs=="ext4" || fs=="btrfs" || fs=="xfs" || fs=="f2fs") { print sz" /dev/"nm }
-            }' | sort -rn | head -n1 | awk '{print $2}')
+          # PROBE THE DEVICE, DO NOT ASK udev. lsblk fills FSTYPE from the udev
+          # database, which is not populated the instant a new nbd device appears —
+          # so this reported "no Linux root filesystem" on one run and
+          # /dev/nbd0p1 on the next, from identical code and a correct install.
+          # blkid -p reads the superblock directly, and the loop absorbs the
+          # settle window instead of racing it.
+          sudo udevadm settle 2>/dev/null || true
+          root_part=""
+          for _try in $(seq 1 15); do
+            best_size=0
+            for part in /dev/nbd0p*; do
+              [ -b "$part" ] || continue
+              fstype=$(sudo blkid -p -s TYPE -o value "$part" 2>/dev/null || true)
+              case "$fstype" in
+                ext4|btrfs|xfs|f2fs) ;;
+                *) continue ;;
+              esac
+              psize=$(sudo blockdev --getsize64 "$part" 2>/dev/null || echo 0)
+              if [ "$psize" -gt "$best_size" ]; then best_size="$psize"; root_part="$part"; fi
+            done
+            [ -n "$root_part" ] && break
+            sleep 2
+          done
+          echo "probe: root=${root_part:-none} after ${_try} attempt(s)"
           if [ -z "$root_part" ]; then
             echo "FAIL: the installed disk has no Linux root filesystem (looked for ext4/btrfs/xfs/f2fs)." >&2
             echo "The partition and/or unpackfs steps never produced a root filesystem — the GUI-driven install did not complete." >&2
