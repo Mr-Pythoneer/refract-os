@@ -162,9 +162,17 @@ jobs:
           # check reported the grub modules missing on an image that had them, and
           # the diagnostic ls printed x86_64-efi one line above the FAIL.
           echo "--- /usr/lib/grub ---"; sudo ls -ld /mnt/sq/usr/lib/grub 2>/dev/null; sudo ls -1 /mnt/sq/usr/lib/grub/ 2>/dev/null || echo "(none)"
-          chk "grub x86_64-efi modules present (UEFI installs)" 'sudo test -d /mnt/sq/usr/lib/grub/x86_64-efi'
-          chk "grub i386-pc modules present (BIOS installs)"    'sudo test -d /mnt/sq/usr/lib/grub/i386-pc'
-          chk "efibootmgr present (writes the UEFI boot entry)" 'sudo test -x /mnt/sq/usr/bin/efibootmgr || sudo test -x /mnt/sq/sbin/efibootmgr || sudo test -x /mnt/sq/usr/sbin/efibootmgr'
+          # `sudo test -d X` DOES NOT WORK: sudo parses the -d as its own option and
+          # prints its usage message, so the check never runs and reports a
+          # failure that says nothing about the image. That is what accused two
+          # builds of missing grub modules while the ls directly above printed
+          # x86_64-efi. Wrap in sh -c so the flags belong to test, not to sudo.
+          # (The listing also shows /usr/lib/grub is drwxr-xr-x, so no privilege
+          # was ever needed here — the sudo is harmless but not load-bearing.)
+          sudo ls -ld /mnt/sq/usr/lib/grub/x86_64-efi /mnt/sq/usr/lib/grub/i386-pc 2>&1 | head -4
+          chk "grub x86_64-efi modules present (UEFI installs)" 'sudo sh -c "[ -d /mnt/sq/usr/lib/grub/x86_64-efi ]"'
+          chk "grub i386-pc modules present (BIOS installs)"    'sudo sh -c "[ -d /mnt/sq/usr/lib/grub/i386-pc ]"'
+          chk "efibootmgr present (writes the UEFI boot entry)" 'sudo sh -c "[ -x /mnt/sq/usr/bin/efibootmgr ] || [ -x /mnt/sq/sbin/efibootmgr ] || [ -x /mnt/sq/usr/sbin/efibootmgr ]"'
           chk "signed shim present (Secure Boot left ON)"       'sudo sh -c "ls /mnt/sq/usr/lib/shim/shim*.efi.signed" >/dev/null 2>&1'
           # These two could never work (shellprocess has no gs[] expansion) and
           # are gone; fail if anything reintroduces them.
@@ -716,8 +724,20 @@ jobs:
           # the first successful hardware install, 2026-08-15. Nothing else in CI
           # can see this: it is invisible in the squashfs (where casper belongs)
           # and only wrong on the target.
-          ! grep -qE '^Package: casper$' /mnt/installed/var/lib/dpkg/status 2>/dev/null \
-            || { echo "FAIL: casper is still installed on the target — it will boot to 'Unable to find a medium containing a live file system'." >&2; exit 1; }
+          # Check the STATUS, not merely the presence of a stanza. dpkg keeps a
+          # "Package: casper" block after a purge with "Status: purge ok
+          # not-installed", so grepping for the name alone reports a package that
+          # is already gone — which is exactly what it did on run 31882719264,
+          # whose Calamares log shows shellprocess@decasper running its purge.
+          casper_status=$(sudo awk '/^Package: casper$/{f=1;next} f&&/^Status:/{print;exit}' /mnt/installed/var/lib/dpkg/status 2>/dev/null || true)
+          echo "casper dpkg status: ${casper_status:-(no stanza at all)}"
+          case "$casper_status" in
+            *"install ok installed"*)
+              echo "FAIL: casper is still installed on the target — it will boot to 'Unable to find a medium containing a live file system'." >&2; exit 1 ;;
+          esac
+          # The initramfs hook is what actually does the damage, so assert it directly.
+          ! sudo sh -c "ls /mnt/installed/usr/share/initramfs-tools/scripts/casper* " >/dev/null 2>&1 \
+            || { echo "FAIL: casper initramfs scripts survive on the target." >&2; exit 1; }
           ! grep -q 'boot=casper' /mnt/installed/etc/default/grub 2>/dev/null \
             || { echo "FAIL: /etc/default/grub on the target still carries boot=casper." >&2; exit 1; }
           ! grep -q 'boot=casper' /mnt/installed/boot/grub/grub.cfg 2>/dev/null \
