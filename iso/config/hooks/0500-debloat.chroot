@@ -22,7 +22,20 @@ set -e
 # removes no actual software, and guarding them would block every purge below,
 # since the metapackage depends on firefox, yaru-theme-icon and so on. What must
 # survive is the real components, which is what this list protects.
-GUARD='^(gnome-shell|gdm3|nautilus|ubuntu-session|xserver-xorg-core|network-manager|casper|calamares|plymouth|systemd|dbus|linux-image-.*|linux-modules-.*|mesa-.*|libgl1.*|libglx-.*|libegl1.*)$'
+# gnome-software / update-manager / update-notifier / software-properties-gtk are
+# on this list because of a MEASURED regression, not a hypothetical one. Purging
+# ubuntu-pro-client cascaded into FOURTEEN packages and took all of them with it
+# (build 31878695571): the machine came out with no app store, no update
+# manager, and no software-sources UI — the three places a normal person goes to
+# install or update anything. That is a far worse outcome than the MOTD
+# advertisement the purge existed to remove, and nothing caught it until
+# install-smoke started asserting gnome-software was present.
+#
+# The consequence is deliberate and accepted: ubuntu-pro-client now survives, so
+# its ESM advertisement in the MOTD survives with it. Silencing that belongs in
+# 0200-refract-identity.chroot, which already neutralises the stock MOTD scripts
+# — the right fix is to disable the ad, not to delete the software centre.
+GUARD='^(gnome-shell|gdm3|nautilus|ubuntu-session|xserver-xorg-core|network-manager|casper|calamares|plymouth|systemd|dbus|linux-image-.*|linux-modules-.*|mesa-.*|libgl1.*|libglx-.*|libegl1.*|gnome-software.*|update-manager.*|update-notifier.*|software-properties-.*|grub-efi.*|grub-pc.*|grub-common|grub2-common|shim-signed|efibootmgr)$'
 
 purged_kb=0
 # Snapshot before touching anything, so the post-purge check below knows whether
