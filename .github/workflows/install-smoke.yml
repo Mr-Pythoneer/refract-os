@@ -729,15 +729,18 @@ jobs:
           # not-installed", so grepping for the name alone reports a package that
           # is already gone — which is exactly what it did on run 31882719264,
           # whose Calamares log shows shellprocess@decasper running its purge.
+          # THE INITRAMFS IS WHAT DECIDES WHETHER THE DISK BOOTS, so it is asserted
+          # first and is the hard failure. A lingering dpkg entry is untidy; a
+          # casper hook inside the initramfs is the thing that sends an installed
+          # machine hunting for a USB stick.
+          ! sudo sh -c "ls /mnt/installed/usr/share/initramfs-tools/scripts/casper*" >/dev/null 2>&1 \
+            || { echo "FAIL: casper initramfs scripts survive on the target — it will boot to 'Unable to find a medium containing a live file system'." >&2; exit 1; }
           casper_status=$(sudo awk '/^Package: casper$/{f=1;next} f&&/^Status:/{print;exit}' /mnt/installed/var/lib/dpkg/status 2>/dev/null || true)
           echo "casper dpkg status: ${casper_status:-(no stanza at all)}"
           case "$casper_status" in
             *"install ok installed"*)
-              echo "FAIL: casper is still installed on the target — it will boot to 'Unable to find a medium containing a live file system'." >&2; exit 1 ;;
+              echo "FAIL: the casper PACKAGE is still installed on the target (its initramfs hooks are gone, so it should still boot — but an initramfs regeneration could reinstate them)." >&2; exit 1 ;;
           esac
-          # The initramfs hook is what actually does the damage, so assert it directly.
-          ! sudo sh -c "ls /mnt/installed/usr/share/initramfs-tools/scripts/casper* " >/dev/null 2>&1 \
-            || { echo "FAIL: casper initramfs scripts survive on the target." >&2; exit 1; }
           ! grep -q 'boot=casper' /mnt/installed/etc/default/grub 2>/dev/null \
             || { echo "FAIL: /etc/default/grub on the target still carries boot=casper." >&2; exit 1; }
           ! grep -q 'boot=casper' /mnt/installed/boot/grub/grub.cfg 2>/dev/null \
