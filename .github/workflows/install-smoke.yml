@@ -675,6 +675,22 @@ jobs:
             || { echo "FAIL: installed root has no /boot/grub/grub.cfg — the bootloader module never ran." >&2; exit 1; }
           grep -q 'Refract' /mnt/installed/etc/os-release \
             || { echo "FAIL: the installed /etc/os-release is not Refract — unpackfs copied the wrong tree." >&2; exit 1; }
+          # CASPER MUST NOT SURVIVE ONTO THE INSTALLED DISK. unpackfs copies the
+          # squashfs wholesale, so the live-boot package comes with it unless
+          # shellprocess@decasper removes it. When it survives, the install looks
+          # perfect and completes, GRUB is written correctly, the firmware boots
+          # the entry — and the initramfs then hunts for a USB stick and stops at
+          # "Unable to find a medium containing a live file system". Observed on
+          # the first successful hardware install, 2026-08-15. Nothing else in CI
+          # can see this: it is invisible in the squashfs (where casper belongs)
+          # and only wrong on the target.
+          ! grep -qE '^Package: casper$' /mnt/installed/var/lib/dpkg/status 2>/dev/null \
+            || { echo "FAIL: casper is still installed on the target — it will boot to 'Unable to find a medium containing a live file system'." >&2; exit 1; }
+          ! grep -q 'boot=casper' /mnt/installed/etc/default/grub 2>/dev/null \
+            || { echo "FAIL: /etc/default/grub on the target still carries boot=casper." >&2; exit 1; }
+          ! grep -q 'boot=casper' /mnt/installed/boot/grub/grub.cfg 2>/dev/null \
+            || { echo "FAIL: the target's grub.cfg bakes boot=casper into the kernel cmdline." >&2; exit 1; }
+          echo "installed target is casper-free (boots its own disk, not a live medium)"
           sed -n '1,3p' /mnt/installed/etc/os-release
           # Append the console to every kernel line, and drop quiet/splash: with
           # `quiet` in place systemd prints no target lines at all, so even a perfect
