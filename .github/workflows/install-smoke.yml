@@ -770,7 +770,11 @@ jobs:
           sudo sed -i -E 's|^([[:space:]]*linux[[:space:]].*)$|\1 console=ttyS0,115200|; s|[[:space:]]+quiet\b||g; s|[[:space:]]+splash\b||g' \
             /mnt/installed/boot/grub/grub.cfg
           echo "=== patched kernel lines ==="
-          grep -E '^[[:space:]]*linux[[:space:]]' /mnt/installed/boot/grub/grub.cfg | head -n5
+          # sudo, and non-fatal. grub.cfg is root-only, so an unprivileged grep
+          # exits 2 and — under `bash -e` — failed the whole step AFTER every
+          # real assertion had already passed. This line only prints evidence;
+          # it must never be the thing that fails the run.
+          sudo grep -E '^[[:space:]]*linux[[:space:]]' /mnt/installed/boot/grub/grub.cfg | head -n5 || true
 
       - name: "Boot the INSTALLED disk (no ISO) and assert userspace"
         run: |
