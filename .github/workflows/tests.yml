@@ -18,6 +18,13 @@ jobs:
       - name: Run the stub-based test suite
         run: bash tests/run.sh
 
+      # Calamares expands $word itself, from a dictionary of exactly ROOT/USER/LANG.
+      # Two hardware install attempts have already died on this — once on
+      # ${gs[...]} (not a syntax) and once on a plain $f holding a path. Neither
+      # is visible to local shell testing, so it is asserted statically here.
+      - name: Assert Calamares commands use only defined variables
+        run: bash tests/check-calamares-vars.sh
+
       - name: Validate the gaming compat-db schema
         # Also covered by the suite, but a standalone, clearly-named check so a
         # malformed compat-db/apps.json fails CI with an obvious signal.
