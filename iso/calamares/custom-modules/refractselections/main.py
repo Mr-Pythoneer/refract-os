@@ -103,9 +103,15 @@ def _apply_modes():
     chooser cannot offer an omitted mode anyway — but filtering means a stale or
     unexpected id can never reach a script running as root in the target."""
     raw = _gs("packagechooser_modes")
-    chosen = [m for m in (p.strip() for p in raw.split(",")) if m in VALID_MODES]
+    # 'normal' is selectable on the Modes page but is the always-on base, and
+    # distro-apply-mode-selection documents that it is NEVER written to the
+    # registry (load_valid_modes force-appends it). Drop it here silently —
+    # it is a legitimate choice, not an unknown one.
+    picked = [p.strip() for p in raw.split(",") if p.strip()]
+    chosen = [m for m in picked if m in VALID_MODES]
+    known = [m for m in picked if m in VALID_MODES + ("normal",)]
     selection = ",".join(chosen)
-    if raw and not chosen:
+    if picked and not known:
         _log("none of {!r} are known modes — treating as no selection".format(raw))
 
     helper = "/opt/distro/modes/modectl/distro-apply-mode-selection"

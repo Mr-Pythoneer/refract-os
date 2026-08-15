@@ -73,3 +73,34 @@ ufw
 ## no unlock hook and an encrypted install boots to a dead prompt.
 cryptsetup
 cryptsetup-initramfs
+## GRUB TARGET MODULES — the installed system's bootloader, and the reason the
+## first real hardware install failed at the last step. Calamares' bootloader
+## module runs, inside the target:
+##     grub-install --target=x86_64-efi --efi-directory=/boot/efi \
+##                  --bootloader-id=ubuntu --force
+## which reads its platform modules from /usr/lib/grub/x86_64-efi/. That
+## directory ships in grub-efi-amd64-bin, which was in NO package list, so the
+## command exited 1 and the install died after everything else had succeeded:
+##     "Bootloader installation error ... returned error code 1"
+## (photographed on a ThinkPad UEFI install, 2026-08-12).
+##
+## live-build installs grub to boot the ISO ITSELF; that is a different thing
+## from the target's grub, and it left no x86_64-efi module tree in the squashfs.
+##
+## Both platforms are pinned, because one image installs onto both kinds of
+## machine: -efi for UEFI, grub-pc-bin for BIOS/CSM. The *-bin packages are the
+## module trees only and coexist happily — it is the full grub-pc and
+## grub-efi-amd64 packages that conflict, so do NOT "simplify" this by swapping
+## a -bin for its parent.
+grub-efi-amd64-bin
+grub-pc-bin
+grub2-common
+grub-common
+## Signed chain for Secure Boot. Without these, a UEFI machine with Secure Boot
+## left ON installs a bootloader its firmware then refuses to run — an install
+## that reports success and produces an unbootable disk.
+grub-efi-amd64-signed
+shim-signed
+## efibootmgr writes the UEFI boot entry; bootloader.conf names it explicitly
+## (efiBootMgr: "efibootmgr") and grub-install shells out to it on EFI systems.
+efibootmgr
