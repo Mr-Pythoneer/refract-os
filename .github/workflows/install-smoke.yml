@@ -130,6 +130,12 @@ jobs:
           chk "refractselections main.py present"           '[ -f /mnt/sq/etc/calamares/custom-modules/refractselections/main.py ]'
           chk "refractselections main.py compiles"          'python3 -m py_compile /mnt/sq/etc/calamares/custom-modules/refractselections/main.py'
           chk "modules-search covers custom-modules"        'grep -q "custom-modules" /mnt/sq/etc/calamares/settings.conf'
+          # The installed system pins GNOME Software to the dock in place of the
+          # installer. Assert it is actually installed — it arrives only as a
+          # dependency of gnome-software-plugin-flatpak, so a packaging change
+          # upstream would silently leave the dock pinning a missing app.
+          chk "gnome-software present (dock pins it post-install)" '[ -x /mnt/sq/usr/bin/gnome-software ]'
+          chk "flatpak present (app store backend)"                '[ -x /mnt/sq/usr/bin/flatpak ]'
           # GRUB TARGET MODULES. bootloader.conf runs grub-install --target=
           # x86_64-efi, which reads /usr/lib/grub/x86_64-efi/ from inside the
           # TARGET. That tree was missing and the first real hardware install

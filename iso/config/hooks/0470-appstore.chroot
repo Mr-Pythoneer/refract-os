@@ -1,0 +1,48 @@
+#!/bin/sh
+# Refract OS app store — make "how do I install apps" have an answer.
+#
+# The installed system pins GNOME Software to the dock (shellprocess_cleanup.conf
+# swaps the installer's slot for it). That is only useful if the store actually
+# has something in it, and on this image that was not guaranteed:
+#
+#   * Ubuntu's Software is snap-first, and 0500-debloat.chroot purges snapd
+#     entirely once Chrome is installed. Every snap listing goes with it.
+#   * flatpak and gnome-software-plugin-flatpak ship (polish.list.chroot), but
+#     flatpak has NO REMOTES by default. A fresh flatpak install knows about zero
+#     applications until a remote is added.
+#
+# So without this hook a new owner could click Software and be shown an empty
+# shelf — which reads as "this OS has no apps" rather than "no repository is
+# configured". Adding Flathub is the single line that fixes it.
+#
+# Flathub is the obvious choice on the project's own stated preference for open
+# source: it is the vendor-neutral, cross-distro Flatpak repository the GNOME
+# stack expects, it needs no account, and it is where the apps people actually
+# ask for (GIMP, Blender, VLC, OBS, Krita) are published. Adding a REMOTE
+# downloads no applications and costs the image nothing — it is a URL and a GPG
+# key, and nothing is fetched until a user installs something.
+#
+# apt remains fully available and is unaffected; this only adds a second source.
+set -e
+
+command -v flatpak >/dev/null 2>&1 || { echo "appstore: flatpak not installed — skipping remote setup."; exit 0; }
+
+# --if-not-exists keeps this idempotent across rebuilds and re-runs.
+if flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo >/dev/null 2>&1; then
+    echo "appstore: Flathub remote added."
+else
+    # A build chroot may have no network. That is not fatal: the remote can be
+    # added on the installed system later, and failing the whole ISO build over a
+    # software repository would be absurd.
+    echo "appstore: could not add Flathub remote (no network in chroot?) — continuing." >&2
+fi
+
+# Assert the store itself is really here rather than trusting the dependency
+# chain. gnome-software arrives only as a dependency of
+# gnome-software-plugin-flatpak; if that ever changes, the dock would pin a
+# launcher for an application that is not installed.
+if [ -x /usr/bin/gnome-software ]; then
+    echo "appstore: GNOME Software present."
+else
+    echo "appstore: WARNING — gnome-software is NOT installed; the dock will pin a missing app." >&2
+fi
