@@ -256,20 +256,14 @@ if [ -d "$_cala" ]; then
         sed -i "/\/\/ @slide:$m$/,/\/\/ @endslide:$m$/d" \
             "$_cala/branding/refractos/show.qml"
         sed -i "/# @item:$m$/,/# @enditem:$m$/d" \
-            "$_cala/modules/packagechooser_modes.conf"
+            "$_cala/modules/netinstall_modes.conf"
         rm -f "$_cala/branding/refractos/$m.png"
     done
-    # Empty-packagechooser edge: if EVERY optional mode was omitted (a normal-only
-    # "provably nothing but the base desktop" build), the items: list is now empty.
-    # Calamares would still render the "what is this machine for?" page with zero
-    # checkboxes — a dead, confusing step. Drop the page from the show sequence
-    # when nothing is left to choose. shellprocess@modes stays: with no chooser,
-    # ${gs[packagechooser_modes]} resolves empty and distro-apply-mode-selection ''
-    # correctly applies the normal-only base (the intended result of omitting all).
-    if ! grep -qE '^[[:space:]]*- id: ' "$_cala/modules/packagechooser_modes.conf" 2>/dev/null; then
-        echo -e "\033[33mAll optional modes omitted — dropping the now-empty packagechooser page from the installer sequence.\033[0m"
-        sed -i '/^[[:space:]]*- packagechooser@modes[[:space:]]*$/d' "$_cala/settings.conf"
-    fi
+    # The old "every optional mode omitted -> drop the empty page" special case is
+    # gone with packagechooser. netinstall_modes.conf always keeps its Normal
+    # group (it carries no @item sentinels, so no omission can strip it), so the
+    # page always has at least one checkbox and is never a dead step. Verified by
+    # simulating all four range-deletes: omitting everything leaves ["Normal"].
 fi
 
 echo -e "\033[36mCopying repo scripts into the image (opt/distro/, /usr/local/bin)...\033[0m"

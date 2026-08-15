@@ -136,6 +136,17 @@ jobs:
           # upstream would silently leave the dock pinning a missing app.
           chk "gnome-software present (dock pins it post-install)" '[ -x /mnt/sq/usr/bin/gnome-software ]'
           chk "flatpak present (app store backend)"                '[ -x /mnt/sq/usr/bin/flatpak ]'
+          # The Modes page is netinstall (the only stock module with real
+          # checkboxes). Its group entries name refract-mode-* SENTINELS which
+          # are never meant to reach apt — they exist only so netinstall records
+          # the choice in GlobalStorage for refractselections to read back.
+          chk "netinstall_modes.conf present"               '[ -f /mnt/sq/etc/calamares/modules/netinstall_modes.conf ]'
+          chk "old packagechooser_modes.conf is gone"       '[ ! -e /mnt/sq/etc/calamares/modules/packagechooser_modes.conf ]'
+          # LOAD-BEARING SAFETY CHECK. If a packages module is ever added to exec,
+          # apt is handed four package names that do not exist and the install
+          # fails at the very end — after the filesystem is written. Nothing else
+          # would catch that until a real install died.
+          chk "no packages module in exec (sentinels never hit apt)" '! grep -qE "^[[:space:]]*-[[:space:]]*packages[[:space:]]*$" /mnt/sq/etc/calamares/settings.conf''
           # GRUB TARGET MODULES. bootloader.conf runs grub-install --target=
           # x86_64-efi, which reads /usr/lib/grub/x86_64-efi/ from inside the
           # TARGET. That tree was missing and the first real hardware install

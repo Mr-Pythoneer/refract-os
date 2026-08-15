@@ -95,6 +95,40 @@ def _write_layout(root):
         _log("FAILED to write layout: {}".format(e))
 
 
+def _modes_from_package_operations():
+    """Mode ids ticked on the netinstall Modes page.
+
+    Reads GlobalStorage `packageOperations`, keeps entries written by our own
+    instance, and turns the refract-mode-<id> sentinels back into mode ids. Every
+    step is defensive: this runs late in an install whose filesystem is already
+    written, so a surprise in the structure must degrade to "no modes selected"
+    rather than raise."""
+    ids = []
+    try:
+        if not libcalamares.globalstorage.contains("packageOperations"):
+            _log("no packageOperations in GlobalStorage — nothing ticked on Modes")
+            return ids
+        ops = libcalamares.globalstorage.value("packageOperations") or []
+        for op in ops:
+            if not isinstance(op, dict):
+                continue
+            # 'source' is the module instance key. Ours is netinstall@modes; a
+            # future second netinstall page must not leak into the mode registry.
+            src = str(op.get("source", ""))
+            if src and "modes" not in src:
+                continue
+            for entry in op.get("install", []) or []:
+                # Entries are usually plain strings, but the schema also allows
+                # {"package": name, ...} maps for pre/post-script forms.
+                name = entry.get("package", "") if isinstance(entry, dict) else str(entry)
+                if name.startswith("refract-mode-"):
+                    ids.append(name[len("refract-mode-"):])
+    except Exception as e:
+        _log("could not read packageOperations: {}".format(e))
+    _log("Modes page selected: {}".format(ids or "(none)"))
+    return ids
+
+
 def _apply_modes():
     """Hand the mode selection to distro-apply-mode-selection inside the target.
 
@@ -102,7 +136,14 @@ def _apply_modes():
     list in unspecified order, and on an image built with REFRACT_OMIT_MODES the
     chooser cannot offer an omitted mode anyway — but filtering means a stale or
     unexpected id can never reach a script running as root in the target."""
-    raw = _gs("packagechooser_modes")
+    # The Modes page is netinstall (the only stock module with real checkboxes),
+    # so the selection does NOT arrive as a packagechooser string. netinstall
+    # records it in GlobalStorage under `packageOperations` as a list of maps:
+    #     [{"install": ["refract-mode-gaming", ...], "source": "netinstall@modes"}]
+    # Those names are SENTINELS, never packages — there is no packages module in
+    # the exec sequence, so nothing is ever handed to apt. Confirmed against
+    # libcalamares/packages/Globals.cpp (additions()), which is what writes the key.
+    raw = ",".join(_modes_from_package_operations())
     # 'normal' is selectable on the Modes page but is the always-on base, and
     # distro-apply-mode-selection documents that it is NEVER written to the
     # registry (load_valid_modes force-appends it). Drop it here silently —
