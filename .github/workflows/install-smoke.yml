@@ -156,12 +156,16 @@ jobs:
           # TARGET. That tree was missing and the first real hardware install
           # died on it after everything else had already succeeded. Both
           # platforms are asserted: one image installs onto UEFI and BIOS alike.
-          echo "--- /usr/lib/grub contents (for diagnosing the two checks below) ---"
-          ls -1 /mnt/sq/usr/lib/grub/ 2>/dev/null || echo "(no /usr/lib/grub at all)"
-          chk "grub x86_64-efi modules present (UEFI installs)" '[ -d /mnt/sq/usr/lib/grub/x86_64-efi ]'
-          chk "grub i386-pc modules present (BIOS installs)"    '[ -d /mnt/sq/usr/lib/grub/i386-pc ]'
-          chk "efibootmgr present (writes the UEFI boot entry)" '[ -x /mnt/sq/usr/bin/efibootmgr ] || [ -x /mnt/sq/sbin/efibootmgr ] || [ -x /mnt/sq/usr/sbin/efibootmgr ]'
-          chk "signed shim present (Secure Boot left ON)"       'ls /mnt/sq/usr/lib/shim/shim*.efi.signed >/dev/null 2>&1'
+          # RUN THESE UNDER sudo. The squashfs is root-owned and /usr/lib/grub is
+          # not traversable by the `runner` user: `ls` could list the names (that
+          # needs read) while `[ -d ]` on a child failed (that needs execute). The
+          # check reported the grub modules missing on an image that had them, and
+          # the diagnostic ls printed x86_64-efi one line above the FAIL.
+          echo "--- /usr/lib/grub ---"; sudo ls -ld /mnt/sq/usr/lib/grub 2>/dev/null; sudo ls -1 /mnt/sq/usr/lib/grub/ 2>/dev/null || echo "(none)"
+          chk "grub x86_64-efi modules present (UEFI installs)" 'sudo test -d /mnt/sq/usr/lib/grub/x86_64-efi'
+          chk "grub i386-pc modules present (BIOS installs)"    'sudo test -d /mnt/sq/usr/lib/grub/i386-pc'
+          chk "efibootmgr present (writes the UEFI boot entry)" 'sudo test -x /mnt/sq/usr/bin/efibootmgr || sudo test -x /mnt/sq/sbin/efibootmgr || sudo test -x /mnt/sq/usr/sbin/efibootmgr'
+          chk "signed shim present (Secure Boot left ON)"       'sudo sh -c "ls /mnt/sq/usr/lib/shim/shim*.efi.signed" >/dev/null 2>&1'
           # These two could never work (shellprocess has no gs[] expansion) and
           # are gone; fail if anything reintroduces them.
           chk "no shellprocess_layout.conf (impossible config)" '[ ! -e /mnt/sq/etc/calamares/modules/shellprocess_layout.conf ]'
