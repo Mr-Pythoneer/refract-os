@@ -43,20 +43,20 @@ openssl pkeyutl -sign -rawin -inkey "$sb/key.pem" -in "$sb/m" -out "$sb/m.sig" 2
 verify() {  # verify <pubkey> <manifest> <sig> -> exit status of the real function
     local dir; dir="$(mktemp -d "$sb/w.XXXXXX")"
     (
-        REFRACT_PUBKEY="$1"
-        REFRACT_LAYER_BASE="file://$sb"
-        DISTRO_UPDATE_SOURCE=1
-        export REFRACT_PUBKEY REFRACT_LAYER_BASE
         cp "$2" "$dir/refract-layer.manifest" 2>/dev/null
         cp "$3" "$dir/refract-layer.manifest.sig" 2>/dev/null
-        REFRACT_LAYER_BASE="file://$dir"
+        export REFRACT_PUBKEY="$1"
+        export REFRACT_LAYER_BASE="file://$dir"
         # SOURCE the shipped script — do not carve functions out of it. The first
         # version of this used two sed ranges that overlapped (duplicating every
         # line of the verifier) and a third that ran to EOF, and the resulting
         # eval'd wreckage returned 0 for a tampered signature. The test reported
         # everything passing while verifying nothing, which is the precise
         # failure this file exists to make impossible.
-        DISTRO_UPDATE_SOURCE=1
+        # Consumed by the source guard at the bottom of distro-update, which
+        # returns before the command dispatch so this gets the functions and the
+        # variables without running anything.
+        export DISTRO_UPDATE_SOURCE=1
         # shellcheck disable=SC1090
         . "$UPDATE"
         fetch_verified_manifest "$dir" >/dev/null 2>&1
