@@ -250,6 +250,16 @@ cmd_apply() {
     command -v update-desktop-database >/dev/null 2>&1 \
         && update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
 
+    # Keep the app grid at one entry per job. This is re-run on every update and
+    # not just at install time, because the set of duplicates is not static: a
+    # release that adds a Refract tool for something Ubuntu also ships would
+    # otherwise put a second icon on every already-installed machine, reachable
+    # only by reinstalling. Idempotent, and `distro-appgrid restore` undoes it.
+    if [ -x "$INSTALL_ROOT/modes/appgrid/distro-appgrid" ]; then
+        note "Checking the app grid for duplicate launchers..."
+        "$INSTALL_ROOT/modes/appgrid/distro-appgrid" dedupe || true
+    fi
+
     mkdir -p "$STATE_DIR" "$(dirname "$BUILD_ID_FILE")"
     # Record the new commit so `check` stops reporting an update, and stamp when.
     { echo "REFRACT_COMMIT=${rc}"

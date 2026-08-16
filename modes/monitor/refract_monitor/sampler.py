@@ -212,6 +212,153 @@ def top_processes(limit=8):
     return procs[:limit]
 
 
+# ----------------------------------------------------------------- Processes
+# WHY THIS EXISTS, AND WHY IT HAD TO BEFORE ANYTHING WAS HIDDEN.
+#
+# Refract Monitor and GNOME's System Monitor sat in the app grid as two entries
+# that look like the same tool, which is what got reported ("2 activity
+# monitors"). Hiding one is the obvious fix, and hiding the WRONG one silently
+# removes the only graphical way to end a stuck program — which is the single
+# thing people open a system monitor to do. So the process list and the ability
+# to end a process are built here first, and only then is the stock one hidden.
+#
+# Everything comes from /proc/<pid>/stat in ONE read per process: name, CPU
+# jiffies and RSS pages all live in that line, so a full scan is one open() per
+# process rather than the three the naive version would take.
+_UID_NAMES = {}
+
+
+def _uid_name(uid):
+    if uid not in _UID_NAMES:
+        try:
+            import pwd
+            _UID_NAMES[uid] = pwd.getpwuid(uid).pw_name
+        except (KeyError, ImportError, OSError):
+            _UID_NAMES[uid] = str(uid)
+    return _UID_NAMES[uid]
+
+
+def _total_jiffies():
+    line = (_read(f"{PROC}/stat") or "").split("\n", 1)[0].split()
+    if not line or line[0] != "cpu":
+        return None
+    try:
+        return sum(int(x) for x in line[1:])
+    except ValueError:
+        return None
+
+
+def _proc_line(pid):
+    """One process from /proc/<pid>/stat, or None if it vanished mid-scan."""
+    stat = _read(f"{PROC}/{pid}/stat")
+    if not stat:
+        return None
+    # comm is parenthesised and MAY CONTAIN SPACES AND PARENTHESES — a program
+    # called "foo (bar) baz" is legal, and splitting on whitespace or on the
+    # first ')' mis-parses every field after it. First '(' to LAST ')' is the
+    # only correct read, and proc(5) says so.
+    lp = stat.find("(")
+    rp = stat.rfind(")")
+    if lp < 0 or rp < lp:
+        return None
+    name = stat[lp + 1:rp]
+    rest = stat[rp + 1:].split()
+    # rest[0] is field 3 (state), so field N is rest[N-3]:
+    # utime=14 -> rest[11], stime=15 -> rest[12], rss (pages) =24 -> rest[21].
+    try:
+        jiffies = int(rest[11]) + int(rest[12])
+        rss = int(rest[21]) * os.sysconf("SC_PAGE_SIZE")
+    except (IndexError, ValueError, OSError):
+        return None
+    # comm is truncated to 15 characters by the kernel, which turns
+    # "gnome-shell-calendar-server" into "gnome-shell-ca". argv[0]'s basename is
+    # what the user actually recognises, so prefer it when it is readable.
+    cmd = _read(f"{PROC}/{pid}/cmdline") or ""
+    argv0 = cmd.split("\0", 1)[0]
+    if argv0:
+        base = os.path.basename(argv0)
+        if base:
+            name = base
+    try:
+        uid = os.stat(f"{PROC}/{pid}").st_uid
+    except OSError:
+        uid = -1
+    return {"pid": int(pid), "name": name, "rss": rss, "user": _uid_name(uid),
+            "uid": uid, "_jiffies": jiffies}
+
+
+class ProcessSampler:
+    """Per-process CPU share, as a delta — the only honest way to read it.
+
+    /proc/<pid>/stat's utime+stime are CUMULATIVE since the process started, so
+    a single reading gives "percent of this process's whole lifetime". That
+    number only ever falls, is unrelated to what the machine is doing now, and
+    would make a busy process launched an hour ago look idle. The delta is taken
+    against total CPU jiffies over the same interval, which makes the column
+    directly comparable to the CPU page's headline figure.
+
+    Like CpuSampler, the FIRST sample has no previous reading to subtract from
+    and reports 0.0 rather than inventing a number.
+    """
+
+    def __init__(self):
+        self._prev = {}
+        self._prev_total = None
+
+    def sample(self):
+        total = _total_jiffies()
+        procs = []
+        seen = {}
+        try:
+            pids = [p for p in os.listdir(PROC) if p.isdigit()]
+        except OSError:
+            return []
+        span = None
+        if total is not None and self._prev_total is not None and total > self._prev_total:
+            span = total - self._prev_total
+        for pid in pids:
+            # Processes die mid-scan constantly. That is normal, not an error.
+            entry = _proc_line(pid)
+            if not entry:
+                continue
+            j = entry.pop("_jiffies")
+            seen[entry["pid"]] = j
+            prev = self._prev.get(entry["pid"])
+            if span and prev is not None and j >= prev:
+                # Multiplied by the CPU count so a fully-busy single thread
+                # reads 100%, matching what every other process monitor shows
+                # (and what people expect), rather than 1/Nth of the machine.
+                entry["cpu"] = (j - prev) / span * 100.0 * (os.cpu_count() or 1)
+            else:
+                entry["cpu"] = 0.0
+            procs.append(entry)
+        self._prev = seen
+        self._prev_total = total
+        return procs
+
+
+def end_process(pid, force=False):
+    """SIGTERM (or SIGKILL) a process. Returns (ok, message).
+
+    NEVER RAISES, and reports WHY it failed. Refusing without a reason is how a
+    button that quietly does nothing gets shipped: the overwhelmingly common
+    failure here is EPERM on a process owned by root or another user, and
+    "Permission denied" is a complete, actionable answer where a silent no-op
+    is not.
+    """
+    import signal
+    try:
+        os.kill(int(pid), signal.SIGKILL if force else signal.SIGTERM)
+        return True, ""
+    except ProcessLookupError:
+        return True, "already gone"
+    except PermissionError:
+        return False, ("This process belongs to another user. "
+                       "Only its owner (or root) can end it.")
+    except (OSError, ValueError) as e:
+        return False, str(e)
+
+
 # --------------------------------------------------------------------------- GPU
 def _nvidia():
     try:

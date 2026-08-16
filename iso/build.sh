@@ -356,6 +356,13 @@ ln -sf /opt/distro/modes/update/refract-update-check "$INCLUDES/usr/local/bin/re
 # open. It must be reachable on EVERY strain, including one whose dock the old
 # apply_pinned_apps emptied, so it is a PATH entry and not a dock icon.
 ln -sf /opt/distro/modes/update/distro-appstore      "$INCLUDES/usr/local/bin/distro-appstore"
+# distro-appgrid — one app-grid entry per job. Refract ships its own monitor and
+# updater, and ubuntu-desktop-minimal drags in gnome-system-monitor and
+# update-manager transitively, so both pairs ended up in the grid with nothing in
+# any package list to show for it. This hides the stock half (reversibly, and
+# without uninstalling anything) and hooks/0480-appgrid.chroot runs it at build
+# time so a fresh install is already deduplicated.
+ln -sf /opt/distro/modes/appgrid/distro-appgrid      "$INCLUDES/usr/local/bin/distro-appgrid"
 
 # --- Refract Monitor --------------------------------------------------------
 # CPU / GPU / Memory / Energy, one page each. Its sampler package sits beside it

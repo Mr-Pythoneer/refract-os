@@ -191,6 +191,180 @@ class Page(Gtk.Box):
         self.row(key, title).set_subtitle("—" if value is None else str(value))
 
 
+class ProcessesPage(Gtk.Box):
+    """What is running, and a way to stop it.
+
+    THIS PAGE IS WHY THE STOCK SYSTEM MONITOR CAN BE HIDDEN. Refract Monitor and
+    GNOME's System Monitor sat in the app grid as two entries that do the same
+    job, which is what got reported ("2 activity monitors"). Hiding the stock one
+    is the fix — but until this page existed, hiding it would have removed the
+    only graphical way to end a stuck program, which is the main reason anyone
+    opens a system monitor at all. So the capability comes first and the icon
+    goes second.
+
+    ROWS ARE REUSED, NEVER REBUILT. The obvious implementation clears the group
+    and re-adds every row each second; the list then flickers, and the row you
+    were aiming at moves out from under the pointer between press and release.
+    A fixed pool of rows whose labels are rewritten in place has neither problem.
+    """
+
+    ROWS = 24
+    # Slower than the graphs on purpose. A list that re-sorts every second is
+    # unusable to click on, and processes do not appear and vanish fast enough
+    # for a one-second refresh to tell anyone anything a two-second one doesn't.
+    REFRESH_TICKS = 2
+
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        self.sampler = sampler.ProcessSampler()
+        self._tick = 0
+        self._sort_key = "cpu"
+
+        page = Adw.PreferencesPage()
+
+        controls = Adw.PreferencesGroup()
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        self.search = Gtk.SearchEntry(placeholder_text="Filter by name", hexpand=True)
+        self.search.connect("search-changed", lambda *_a: self.refresh(force=True))
+        self.sort = Gtk.DropDown.new_from_strings(["Sort by CPU", "Sort by memory"])
+        self.sort.connect("notify::selected", self._sort_changed)
+        bar.append(self.search)
+        bar.append(self.sort)
+        controls.add(bar)
+        page.add(controls)
+
+        self.group = Adw.PreferencesGroup(title="Processes")
+        self.rows = []
+        for _ in range(self.ROWS):
+            row = Adw.ActionRow(title="", subtitle="")
+            row._pid = None
+            row._name = ""
+            row.cpu = Gtk.Label(label="", width_chars=6, xalign=1.0)
+            row.cpu.add_css_class("numeric")
+            row.mem = Gtk.Label(label="", width_chars=9, xalign=1.0)
+            row.mem.add_css_class("numeric")
+            row.mem.add_css_class("dim-label")
+            row.end = Gtk.Button(icon_name="window-close-symbolic",
+                                 tooltip_text="End this process",
+                                 valign=Gtk.Align.CENTER)
+            row.end.add_css_class("flat")
+            row.end.connect("clicked", self._end_clicked, row)
+            row.add_suffix(row.cpu)
+            row.add_suffix(row.mem)
+            row.add_suffix(row.end)
+            row.set_visible(False)
+            self.group.add(row)
+            self.rows.append(row)
+        page.add(self.group)
+
+        self.empty = Adw.PreferencesGroup()
+        self.empty_row = Adw.ActionRow(title="Nothing matches that filter", subtitle="")
+        self.empty.add(self.empty_row)
+        self.empty.set_visible(False)
+        page.add(self.empty)
+
+        page.set_vexpand(True)
+        self.append(page)
+
+    def _sort_changed(self, drop, _p):
+        self._sort_key = "cpu" if drop.get_selected() == 0 else "rss"
+        self.refresh(force=True)
+
+    def refresh(self, force=False):
+        self._tick += 1
+        if not force and self._tick % self.REFRESH_TICKS:
+            return
+        procs = self.sampler.sample()
+        needle = self.search.get_text().strip().lower()
+        if needle:
+            procs = [p for p in procs if needle in p["name"].lower()]
+        procs.sort(key=lambda p: p[self._sort_key], reverse=True)
+
+        for row, p in zip(self.rows, procs):
+            row._pid = p["pid"]
+            row._name = p["name"]
+            row.set_title(GLib.markup_escape_text(p["name"]))
+            row.set_subtitle(f"PID {p['pid']} · {p['user']}")
+            row.cpu.set_label(f"{p['cpu']:.0f}%")
+            row.mem.set_label(sampler.fmt_bytes(p["rss"]))
+            row.set_visible(True)
+        for row in self.rows[len(procs):]:
+            row._pid = None
+            row.set_visible(False)
+        self.empty.set_visible(not procs)
+        self.group.set_visible(bool(procs))
+
+    # -- ending a process --------------------------------------------------
+    # Always confirmed, and always naming what is about to be ended. The list
+    # re-sorts underneath the pointer, so a click carries a real chance of
+    # having landed on a row that just moved — the dialog is what makes that
+    # recoverable instead of destructive.
+    def _end_clicked(self, _btn, row):
+        if row._pid is None:
+            return
+        pid, name = row._pid, row._name
+        dlg = Adw.MessageDialog(
+            transient_for=self.get_root(),
+            heading=f"End {name}?",
+            body=f"PID {pid} will be asked to close. Unsaved work in it will be lost.",
+        )
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("end", "End Process")
+        dlg.set_response_appearance("end", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+        dlg.connect("response", self._end_response, pid, name)
+        dlg.present()
+
+    def _end_response(self, dlg, response, pid, name):
+        dlg.destroy()
+        if response != "end":
+            return
+        ok, msg = sampler.end_process(pid)
+        if not ok:
+            self._say(f"Could not end {name}", msg)
+            return
+        # SIGTERM is a REQUEST. A program that ignores it is exactly the program
+        # somebody is trying to kill, so check back and offer the bigger hammer
+        # rather than leaving them staring at a row that never disappears.
+        GLib.timeout_add_seconds(3, self._still_alive, pid, name)
+
+    def _still_alive(self, pid, name):
+        if not os.path.isdir(f"/proc/{pid}"):
+            return GLib.SOURCE_REMOVE
+        dlg = Adw.MessageDialog(
+            transient_for=self.get_root(),
+            heading=f"{name} is not responding",
+            body=f"PID {pid} ignored the request to close. Forcing it to quit "
+                 f"stops it immediately and loses anything it had not saved.",
+        )
+        dlg.add_response("cancel", "Leave It")
+        dlg.add_response("kill", "Force Quit")
+        dlg.set_response_appearance("kill", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+
+        def done(d, resp):
+            d.destroy()
+            if resp == "kill":
+                ok, msg = sampler.end_process(pid, force=True)
+                if not ok:
+                    self._say(f"Could not force {name} to quit", msg)
+
+        dlg.connect("response", done)
+        dlg.present()
+        return GLib.SOURCE_REMOVE
+
+    def _say(self, heading, body):
+        dlg = Adw.MessageDialog(transient_for=self.get_root(),
+                                heading=heading, body=body or "")
+        dlg.add_response("ok", "OK")
+        dlg.set_default_response("ok")
+        dlg.set_close_response("ok")
+        dlg.connect("response", lambda d, _r: d.destroy())
+        dlg.present()
+
+
 class MonitorWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="Refract Monitor")
@@ -214,10 +388,13 @@ class MonitorWindow(Adw.ApplicationWindow):
         self.p_ram.get_first_child().add(self.proc_group)
         self.proc_rows = []
 
+        self.p_proc = ProcessesPage()
+
         self.stack.add_titled_with_icon(self.p_cpu, "cpu", "CPU", "utilities-system-monitor-symbolic")
         self.stack.add_titled_with_icon(self.p_gpu, "gpu", "GPU", "video-display-symbolic")
         self.stack.add_titled_with_icon(self.p_ram, "ram", "Memory", "drive-harddisk-symbolic")
         self.stack.add_titled_with_icon(self.p_energy, "energy", "Energy", "battery-symbolic")
+        self.stack.add_titled_with_icon(self.p_proc, "processes", "Processes", "view-list-symbolic")
 
         header = Adw.HeaderBar()
         switcher = Adw.ViewSwitcher(stack=self.stack, policy=Adw.ViewSwitcherPolicy.WIDE)
@@ -246,6 +423,11 @@ class MonitorWindow(Adw.ApplicationWindow):
             self._gpu()
             self._ram()
             self._energy()
+            # Only when the page is actually on screen: a full /proc scan every
+            # tick to update a list nobody is looking at is pure battery cost on
+            # the strain this app matters most on.
+            if self.stack.get_visible_child_name() == "processes":
+                self.p_proc.refresh()
         except Exception as e:
             # One bad reading must not kill the refresh loop and freeze the whole
             # window on stale numbers — that looks like a hung machine.

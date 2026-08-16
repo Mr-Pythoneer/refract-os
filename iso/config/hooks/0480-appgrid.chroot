@@ -1,0 +1,37 @@
+#!/bin/sh
+# Refract OS app grid — one entry per job, from the first boot.
+#
+# Refract ships its own activity monitor and its own updater. Ubuntu's
+# gnome-system-monitor and update-manager arrive transitively via
+# ubuntu-desktop-minimal, so nothing in this repo ever chose to install them and
+# nothing listed them — and both pairs sat in the app grid looking like the same
+# tool twice. Reported from a real install, 2026-08-16: "there's a lot of duped
+# stuff, like 2 activity monitors, 2 software updaters."
+#
+# The logic lives in modes/appgrid/distro-appgrid rather than here, deliberately:
+# an installed machine must be able to run the same dedupe (distro-update apply
+# calls it) and, more importantly, to UNDO it — `sudo distro-appgrid restore`.
+# A build-time `rm` would be neither inspectable nor reversible by the person
+# who ends up living with the result.
+#
+# Nothing is uninstalled. The stock launchers are shadowed with NoDisplay=true,
+# so the programs stay on disk and anything that launches them by desktop-file
+# ID — update-notifier popping up Software Updater, for one — keeps working.
+set -e
+
+APPGRID=/opt/distro/modes/appgrid/distro-appgrid
+
+if [ ! -x "$APPGRID" ]; then
+    echo "appgrid: $APPGRID not found — skipping dedupe." >&2
+    exit 0
+fi
+
+# Not fatal. A duplicate icon is a papercut; failing the whole ISO build over one
+# would be absurd, and `distro-appgrid dedupe` on the installed system fixes it.
+if "$APPGRID" dedupe; then
+    echo "appgrid: stock duplicates hidden."
+else
+    echo "appgrid: dedupe did not complete — the grid may show duplicate icons." >&2
+fi
+
+"$APPGRID" status || true

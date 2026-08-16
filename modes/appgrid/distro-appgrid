@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# distro-appgrid — one entry per job in the app grid.
+#
+# THE PROBLEM. Refract ships its own tools for things Ubuntu already ships a tool
+# for, and BOTH end up in the app grid. Reported 2026-08-16: "there's a lot of
+# duped stuff, like 2 activity monitors, 2 software updaters". Two icons that
+# look like they do the same thing is not a cosmetic complaint — every launch
+# becomes a guess, and the person guessing has no way to find out which is which
+# short of opening both.
+#
+# It was never anybody's decision. `ubuntu-desktop-minimal` pulls most of the
+# stock desktop in transitively, so nothing in this repo ever LISTED
+# gnome-system-monitor or update-manager; they arrived as dependencies and
+# Refract's own tools were added beside them. That is also why it went unnoticed:
+# the duplicate is invisible in the package lists and only shows up in the grid.
+#
+# WHAT THIS DOES. For each pair, the stock launcher is SHADOWED — a full copy of
+# it is written into /usr/local/share/applications with NoDisplay=true added.
+# /usr/local/share precedes /usr/share in XDG_DATA_DIRS, and the first file
+# found for a desktop-file ID wins outright, so the grid entry disappears.
+#
+# WHY A SHADOW AND NOT AN EDIT OR A DELETE:
+#   * Editing /usr/share/applications/foo.desktop is undone by the next apt
+#     upgrade of that package, silently, months later.
+#   * Deleting it breaks anything that launches the app BY ID — and the copy
+#     keeps Exec, Icon and MimeType intact, so update-notifier popping up
+#     Software Updater still works exactly as before. Only the icon is gone.
+#   * One `rm` reverses it. `distro-appgrid restore` is that rm.
+#
+# NOTHING IS UNINSTALLED. Every hidden app is still on disk, still launchable
+# from a terminal, still reachable by anything that calls it. This changes what
+# is ADVERTISED, not what exists — hiding an app is a presentation decision and
+# should never quietly become a removal.
+set -uo pipefail
+
+# Overridable (mirrors distro-modectl's GOV_AVAIL_FILE / ENABLED_MODES_FILE) so
+# the test suite can run the real dedupe/restore against fixture directories
+# instead of the machine's actual /usr — a tool whose whole job is editing what
+# the desktop advertises should not be tested only by reading its source.
+SHADOW_DIR="${REFRACT_SHADOW_DIR:-/usr/local/share/applications}"
+STOCK_DIR="${REFRACT_STOCK_DIR:-/usr/share/applications}"
+MARK="X-Refract-Hidden-Duplicate"
+
+C_OK=$'\033[32m'; C_WARN=$'\033[33m'; C_DIM=$'\033[36m'; C_OFF=$'\033[0m'
+
+# stock-desktop-id | the Refract tool that replaces it | why it is safe to hide
+#
+# EVERY ENTRY NEEDS THE THIRD COLUMN. "It looks like a duplicate" is not a
+# reason to hide something a person might depend on; "the replacement does
+# everything the original did" is. Adding a line without being able to write
+# that sentence honestly means the entry does not belong here.
+PAIRS=(
+  "gnome-system-monitor.desktop|Refract Monitor|Refract Monitor covers CPU, GPU, memory and energy, and its Processes page lists every process and can end one — which was the last thing System Monitor could do that it could not."
+  "update-manager.desktop|Software + Refract Updates|Ubuntu package updates are GNOME Software's Updates page, security updates install themselves via unattended-upgrades, and Refract's own layer is Refract Updates. Software Updater was a third path to a job two things already do, and update-notifier still launches it directly when it needs to."
+)
+
+usage() {
+    cat <<'USAGE'
+distro-appgrid — keep one app-grid entry per job.
+
+  distro-appgrid status    which stock duplicates exist, and which are hidden
+  distro-appgrid dedupe    hide the stock duplicates (needs root)
+  distro-appgrid restore   show them all again (needs root)
+  distro-appgrid -h        this text
+
+Nothing is ever uninstalled. Hiding only removes the app-grid icon; the program
+stays on disk and anything that launches it keeps working.
+USAGE
+}
+
+need_root() {
+    # Writing under a fixture root needs no privilege and asking for it would
+    # make the test suite unrunnable; the real /usr/local path still does.
+    [ -n "${REFRACT_SHADOW_DIR:-}" ] && return 0
+    [ "$(id -u)" -eq 0 ] && return 0
+    echo "${C_WARN}This needs root: sudo distro-appgrid $1${C_OFF}" >&2
+    return 1
+}
+
+cmd_status() {
+    local line id repl why shadow n_hidden=0 n_present=0
+    for line in "${PAIRS[@]}"; do
+        IFS='|' read -r id repl why <<< "$line"
+        shadow="$SHADOW_DIR/$id"
+        if [ ! -f "$STOCK_DIR/$id" ]; then
+            echo "  ${C_DIM}—${C_OFF} $id is not installed on this system — nothing to hide."
+            continue
+        fi
+        n_present=$((n_present + 1))
+        if [ -f "$shadow" ] && grep -q "^$MARK=" "$shadow" 2>/dev/null; then
+            echo "  ${C_OK}hidden${C_OFF}  $id  ${C_DIM}(replaced by $repl)${C_OFF}"
+            n_hidden=$((n_hidden + 1))
+        else
+            echo "  ${C_WARN}shown${C_OFF}   $id  ${C_DIM}(duplicates $repl)${C_OFF}"
+        fi
+    done
+    echo
+    if [ "$n_present" -eq 0 ]; then
+        echo "No stock duplicates are installed."
+    elif [ "$n_hidden" -eq "$n_present" ]; then
+        echo "${C_OK}One entry per job.${C_OFF} Undo with: sudo distro-appgrid restore"
+    else
+        echo "${C_WARN}$((n_present - n_hidden)) duplicate(s) still in the app grid.${C_OFF} Fix with: sudo distro-appgrid dedupe"
+    fi
+    return 0
+}
+
+refresh_grid() {
+    command -v update-desktop-database >/dev/null 2>&1 \
+        && update-desktop-database "$SHADOW_DIR" >/dev/null 2>&1
+    return 0
+}
+
+cmd_dedupe() {
+    need_root dedupe || return 1
+    mkdir -p "$SHADOW_DIR" || { echo "could not create $SHADOW_DIR" >&2; return 1; }
+    local line id repl why src dst changed=0
+    for line in "${PAIRS[@]}"; do
+        IFS='|' read -r id repl why <<< "$line"
+        src="$STOCK_DIR/$id"; dst="$SHADOW_DIR/$id"
+        [ -f "$src" ] || continue
+        # Never overwrite a shadow somebody else put here. If a file exists that
+        # this tool did not write, it is a local customisation and clobbering it
+        # would be exactly the kind of silent damage this file argues against.
+        if [ -f "$dst" ] && ! grep -q "^$MARK=" "$dst" 2>/dev/null; then
+            echo "${C_WARN}skipping $id — $dst exists and was not written by this tool.${C_OFF}" >&2
+            continue
+        fi
+        # Copy verbatim, drop any existing NoDisplay/Hidden lines so they cannot
+        # end up duplicated, then add ours plus the marker that makes this
+        # reversible and identifiable.
+        {
+            grep -v '^NoDisplay=' "$src" | grep -v '^Hidden=' | grep -v "^$MARK="
+            echo "NoDisplay=true"
+            echo "$MARK=$repl"
+        } > "$dst.tmp" && mv "$dst.tmp" "$dst" || { echo "failed to write $dst" >&2; continue; }
+        chmod 0644 "$dst"
+        echo "${C_OK}hidden${C_OFF}  $id  ${C_DIM}— $why${C_OFF}"
+        changed=1
+    done
+    [ "$changed" = 1 ] && refresh_grid
+    echo
+    echo "The apps themselves are untouched — only their app-grid icons are hidden."
+    echo "Undo at any time: sudo distro-appgrid restore"
+    return 0
+}
+
+cmd_restore() {
+    need_root restore || return 1
+    local line id repl why dst changed=0
+    for line in "${PAIRS[@]}"; do
+        IFS='|' read -r id repl why <<< "$line"
+        dst="$SHADOW_DIR/$id"
+        [ -f "$dst" ] || continue
+        # Only remove OUR shadows. A file here that we did not write belongs to
+        # whoever put it here.
+        if ! grep -q "^$MARK=" "$dst" 2>/dev/null; then
+            echo "${C_WARN}leaving $dst alone — not written by this tool.${C_OFF}" >&2
+            continue
+        fi
+        rm -f "$dst" && { echo "${C_OK}shown${C_OFF}   $id"; changed=1; }
+    done
+    [ "$changed" = 1 ] && refresh_grid
+    return 0
+}
+
+case "${1:-status}" in
+    status)          cmd_status ;;
+    dedupe|hide)     cmd_dedupe ;;
+    restore|show)    cmd_restore ;;
+    -h|--help|help)  usage ;;
+    *)               echo "unknown command '$1' (try --help)" >&2; exit 1 ;;
+esac
