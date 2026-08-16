@@ -13,7 +13,12 @@
 #
 # So: assert it statically, on every push, with no ISO required.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+# `|| exit 1`: everything below is a RELATIVE glob over iso/calamares. If this cd
+# silently failed the globs would match nothing, every check would pass on zero
+# files, and the workflow would report a clean install-time variable audit
+# without having read a single config. Exit instead — this check's whole value
+# is that it cannot pass vacuously.
+cd "$(dirname "$0")/.." || exit 1
 
 ALLOWED='^(ROOT|USER|LANG)$'
 fail=0
