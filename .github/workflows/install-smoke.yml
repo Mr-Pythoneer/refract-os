@@ -185,7 +185,12 @@ jobs:
           # apt is handed four package names that do not exist and the install
           # fails at the very end — after the filesystem is written. Nothing else
           # would catch that until a real install died.
-          chk "no packages module in exec (sentinels never hit apt)" '! grep -qE "^[[:space:]]*-[[:space:]]*packages[[:space:]]*$" /mnt/sq/etc/calamares/settings.conf''
+          # -qxE, not ^...$: chk runs its argument through eval, and `$"` is bash's
+          # locale-translation syntax — so a regex ending in [[:space:]]*$" was
+          # parsed as the start of a $"..." string, breaking this line AND every
+          # line after it ("ambiguous redirect", then a cascade of grep errors
+          # against unrelated files). -x anchors the whole line with no $ needed.
+          chk "no packages module in exec (sentinels never hit apt)" '! grep -qxE "[[:space:]]*-[[:space:]]*packages[[:space:]]*" /mnt/sq/etc/calamares/settings.conf'
           # GRUB TARGET MODULES. bootloader.conf runs grub-install --target=
           # x86_64-efi, which reads /usr/lib/grub/x86_64-efi/ from inside the
           # TARGET. That tree was missing and the first real hardware install
