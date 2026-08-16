@@ -164,6 +164,15 @@ jobs:
           chk "notify-send present (update notification)"   '[ -x /mnt/sq/usr/bin/notify-send ]'
           # build-id is what distro-update compares against; with no commit
           # recorded the machine cannot tell whether it is behind.
+          # Refract Monitor. Both halves again: the sampler is a PACKAGE beside the
+          # script, so a staging change that ships the launcher without
+          # refract_monitor/ would leave an app that dies on import with nothing
+          # on screen to say why.
+          chk "refract-monitor in PATH"                     '[ -L /mnt/sq/usr/local/bin/refract-monitor ]'
+          chk "refract-monitor sampler package shipped"     '[ -f /mnt/sq/opt/distro/modes/monitor/refract_monitor/sampler.py ]'
+          chk "refract-monitor compiles"                    'cp /mnt/sq/opt/distro/modes/monitor/refract-monitor /tmp/rm.py && python3 -m py_compile /tmp/rm.py'
+          chk "refract-monitor sampler compiles"            'python3 -m py_compile /mnt/sq/opt/distro/modes/monitor/refract_monitor/sampler.py 2>/dev/null || (cp /mnt/sq/opt/distro/modes/monitor/refract_monitor/sampler.py /tmp/rs.py && python3 -m py_compile /tmp/rs.py)'
+          chk "Refract Monitor .desktop shipped"            '[ -f /mnt/sq/usr/share/applications/refract-monitor.desktop ]'
           chk "build-id records a commit"                   'grep -qE "^REFRACT_COMMIT=[0-9a-f]{7,}" /mnt/sq/etc/refract/build-id'
           chk "refract-modes uses ESM, not legacy imports.*" '! grep -qE "^[^/]*[^a-zA-Z_.]imports\." "/mnt/sq/usr/share/gnome-shell/extensions/refract-modes@refract-os/extension.js"'
           # The Modes page is netinstall (the only stock module with real

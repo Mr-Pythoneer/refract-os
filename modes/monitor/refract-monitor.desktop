@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Refract Monitor
+GenericName=System Monitor
+Comment=CPU, GPU, memory and energy at a glance
+Exec=/usr/local/bin/refract-monitor
+Icon=utilities-system-monitor
+Terminal=false
+Categories=System;Monitor;
+Keywords=activity;monitor;cpu;gpu;ram;memory;energy;battery;performance;
+StartupNotify=true

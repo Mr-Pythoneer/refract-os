@@ -350,6 +350,14 @@ ln -sf /opt/distro/modes/update/distro-update        "$INCLUDES/usr/local/bin/di
 ln -sf /opt/distro/modes/update/refract-updates      "$INCLUDES/usr/local/bin/refract-updates"
 ln -sf /opt/distro/modes/update/refract-update-check "$INCLUDES/usr/local/bin/refract-update-check"
 
+# --- Refract Monitor --------------------------------------------------------
+# CPU / GPU / Memory / Energy, one page each. Its sampler package sits beside it
+# under modes/monitor/, which the rsync above already staged, so only the PATH
+# entry and the app-grid launcher are needed here.
+ln -sf /opt/distro/modes/monitor/refract-monitor "$INCLUDES/usr/local/bin/refract-monitor"
+cp "$REPO_ROOT/modes/monitor/refract-monitor.desktop" \
+   "$INCLUDES/usr/share/applications/refract-monitor.desktop"
+
 # The GUI, as an app-grid entry. GNOME Settings has no third-party panel
 # interface, so "an update tab in settings" is a libadwaita window built from the
 # same widgets Settings itself uses.

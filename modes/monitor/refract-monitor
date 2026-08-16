@@ -1,0 +1,361 @@
+#!/usr/bin/env python3
+"""Refract Monitor — CPU, GPU, Memory and Energy at a glance.
+
+GNOME System Monitor is a process table with graphs bolted on. This answers the
+question people actually open a monitor to ask — "what is this machine doing
+right now, and why is it hot / slow / flat" — with one page per subsystem.
+
+DESIGN NOTES THAT MATTER:
+
+* Unavailable is not zero. Intel exposes no unprivileged GPU utilisation
+  counter; a 0% line there would be indistinguishable from an idle GPU. Anything
+  that cannot be read shows a dash and, where useful, says why.
+* Graphs keep 60 samples at 1s, so every chart is the last minute. A monitor
+  that only shows an instantaneous number cannot answer "was that a spike or is
+  it sustained", which is the whole point of looking.
+* The sampler never raises (see sampler.py); this file must never assume a key
+  exists. Hardware this runs on will not match the hardware it was written on.
+"""
+import os
+import sys
+from collections import deque
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, GLib, Gtk  # noqa: E402
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from refract_monitor import sampler  # noqa: E402
+
+APP_ID = "os.refract.Monitor"
+HISTORY = 60          # seconds of graph history
+INTERVAL_MS = 1000
+
+# Prism accents — one hue per subsystem so a glance at colour says which page.
+ACCENT = {
+    "cpu": (0.31, 0.55, 0.96),
+    "gpu": (0.69, 0.40, 0.87),
+    "ram": (0.24, 0.72, 0.44),
+    "energy": (0.96, 0.62, 0.16),
+}
+
+
+class Graph(Gtk.DrawingArea):
+    """Filled sparkline over a fixed 0-100 (or auto-scaled) range."""
+
+    def __init__(self, accent, maximum=100.0, height=140):
+        super().__init__()
+        self.accent = accent
+        self.maximum = maximum
+        self.history = deque([0.0] * HISTORY, maxlen=HISTORY)
+        self._has_data = False
+        self.set_content_height(height)
+        self.set_hexpand(True)
+        self.set_draw_func(self._draw)
+
+    def push(self, value):
+        # None means "not measurable" — keep the line flat at the floor but
+        # remember that it is not real data, so the chart can say so.
+        if value is None:
+            self.history.append(0.0)
+        else:
+            self._has_data = True
+            self.history.append(max(0.0, float(value)))
+        self.queue_draw()
+
+    def _draw(self, _area, cr, width, height):
+        cr.set_source_rgba(*self.accent, 0.10)
+        cr.rectangle(0, 0, width, height)
+        cr.fill()
+
+        cr.set_source_rgba(0.5, 0.5, 0.5, 0.18)
+        cr.set_line_width(1)
+        for i in range(1, 4):
+            y = height * i / 4.0
+            cr.move_to(0, y)
+            cr.line_to(width, y)
+        cr.stroke()
+
+        if not self._has_data:
+            return
+
+        top = self.maximum
+        if top <= 0:
+            live = [v for v in self.history if v > 0]
+            top = max(live) if live else 1.0
+        n = len(self.history)
+        step = width / float(max(1, n - 1))
+
+        def point(i, v):
+            return i * step, height - (min(v, top) / top) * (height - 4) - 2
+
+        cr.move_to(0, height)
+        for i, v in enumerate(self.history):
+            cr.line_to(*point(i, v))
+        cr.line_to(width, height)
+        cr.close_path()
+        cr.set_source_rgba(*self.accent, 0.28)
+        cr.fill()
+
+        cr.set_line_width(2)
+        cr.set_source_rgba(*self.accent, 1.0)
+        for i, v in enumerate(self.history):
+            x, y = point(i, v)
+            cr.line_to(x, y) if i else cr.move_to(x, y)
+        cr.stroke()
+
+
+class CoreBars(Gtk.DrawingArea):
+    """One bar per logical core — the shape of the load, not just its size."""
+
+    def __init__(self, accent):
+        super().__init__()
+        self.accent = accent
+        self.values = []
+        self.set_content_height(64)
+        self.set_hexpand(True)
+        self.set_draw_func(self._draw)
+
+    def update(self, values):
+        self.values = values or []
+        self.queue_draw()
+
+    def _draw(self, _area, cr, width, height):
+        n = len(self.values)
+        if not n:
+            return
+        gap = 3 if n <= 32 else 1
+        bw = max(1.0, (width - gap * (n - 1)) / float(n))
+        for i, v in enumerate(self.values):
+            x = i * (bw + gap)
+            h = max(2.0, (min(100.0, v) / 100.0) * (height - 2))
+            cr.set_source_rgba(*self.accent, 0.16)
+            cr.rectangle(x, 0, bw, height)
+            cr.fill()
+            cr.set_source_rgba(*self.accent, 0.95)
+            cr.rectangle(x, height - h, bw, h)
+            cr.fill()
+
+
+def big_number(text, caption):
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2,
+                  halign=Gtk.Align.CENTER, margin_top=6, margin_bottom=6)
+    value = Gtk.Label(label=text)
+    value.add_css_class("title-1")
+    sub = Gtk.Label(label=caption)
+    sub.add_css_class("dim-label")
+    box.append(value)
+    box.append(sub)
+    return box, value
+
+
+class Page(Gtk.Box):
+    """A graph, a headline number and a group of detail rows."""
+
+    def __init__(self, key, maximum=100.0):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        accent = ACCENT[key]
+        page = Adw.PreferencesPage()
+
+        self.graph = Graph(accent, maximum=maximum)
+        gg = Adw.PreferencesGroup()
+        frame = Gtk.Frame()
+        frame.set_child(self.graph)
+        frame.add_css_class("view")
+        self.headline_box, self.headline = big_number("—", "")
+        wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        wrap.append(self.headline_box)
+        wrap.append(frame)
+        gg.add(wrap)
+        page.add(gg)
+
+        self.details = Adw.PreferencesGroup(title="Details")
+        page.add(self.details)
+        self.rows = {}
+        self.append(page)
+        page.set_vexpand(True)
+
+    def set_caption(self, text):
+        self.headline_box.get_last_child().set_label(text)
+
+    def row(self, key, title):
+        if key not in self.rows:
+            r = Adw.ActionRow(title=title, subtitle="—")
+            self.details.add(r)
+            self.rows[key] = r
+        return self.rows[key]
+
+    def set(self, key, title, value):
+        self.row(key, title).set_subtitle("—" if value is None else str(value))
+
+
+class MonitorWindow(Adw.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Refract Monitor")
+        self.set_default_size(760, 720)
+
+        self.cpu_sampler = sampler.CpuSampler()
+
+        self.stack = Adw.ViewStack()
+        self.p_cpu = Page("cpu")
+        self.p_gpu = Page("gpu")
+        self.p_ram = Page("ram")
+        self.p_energy = Page("energy", maximum=0.0)   # auto-scale: watts vary wildly
+
+        self.cores = CoreBars(ACCENT["cpu"])
+        cores_group = Adw.PreferencesGroup(title="Per-core")
+        cf = Gtk.Frame(); cf.add_css_class("view"); cf.set_child(self.cores)
+        cores_group.add(cf)
+        self.p_cpu.get_first_child().add(cores_group)
+
+        self.proc_group = Adw.PreferencesGroup(title="Largest processes")
+        self.p_ram.get_first_child().add(self.proc_group)
+        self.proc_rows = []
+
+        self.stack.add_titled_with_icon(self.p_cpu, "cpu", "CPU", "utilities-system-monitor-symbolic")
+        self.stack.add_titled_with_icon(self.p_gpu, "gpu", "GPU", "video-display-symbolic")
+        self.stack.add_titled_with_icon(self.p_ram, "ram", "Memory", "drive-harddisk-symbolic")
+        self.stack.add_titled_with_icon(self.p_energy, "energy", "Energy", "battery-symbolic")
+
+        header = Adw.HeaderBar()
+        switcher = Adw.ViewSwitcher(stack=self.stack, policy=Adw.ViewSwitcherPolicy.WIDE)
+        header.set_title_widget(switcher)
+
+        toolbar = Adw.ToolbarView()
+        toolbar.add_top_bar(header)
+        toolbar.set_content(self.stack)
+        toolbar.add_bottom_bar(Adw.ViewSwitcherBar(stack=self.stack, reveal=False))
+        self.set_content(toolbar)
+
+        self.tick()
+        self._timer = GLib.timeout_add(INTERVAL_MS, self.tick)
+        self.connect("close-request", self._stop)
+
+    def _stop(self, *_a):
+        if getattr(self, "_timer", None):
+            GLib.source_remove(self._timer)
+            self._timer = None
+        return False
+
+    # ---------------------------------------------------------------- ticking
+    def tick(self):
+        try:
+            self._cpu()
+            self._gpu()
+            self._ram()
+            self._energy()
+        except Exception as e:
+            # One bad reading must not kill the refresh loop and freeze the whole
+            # window on stale numbers — that looks like a hung machine.
+            print(f"refract-monitor: sample failed: {e}", file=sys.stderr)
+        return GLib.SOURCE_CONTINUE
+
+    def _cpu(self):
+        c = self.cpu_sampler.sample()
+        self.p_cpu.graph.push(c["total"])
+        self.p_cpu.headline.set_label(f"{c['total']:.0f}%")
+        self.p_cpu.set_caption(c.get("model") or "Processor")
+        self.cores.update(c.get("cores"))
+        mhz = c.get("mhz")
+        self.p_cpu.set("cores", "Logical cores", len(c.get("cores") or []) or None)
+        self.p_cpu.set("freq", "Average frequency", f"{mhz:.0f} MHz" if mhz else None)
+        t = c.get("temp_c")
+        self.p_cpu.set("temp", "Temperature", f"{t:.0f} °C" if t else None)
+        la = c.get("loadavg")
+        self.p_cpu.set("load", "Load average", " · ".join(la) if la else None)
+        self.p_cpu.set("gov", "Governor", c.get("governor"))
+
+    def _gpu(self):
+        g = sampler.gpu()
+        if not g:
+            self.p_gpu.graph.push(None)
+            self.p_gpu.headline.set_label("—")
+            self.p_gpu.set_caption("No GPU detected")
+            self.p_gpu.set("none", "Status", "No supported GPU found")
+            return
+        util = g.get("util")
+        self.p_gpu.graph.push(util)
+        self.p_gpu.headline.set_label(f"{util:.0f}%" if util is not None else "—")
+        self.p_gpu.set_caption(g.get("name") or g.get("vendor") or "Graphics")
+        self.p_gpu.set("vendor", "Vendor", g.get("vendor"))
+        mu, mt = g.get("mem_used"), g.get("mem_total")
+        self.p_gpu.set("vram", "Video memory",
+                       f"{sampler.fmt_bytes(mu)} / {sampler.fmt_bytes(mt)}" if mt else None)
+        t = g.get("temp_c")
+        self.p_gpu.set("temp", "Temperature", f"{t:.0f} °C" if t else None)
+        if g.get("freq_mhz"):
+            self.p_gpu.set("freq", "Frequency", f"{g['freq_mhz']} MHz")
+        if g.get("note"):
+            self.p_gpu.set("note", "Note", g["note"])
+
+    def _ram(self):
+        m = sampler.memory()
+        if not m:
+            return
+        pct = m["used"] * 100.0 / m["total"] if m["total"] else 0.0
+        self.p_ram.graph.push(pct)
+        self.p_ram.headline.set_label(f"{pct:.0f}%")
+        self.p_ram.set_caption(
+            f"{sampler.fmt_bytes(m['used'])} of {sampler.fmt_bytes(m['total'])} in use"
+        )
+        self.p_ram.set("avail", "Available", sampler.fmt_bytes(m["available"]))
+        self.p_ram.set("cached", "Cached", sampler.fmt_bytes(m["cached"]))
+        self.p_ram.set("buffers", "Buffers", sampler.fmt_bytes(m["buffers"]))
+        self.p_ram.set(
+            "swap", "Swap",
+            f"{sampler.fmt_bytes(m['swap_used'])} / {sampler.fmt_bytes(m['swap_total'])}"
+            if m["swap_total"] else "Not configured")
+
+        procs = sampler.top_processes(8)
+        for r in self.proc_rows:
+            self.proc_group.remove(r)
+        self.proc_rows = []
+        for name, rss, pid in procs:
+            row = Adw.ActionRow(title=GLib.markup_escape_text(name),
+                                subtitle=f"PID {pid}")
+            lbl = Gtk.Label(label=sampler.fmt_bytes(rss))
+            lbl.add_css_class("numeric")
+            lbl.add_css_class("dim-label")
+            row.add_suffix(lbl)
+            self.proc_group.add(row)
+            self.proc_rows.append(row)
+
+    def _energy(self):
+        p = sampler.power()
+        if not p:
+            self.p_energy.graph.push(None)
+            self.p_energy.headline.set_label("—")
+            self.p_energy.set_caption("No battery — running on mains")
+            return
+        w = p.get("power_w")
+        self.p_energy.graph.push(w)
+        self.p_energy.headline.set_label(f"{w:.1f} W" if w else "—")
+        cap, st = p.get("capacity"), p.get("status")
+        self.p_energy.set_caption(f"{cap}% · {st}" if cap is not None else (st or "Battery"))
+        self.p_energy.set("charge", "Charge", f"{cap}%" if cap is not None else None)
+        self.p_energy.set("status", "Status", st)
+        rh = p.get("remaining_h")
+        if rh:
+            self.p_energy.set(
+                "remaining",
+                "Time to full" if st == "Charging" else "Time remaining",
+                f"{int(rh)} h {int((rh % 1) * 60)} min")
+        h = p.get("health")
+        self.p_energy.set("health", "Battery health",
+                          f"{h:.0f}% of design capacity" if h else None)
+        self.p_energy.set("profile", "Power profile", p.get("profile"))
+
+
+class MonitorApp(Adw.Application):
+    def __init__(self):
+        super().__init__(application_id=APP_ID)
+
+    def do_activate(self):
+        win = self.props.active_window or MonitorWindow(self)
+        win.present()
+
+
+if __name__ == "__main__":
+    sys.exit(MonitorApp().run(sys.argv))
