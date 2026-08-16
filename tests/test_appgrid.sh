@@ -18,7 +18,12 @@ export REFRACT_STOCK_DIR="$sb/usr-share"
 export REFRACT_SHADOW_DIR="$sb/usr-local-share"
 mkdir -p "$REFRACT_STOCK_DIR" "$REFRACT_SHADOW_DIR"
 
-cat > "$REFRACT_STOCK_DIR/gnome-system-monitor.desktop" <<'EOF'
+# The IDs here are the ones install-smoke's app-grid inventory reported from the
+# shipped image, not plausible-looking guesses. An earlier version of the tool
+# named gnome-system-monitor.desktop, which does not exist on Ubuntu 24.04, so
+# dedupe matched nothing and reported success — and a fixture using the same
+# wrong name would have passed right alongside it.
+cat > "$REFRACT_STOCK_DIR/org.gnome.SystemMonitor.desktop" <<'EOF'
 [Desktop Entry]
 Name=System Monitor
 Exec=gnome-system-monitor
@@ -42,7 +47,7 @@ assert_contains "status reports an unhidden duplicate" "$out" "still in the app 
 
 # --- dedupe -----------------------------------------------------------------
 run dedupe >/dev/null
-shadow="$REFRACT_SHADOW_DIR/gnome-system-monitor.desktop"
+shadow="$REFRACT_SHADOW_DIR/org.gnome.SystemMonitor.desktop"
 if [ -f "$shadow" ]; then pass "a shadow launcher is written"; else fail "a shadow launcher is written"; fi
 assert_contains "the shadow hides the entry" "$(cat "$shadow")" "NoDisplay=true"
 
@@ -52,7 +57,7 @@ assert_contains "the shadow hides the entry" "$(cat "$shadow")" "NoDisplay=true"
 assert_contains "Exec survives the shadow" "$(cat "$shadow")" "Exec=gnome-system-monitor"
 assert_contains "Icon survives the shadow" "$(cat "$shadow")" "Icon=org.gnome.SystemMonitor"
 assert_contains "MimeType survives the shadow" "$(cat "$shadow")" "MimeType=application/x-foo;"
-if [ -f "$REFRACT_STOCK_DIR/gnome-system-monitor.desktop" ]; then
+if [ -f "$REFRACT_STOCK_DIR/org.gnome.SystemMonitor.desktop" ]; then
     pass "the stock launcher is NOT deleted"
 else
     fail "the stock launcher is NOT deleted" "hiding must never become uninstalling"
@@ -82,7 +87,7 @@ assert_contains "restore also refuses to delete a foreign file" "$out" "not writ
 if [ -f "$shadow" ]; then pass "the foreign file survives restore"; else fail "the foreign file survives restore"; fi
 
 # --- an app that isn't installed is not invented ----------------------------
-rm -f "$shadow" "$REFRACT_STOCK_DIR/gnome-system-monitor.desktop"
+rm -f "$shadow" "$REFRACT_STOCK_DIR/org.gnome.SystemMonitor.desktop"
 out="$(run status)"
 assert_contains "an absent stock app is reported as nothing to do" "$out" "is not installed"
 run dedupe >/dev/null

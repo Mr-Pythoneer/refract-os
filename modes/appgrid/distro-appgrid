@@ -49,9 +49,18 @@ C_OK=$'\033[32m'; C_WARN=$'\033[33m'; C_DIM=$'\033[36m'; C_OFF=$'\033[0m'
 # reason to hide something a person might depend on; "the replacement does
 # everything the original did" is. Adding a line without being able to write
 # that sentence honestly means the entry does not belong here.
+# THESE IDS ARE MEASURED, NOT GUESSED. The first version of this list said
+# gnome-system-monitor.desktop, which does not exist — Ubuntu 24.04 ships
+# org.gnome.SystemMonitor.desktop — so dedupe would have found nothing, changed
+# nothing, reported success and left both icons in the grid. It was caught by
+# printing the shipped image's actual launchers in install-smoke, which is now a
+# permanent step for exactly this reason. Anything added here must come from
+# that inventory, not from memory.
 PAIRS=(
-  "gnome-system-monitor.desktop|Refract Monitor|Refract Monitor covers CPU, GPU, memory and energy, and its Processes page lists every process and can end one — which was the last thing System Monitor could do that it could not."
+  "org.gnome.SystemMonitor.desktop|Refract Monitor|Refract Monitor covers CPU, GPU, memory and energy, and its Processes page lists every process and can end one — which was the last thing System Monitor could do that it could not."
+  "gnome-system-monitor-kde.desktop|Refract Monitor|A SECOND launcher for the same binary, shipped by the same package for KDE's menu layout. On a GNOME-only distro it is a duplicate of a duplicate: it was giving this image THREE activity-monitor icons."
   "update-manager.desktop|Software + Refract Updates|Ubuntu package updates are GNOME Software's Updates page, security updates install themselves via unattended-upgrades, and Refract's own layer is Refract Updates. Software Updater was a third path to a job two things already do, and update-notifier still launches it directly when it needs to."
+  "calamares.desktop|Install Refract OS|The stock Calamares launcher and Refract's own start the same installer with the same config; the live session was offering to install the system twice, under two different names. The branded one stays. (Both are removed outright from an installed system by shellprocess_cleanup — this is about the live session, where they are both still present.)"
 )
 
 usage() {
