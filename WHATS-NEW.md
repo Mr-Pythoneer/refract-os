@@ -4,8 +4,51 @@ Notes from the person who made the change, in plain language. `distro-update`
 shows you the entries added since your build every time you update, and
 `distro-update notes` shows them any time.
 
-Format matters to the parser: every entry starts with `## YYYY-MM-DD — Title`
-and the date is how the updater decides whether you have seen it.
+FORMAT MATTERS TO THE PARSER. Every entry starts with `## YYYY-MM-DD — Title`,
+and **newest goes at the TOP**. distro-update walks this file from the top and
+stops at the first heading the machine has already been shown, so an entry
+appended at the bottom is never displayed to anyone who is up to date. Adding
+one with `>>` is the obvious mistake and it fails silently.
+
+## 2026-08-16 — Security and bug audit: fixes
+
+An adversarial audit of the whole repo raised 25 issues; 19 survived
+verification. The ones that could actually break a machine are fixed:
+
+**Server mode could leave you with no desktop.** Switching to Server turns the
+graphical login off — but nothing ever turned it back on, so switching back to
+Normal said "Now in: Normal mode" and changed nothing. The next reboot came up
+at a text console with nothing connecting the two events. Worse, the top-bar
+switcher was auto-confirming the warning that exists for this, so one click and
+a password did it silently. Now leaving Server restores your desktop, and the
+top-bar menu asks first, in plain words.
+
+**Docker setup broke apt system-wide.** The server mode's Docker script built
+its package source from Refract's codename ("forge") instead of Ubuntu's, so it
+pointed at a repository that doesn't exist. Docker never installed, and the
+broken source file was left behind — every later update check on the machine
+reported an error from then on. Fixed, and it now cleans up after itself if the
+download fails.
+
+**Updating could resurrect a mode you deliberately left out.** If you built or
+installed without AI mode, the updater's file sync put the whole thing back and
+returned its commands to your PATH. It now detects what was left out and keeps
+it out.
+
+**Battery time remaining was wrong on many laptops.** On batteries that report
+charge rather than energy, the calculation forgot the pack voltage — an ~11x
+error, so four hours of runtime displayed as twenty-four minutes.
+
+Also fixed: you couldn't read your own system logs (the installer never put your
+account in the `adm` group); the monitor was reading every process's status file
+once a second even with that page off screen; every mode switch claimed it had
+applied a macOS theme regardless of your actual layout; the update window showed
+raw colour codes as little boxes; and turning on SSH from Server mode left it
+blocked by the firewall with nothing saying so.
+
+Still open and needing a decision: the updater trusts HTTPS alone — there is no
+signature on what it downloads. Fixing that properly means signed releases, and
+it's the next thing worth doing.
 
 ## 2026-08-16 — Updating no longer means opening a terminal
 
@@ -92,43 +135,3 @@ Fair warning: on recent ThinkPads the answer is often that the sensor is
 "match-on-chip" and needs a driver Ubuntu only distributes to OEMs. That's not
 something Refract can install. But you'll know in ten seconds instead of losing
 an afternoon to it.
-
-## 2026-08-16 — Security and bug audit: fixes
-
-An adversarial audit of the whole repo raised 25 issues; 19 survived
-verification. The ones that could actually break a machine are fixed:
-
-**Server mode could leave you with no desktop.** Switching to Server turns the
-graphical login off — but nothing ever turned it back on, so switching back to
-Normal said "Now in: Normal mode" and changed nothing. The next reboot came up
-at a text console with nothing connecting the two events. Worse, the top-bar
-switcher was auto-confirming the warning that exists for this, so one click and
-a password did it silently. Now leaving Server restores your desktop, and the
-top-bar menu asks first, in plain words.
-
-**Docker setup broke apt system-wide.** The server mode's Docker script built
-its package source from Refract's codename ("forge") instead of Ubuntu's, so it
-pointed at a repository that doesn't exist. Docker never installed, and the
-broken source file was left behind — every later update check on the machine
-reported an error from then on. Fixed, and it now cleans up after itself if the
-download fails.
-
-**Updating could resurrect a mode you deliberately left out.** If you built or
-installed without AI mode, the updater's file sync put the whole thing back and
-returned its commands to your PATH. It now detects what was left out and keeps
-it out.
-
-**Battery time remaining was wrong on many laptops.** On batteries that report
-charge rather than energy, the calculation forgot the pack voltage — an ~11x
-error, so four hours of runtime displayed as twenty-four minutes.
-
-Also fixed: you couldn't read your own system logs (the installer never put your
-account in the `adm` group); the monitor was reading every process's status file
-once a second even with that page off screen; every mode switch claimed it had
-applied a macOS theme regardless of your actual layout; the update window showed
-raw colour codes as little boxes; and turning on SSH from Server mode left it
-blocked by the firewall with nothing saying so.
-
-Still open and needing a decision: the updater trusts HTTPS alone — there is no
-signature on what it downloads. Fixing that properly means signed releases, and
-it's the next thing worth doing.
