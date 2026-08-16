@@ -91,6 +91,12 @@ jobs:
           # trust-on-first-use; the alternative is that no existing install can
           # ever reach a signed channel at all.)
           cp -a iso/keys stage/iso/keys
+          # dconf drop-ins that `apply` refreshes. NOT 00-refract — the installer
+          # rewrites that one in place (swapping the installer's dock pin for
+          # GNOME Software), so shipping a pristine copy would put an "Install
+          # Refract OS" icon back on an installed machine.
+          mkdir -p stage/iso/branding/dconf
+          cp -a iso/branding/dconf/local.d stage/iso/branding/dconf/local.d
 
           # DETERMINISTIC, or the digest below means nothing on a rebuild:
           #   --sort=name        stable member order (readdir order is not)

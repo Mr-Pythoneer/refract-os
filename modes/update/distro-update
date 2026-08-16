@@ -303,6 +303,22 @@ cmd_check() {
 
 cmd_apply() {
     [ "$(id -u)" -eq 0 ] || die "'apply' needs root — try: sudo distro-update apply"
+
+    # DON'T LET THE MACHINE SUSPEND MID-UPDATE. Downloading a layer and rsyncing
+    # it over /opt/distro takes minutes on a slow link, and an idle timer does
+    # not know that. Suspend drops every TCP connection, so an unattended update
+    # could be interrupted partway through replacing the system's own tooling —
+    # the worst possible moment. systemd-inhibit re-executes this command holding
+    # a sleep+idle lock that GNOME's automatic suspend honours; the lock is
+    # released when the process exits, including on failure.
+    #
+    # Re-exec ONCE. The marker stops an infinite loop if systemd-inhibit is
+    # present but the lock cannot be taken.
+    if [ -z "${_REFRACT_INHIBITED:-}" ] && command -v systemd-inhibit >/dev/null 2>&1; then
+        export _REFRACT_INHIBITED=1
+        exec systemd-inhibit --what=sleep:idle --who="Refract" \
+             --why="Installing a Refract update" "$0" apply
+    fi
     command -v curl >/dev/null 2>&1 || die "curl is required"
     command -v rsync >/dev/null 2>&1 || die "rsync is required"
     command -v tar >/dev/null 2>&1 || die "tar is required"
@@ -548,6 +564,24 @@ cmd_apply() {
             install -m 0644 "$u" "$USER_UNIT_DIR/$(basename "$u")" || true
         done
     fi
+    # dconf DROP-INS. Only the numbered files this project owns outright and
+    # never edits after install — 00-refract is DELIBERATELY EXCLUDED, because
+    # shellprocess_cleanup rewrites it on the installed system to swap the
+    # installer's dock pin for GNOME Software. Reinstalling a pristine copy here
+    # would put an "Install Refract OS" icon back on the dock of a machine that
+    # is already installed, which is the exact bug that file was written to fix.
+    if [ -d /etc/dconf/db/local.d ]; then
+        local d changed_dconf=0
+        for d in "$work"/x/iso/branding/dconf/local.d/[1-9]*-refract*; do
+            [ -f "$d" ] || continue
+            install -m 0644 "$d" "/etc/dconf/db/local.d/$(basename "$d")" && changed_dconf=1
+        done
+        # The compiled binary db is what GNOME reads; editing the text without
+        # recompiling changes nothing at all.
+        [ "$changed_dconf" = 1 ] && command -v dconf >/dev/null 2>&1 \
+            && dconf update >/dev/null 2>&1 || true
+    fi
+
     # FIRST-LOGIN AUTOSTART, system-wide. iso/build.sh puts these in
     # /etc/skel/.config/autostart, which is copied only when a user is CREATED —
     # so on a machine that took an update, the person already sitting at it never

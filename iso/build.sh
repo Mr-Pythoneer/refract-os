@@ -706,6 +706,9 @@ cp "$REPO_ROOT/iso/branding/dconf/local.d/00-refract" "$INCLUDES/etc/dconf/db/lo
 # for GNOME strains (skip headless + lowspec/LXQt), matching the package/hook strip.
 if [[ ! " ${NON_GNOME_STRAINS[*]} " == *" $STRAIN "* ]]; then
     cp "$REPO_ROOT/iso/branding/dconf/local.d/10-refract-polish" "$INCLUDES/etc/dconf/db/local.d/10-refract-polish"
+    # Idle and suspend policy — the reason downloads used to die when the screen
+    # went dark. Also GNOME dconf, so the same strain guard applies.
+    cp "$REPO_ROOT/iso/branding/dconf/local.d/20-refract-power" "$INCLUDES/etc/dconf/db/local.d/20-refract-power"
 fi
 cp "$REPO_ROOT/iso/branding/dconf/profile/user"        "$INCLUDES/etc/dconf/profile/user"
 # GDM greeter branding (background + banner on the login screen; deliberately

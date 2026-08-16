@@ -10,6 +10,27 @@ stops at the first heading the machine has already been shown, so an entry
 appended at the bottom is never displayed to anyone who is up to date. Adding
 one with `>>` is the obvious mistake and it fails silently.
 
+## 2026-08-16 — Downloads no longer die when the screen goes dark
+
+Reported, and it was as bad as it sounds. Refract shipped **no** power policy at
+all, so GNOME's default applied: after a few idle minutes the screen blanks, and
+a while later the machine suspends itself. Suspending drops every network
+connection, so whatever was downloading — a browser download, a Flatpak install,
+`apt upgrade` in a terminal — was simply gone. The screen went dark and the
+download vanished, with nothing linking the two.
+
+Now: **plugged in, it never suspends itself.** The screen still blanks (that's
+just the display, and downloads carry on across it). On battery it still
+suspends, because there it's a real feature and the alternative is a flat
+battery — after 30 minutes rather than 20.
+
+Refract's own downloads — installing an update, fetching the app catalogue on
+first boot — now also hold the machine awake for as long as they run, so an idle
+timer can't interrupt one halfway through.
+
+`distro-powerctl status` now shows all of this: when the screen blanks, whether
+your machine suspends on mains or battery, and what's currently keeping it awake.
+
 ## 2026-08-16 — The rest of the audit
 
 The seven lower-severity findings from the audit, now closed:

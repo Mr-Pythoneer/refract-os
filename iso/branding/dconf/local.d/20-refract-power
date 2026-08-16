@@ -1,0 +1,55 @@
+# Refract OS — idle and suspend policy.
+#
+# THE BUG THIS EXISTS FOR. Reported 2026-08-16: "it cancels all downloads when
+# the screen goes dark." Refract shipped NO power policy at all, so GNOME's
+# defaults applied — and GNOME's default is to blank the screen after 5 minutes
+# of no input and then SUSPEND the machine a while later. Suspend tears down
+# every TCP connection, so anything downloading dies: a browser download, a
+# flatpak install, `apt upgrade` in a terminal, Refract's own first-boot app
+# catalogue fetch. From the user's chair the screen goes dark and the download
+# is gone, with nothing connecting the two.
+#
+# Suspending an idle laptop is correct and this does not disable it. What was
+# wrong is suspending a machine that is PLUGGED IN and busy.
+#
+# A SEPARATE FILE, not an addition to 00-refract, deliberately. The installer
+# rewrites 00-refract in place (shellprocess_cleanup swaps the installer's dock
+# pin for GNOME Software), so anything that reinstalled that file would undo
+# that edit and put an "Install Refract OS" icon back on an installed machine's
+# dock. This file is never edited after install, so `distro-update apply` can
+# safely refresh it — which is how the fix reaches machines that already exist.
+
+[org/gnome/settings-daemon/plugins/power]
+# ON MAINS: never suspend by itself. A desktop or a plugged-in laptop that is
+# downloading something, compiling, or serving over SSH has no business putting
+# itself to sleep, and the person who wanted it asleep can close the lid or use
+# the power menu. The screen still blanks (see idle-delay below), which is what
+# actually saves the panel and is what most people mean when they say the
+# machine "sleeps".
+sleep-inactive-ac-type='nothing'
+
+# ON BATTERY: still suspend, because on battery it is a real feature and its
+# absence is a flat battery. 30 minutes rather than GNOME's 20 — long enough to
+# not interrupt a download that is nearly finished, short enough to matter.
+sleep-inactive-battery-type='suspend'
+sleep-inactive-battery-timeout=1800
+
+# Dimming the backlight before blanking is free and gives a visible warning that
+# the screen is about to go; without it the display just dies mid-sentence.
+idle-dim=true
+
+# The power BUTTON should ask, not act. 'interactive' shows the dialog rather
+# than suspending the moment it is brushed.
+power-button-action='interactive'
+
+[org/gnome/desktop/session]
+# Blank the screen after 10 minutes of no input. This is DISPLAY-only — it never
+# suspends and never touches the network, so a download continues across it.
+# GNOME's 5-minute default is aggressive for a machine somebody is reading from.
+idle-delay=uint32 600
+
+[org/gnome/desktop/screensaver]
+# Lock shortly after blanking rather than instantly, so stepping away for a
+# moment does not mean typing a password to get back to a half-written sentence.
+lock-enabled=true
+lock-delay=uint32 30

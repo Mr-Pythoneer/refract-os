@@ -18,7 +18,12 @@ ConditionPathExists=!/var/lib/refract/catalogue-warmed
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/distro-appstore warm
+# systemd-inhibit, for the same reason distro-update apply uses it: this
+# downloads two full app catalogues on a first boot, which on a slow link is
+# long enough for the idle timer to suspend the machine out from under it.
+ExecStart=/usr/bin/systemd-inhibit --what=sleep:idle --who=Refract \
+    --why=Downloading\x20the\x20app\x20catalogue \
+    /usr/local/bin/distro-appstore warm
 # Downloading two full software catalogues on a slow connection is genuinely
 # slow, and being killed halfway leaves a half-built cache.
 TimeoutStartSec=30min

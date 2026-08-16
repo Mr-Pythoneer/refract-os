@@ -104,6 +104,33 @@ cmd_status() {
         cur="$(powerprofilesctl get 2>/dev/null || echo unknown)"
         echo "Active profile:  $cur"
     fi
+    # THE IDLE/SUSPEND POLICY, because "my downloads die when the screen goes
+    # dark" is a power question and this is the power command. Reported as a bug
+    # 2026-08-16: Refract shipped no policy, so GNOME's default applied and an
+    # idle machine suspended itself, tearing down every connection.
+    if command -v gsettings >/dev/null 2>&1 && [ "$(id -u)" -ne 0 ]; then
+        local blank ac bat
+        blank="$(gsettings get org.gnome.desktop.session idle-delay 2>/dev/null | awk '{print $NF}')"
+        ac="$(gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 2>/dev/null | tr -d "'")"
+        bat="$(gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 2>/dev/null | tr -d "'")"
+        echo
+        echo "Idle behaviour"
+        [ -n "$blank" ] && echo "  Screen blanks after:  $([ "$blank" = 0 ] && echo never || echo "$((blank / 60)) min")"
+        if [ "$ac" = "suspend" ]; then
+            echo "  On mains:             SUSPENDS — this cancels downloads when the screen goes dark."
+            echo "                        Fix: gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type nothing"
+        elif [ -n "$ac" ]; then
+            echo "  On mains:             $ac (downloads survive the screen blanking)"
+        fi
+        [ -n "$bat" ] && echo "  On battery:           $bat"
+        # Anything currently holding the machine awake — a running update, a
+        # browser download. Explains "why won't it sleep" as well as the reverse.
+        if command -v systemd-inhibit >/dev/null 2>&1; then
+            local n; n="$(systemd-inhibit --list --no-legend 2>/dev/null | grep -c . || true)"
+            [ "${n:-0}" -gt 0 ] && echo "  Holding it awake:     ${n} process(es) — systemd-inhibit --list"
+        fi
+    fi
+
     if ! want="$(wanted_profile)"; then
         echo "Would set:       nothing"
     elif [[ " $AUTO_MODES " != *" $mode "* ]]; then
