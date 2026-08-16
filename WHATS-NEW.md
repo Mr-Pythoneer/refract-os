@@ -10,6 +10,26 @@ stops at the first heading the machine has already been shown, so an entry
 appended at the bottom is never displayed to anyone who is up to date. Adding
 one with `>>` is the obvious mistake and it fails silently.
 
+## 2026-08-16 — Refract Tips actually arrives now
+
+Tips shipped with a launcher that pointed at a program the updater never put in
+place — an icon in the app grid that opened nothing. Two gaps caused it, and both
+would have hit any future app the same way:
+
+The updater only created shortcuts for commands whose names begin with
+`distro-`, so anything named `refract-` never got one. Monitor and Updates only
+worked because the installer had made *their* shortcuts at install time, which
+hid the problem until a new app arrived by update — which is the entire point of
+having an updater.
+
+And the "show this once on first login" entry was being written to a template
+that's only copied when a **new user account** is created. On a machine that
+took an update, the person already using it never received it.
+
+Both fixed, and there's now a test that compares the two delivery paths against
+each other, so an app that a fresh install gets but an updated machine doesn't
+fails CI instead of shipping.
+
 ## 2026-08-16 — Past update notes now live in Refract Tips
 
 The notes an update prints scroll away with the terminal, and "when did that

@@ -434,11 +434,26 @@ cmd_apply() {
         [ -L "$f" ] || continue
         [ -e "$f" ] || rm -f "$f"
     done
+    # refract-* AS WELL AS distro-*. This looked only for distro-*, so a NEW
+    # refract-named app could never reach an updated machine: apply installed
+    # Refract Tips' .desktop, which points at /usr/local/bin/refract-tips, and
+    # then never created that symlink — an app-grid icon that launches nothing.
+    # refract-monitor and refract-updates survived only because iso/build.sh made
+    # their symlinks at INSTALL time, so the gap was invisible until an app was
+    # added after an image shipped. Which is the whole point of an updater.
+    #
+    # __pycache__ is excluded explicitly: py_compile leaves
+    # refract-monitor.cpython-*.pyc next to the script, and it matches
+    # refract-*. Symlinking a bytecode file into PATH would put a "command" there
+    # that does nothing when run.
     while IFS= read -r -d '' f; do
         name="$(basename "$f")"
         chmod +x "$f" 2>/dev/null || true
         ln -sfn "$f" "$BIN_DIR/$name"
-    done < <(find "$INSTALL_ROOT/modes" "$INSTALL_ROOT/drivers" -type f -name 'distro-*' -print0 2>/dev/null)
+    done < <(find "$INSTALL_ROOT/modes" "$INSTALL_ROOT/drivers" -type f \
+                  \( -name 'distro-*' -o -name 'refract-*' \) \
+                  ! -name '*.pyc' ! -name '*.desktop' ! -name '*.service' ! -name '*.timer' \
+                  ! -path '*/__pycache__/*' -print0 2>/dev/null)
 
     # WHATS-NEW.md, so the notes outlive the terminal they were printed in.
     # Refract Tips reads this copy for its "What's new" page — the update history
@@ -531,6 +546,18 @@ cmd_apply() {
         for u in "$work"/x/modes/*/systemd/user/*; do
             [ -f "$u" ] || continue
             install -m 0644 "$u" "$USER_UNIT_DIR/$(basename "$u")" || true
+        done
+    fi
+    # FIRST-LOGIN AUTOSTART, system-wide. iso/build.sh puts these in
+    # /etc/skel/.config/autostart, which is copied only when a user is CREATED —
+    # so on a machine that took an update, the person already sitting at it never
+    # gets the entry and Refract Tips never appears. /etc/xdg/autostart applies to
+    # every user, existing ones included, and each of these scripts already
+    # stamps a per-user file so it still runs exactly once per person.
+    if [ -d /etc/xdg/autostart ]; then
+        for u in "$work"/x/modes/*/firstlogin/*.desktop; do
+            [ -f "$u" ] || continue
+            install -m 0644 "$u" "/etc/xdg/autostart/$(basename "$u")" || true
         done
     fi
     if [ -d "$UDEV_DIR" ]; then

@@ -472,15 +472,22 @@ ln -sf ../refract-update-check.timer \
 mkdir -p "$INCLUDES/usr/local/lib/refract" "$INCLUDES/etc/skel/.config/autostart"
 install -m 0755 "$REPO_ROOT/modes/layouts/firstlogin/apply-layout-once" \
     "$INCLUDES/usr/local/lib/refract/apply-layout-once"
+# /etc/xdg/autostart, NOT /etc/skel. skel is copied when a user is CREATED, so an
+# entry added there only ever reaches accounts made afterwards — on a machine
+# that took an update, the person already sitting at it never gets it, and the
+# app they were told about simply never appears. /etc/xdg/autostart applies to
+# every user including existing ones, and both of these scripts already stamp a
+# per-user file, so each still runs exactly once per person.
+mkdir -p "$INCLUDES/etc/xdg/autostart"
 install -m 0644 "$REPO_ROOT/modes/layouts/firstlogin/refract-layout.desktop" \
-    "$INCLUDES/etc/skel/.config/autostart/refract-layout.desktop"
+    "$INCLUDES/etc/xdg/autostart/refract-layout.desktop"
 # Refract Tips, shown once on the first graphical login. gnome-initial-setup is
 # purged and masked by hooks/0200-refract-identity.chroot, so there is no
 # first-run wizard on this image at all — without this, a new owner gets a
 # desktop with nothing to indicate that modes, layouts, the top-bar switcher or
 # any of the distro-* tools exist. --first-run makes it a no-op after the first.
 install -m 0644 "$REPO_ROOT/modes/tips/firstlogin/refract-tips.desktop" \
-    "$INCLUDES/etc/skel/.config/autostart/refract-tips.desktop"
+    "$INCLUDES/etc/xdg/autostart/refract-tips.desktop"
 ln -sf /opt/distro/modes/tips/refract-tips "$INCLUDES/usr/local/bin/refract-tips"
 # Ship the default so a LIVE session (never installed, so no shellprocess ran)
 # still has a layout to apply rather than falling back by accident.
