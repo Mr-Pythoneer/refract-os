@@ -18,6 +18,8 @@ ALL WORK IS DONE BY distro-update. This process never writes to the system: it
 runs `distro-update check` and, on request, `pkexec distro-update apply`. One
 implementation, used by the CLI, this window and the background timer alike.
 """
+import os
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -30,6 +32,7 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 APP_ID = "os.refract.Updates"
 DISTRO_UPDATE = "/usr/local/bin/distro-update"
+TIPS_APP = "/usr/local/bin/refract-tips"
 
 # distro-update's documented exit codes. 1 is NOT "up to date" — a machine that
 # cannot reach the network must say so, not quietly imply it is current.
@@ -97,6 +100,24 @@ class UpdatesWindow(Adw.ApplicationWindow):
             subtitle="Apps and security updates come from Software and Software Updater.",
         ))
         page.add(scope)
+
+        # --- the history -------------------------------------------------
+        # The notes distro-update prints scroll away with the terminal, and this
+        # window showed them not at all. Rather than duplicate the renderer,
+        # point at the app that already has one.
+        if os.path.exists(TIPS_APP):
+            hist = Adw.PreferencesGroup(title="What changed")
+            row = Adw.ActionRow(
+                title="Update history",
+                subtitle="Every change to Refract, in plain language.",
+            )
+            btn = Gtk.Button(label="Open", valign=Gtk.Align.CENTER)
+            btn.add_css_class("pill")
+            btn.connect("clicked", lambda *_: self._open_history())
+            row.add_suffix(btn)
+            row.set_activatable_widget(btn)
+            hist.add(row)
+            page.add(hist)
 
         self.toasts = Adw.ToastOverlay()
         self.toasts.set_child(page)
@@ -197,6 +218,12 @@ class UpdatesWindow(Adw.ApplicationWindow):
                 self.status_row.set_subtitle(detail or "Check your network connection.")
 
         self._run([DISTRO_UPDATE, "check"], done)
+
+    def _open_history(self):
+        try:
+            Gio.Subprocess.new([TIPS_APP, "--whats-new"], Gio.SubprocessFlags.NONE)
+        except GLib.Error as e:
+            self.toasts.add_toast(Adw.Toast(title=f"Could not open Tips: {e.message}"))
 
     def apply(self):
         if self._busy:

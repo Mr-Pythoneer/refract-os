@@ -383,6 +383,11 @@ ln -sf /opt/distro/drivers/distro-fingerprint         "$INCLUDES/usr/local/bin/d
 # distro-update falls back to the announced unsigned path. Do not "fix" that by
 # fetching the key at runtime.
 mkdir -p "$INCLUDES/usr/share/refract"
+# The update history, readable on the machine rather than only in the terminal
+# of whoever ran the last update. Refract Tips renders it as its "What's new"
+# page; distro-update refreshes this same path on every apply.
+[ -f "$REPO_ROOT/WHATS-NEW.md" ] && install -m 0644 "$REPO_ROOT/WHATS-NEW.md" \
+    "$INCLUDES/usr/share/refract/WHATS-NEW.md"
 if [ -f "$REPO_ROOT/iso/keys/refract-signing.pub" ]; then
     install -m 0644 "$REPO_ROOT/iso/keys/refract-signing.pub" \
         "$INCLUDES/usr/share/refract/refract-signing.pub"

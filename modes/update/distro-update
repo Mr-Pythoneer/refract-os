@@ -440,6 +440,15 @@ cmd_apply() {
         ln -sfn "$f" "$BIN_DIR/$name"
     done < <(find "$INSTALL_ROOT/modes" "$INSTALL_ROOT/drivers" -type f -name 'distro-*' -print0 2>/dev/null)
 
+    # WHATS-NEW.md, so the notes outlive the terminal they were printed in.
+    # Refract Tips reads this copy for its "What's new" page — the update history
+    # is the answer to "what changed and when", and having it exist only in the
+    # scrollback of whoever ran the update is not an answer.
+    if [ -f "$work/x/$NOTES_FILE" ]; then
+        mkdir -p /usr/share/refract
+        install -m 0644 "$work/x/$NOTES_FILE" "/usr/share/refract/$NOTES_FILE" || true
+    fi
+
     # THE KEY ITSELF. Without this step the trust-on-first-use bootstrap never
     # completes: a machine with no key would take an unverified update forever,
     # every time, because nothing would ever put a key on it.

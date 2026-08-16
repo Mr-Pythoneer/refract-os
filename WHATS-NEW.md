@@ -10,6 +10,16 @@ stops at the first heading the machine has already been shown, so an entry
 appended at the bottom is never displayed to anyone who is up to date. Adding
 one with `>>` is the obvious mistake and it fails silently.
 
+## 2026-08-16 — Past update notes now live in Refract Tips
+
+The notes an update prints scroll away with the terminal, and "when did that
+change?" is a question people ask days later — usually because something behaves
+differently and they want to know whether it was deliberate.
+
+**Refract Tips** now has a **What's new** page holding every note, newest first,
+each collapsed to its title so you can scan for the one you want. Refract Updates
+links straight to it, and `distro-update notes` still prints them in a terminal.
+
 ## 2026-08-16 — Updates are signed now
 
 The one thing the audit found that wasn't fixed on the day: your laptop

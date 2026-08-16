@@ -17,6 +17,7 @@ Every row that names an action can PERFORM it. A tip about Refract Monitor with
 no way to open Refract Monitor is a paragraph about a thing, not help.
 """
 import os
+import re
 import subprocess
 import sys
 
@@ -27,6 +28,21 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 APP_ID = "os.refract.Tips"
+
+# The update history. Written by hand for each change, installed here by
+# iso/build.sh and refreshed by `distro-update apply`.
+#
+# WHY IT LIVES IN THIS APP. distro-update prints the new entries once, into the
+# terminal or the updater window of whoever ran it, and then they are gone. "What
+# changed, and when" is a question people ask days later — usually because
+# something behaves differently and they want to know whether that was
+# deliberate. Scrollback is not an answer.
+WHATS_NEW = "/usr/share/refract/WHATS-NEW.md"
+_WHATS_NEW_FALLBACKS = (
+    WHATS_NEW,
+    "/opt/distro/WHATS-NEW.md",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "WHATS-NEW.md"),
+)
 STAMP = os.path.join(GLib.get_user_config_dir(), "refract-tips-seen")
 
 # (page key, page title, icon, [ (group title, [ (row title, subtitle, action|None) ]) ])
@@ -143,6 +159,46 @@ PAGES = [
 ]
 
 
+def _markup(text):
+    """The small subset of Markdown these notes use, as Pango markup.
+
+    ESCAPE FIRST, THEN ADD TAGS. The other order lets an & or a < in a note —
+    a URL with a query string, say — close or corrupt a tag, and Pango does not
+    render a broken string, it renders NOTHING. A note that silently vanishes is
+    worse than one with a stray asterisk in it.
+    """
+    out = GLib.markup_escape_text(text)
+    out = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", out, flags=re.S)
+    out = re.sub(r"`([^`]+)`", r"<tt>\1</tt>", out)
+    return out
+
+
+def read_whats_new():
+    """[(heading, body)] newest-first, or [] if the file is not installed."""
+    raw = ""
+    for path in _WHATS_NEW_FALLBACKS:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                raw = f.read()
+            break
+        except OSError:
+            continue
+    if not raw:
+        return []
+    entries = []
+    heading, body = None, []
+    for line in raw.splitlines():
+        if line.startswith("## "):
+            if heading:
+                entries.append((heading, "\n".join(body).strip()))
+            heading, body = line[3:].strip(), []
+        elif heading is not None:
+            body.append(line)
+    if heading:
+        entries.append((heading, "\n".join(body).strip()))
+    return entries
+
+
 def _exists(argv):
     if not argv:
         return False
@@ -160,6 +216,8 @@ class TipsWindow(Adw.ApplicationWindow):
         self.stack = Adw.ViewStack()
         for key, title, icon, groups in PAGES:
             self.stack.add_titled_with_icon(self._build(groups), key, title, icon)
+        self.stack.add_titled_with_icon(self._build_whats_new(), "whatsnew",
+                                        "What's new", "software-update-available-symbolic")
 
         header = Adw.HeaderBar()
         header.set_title_widget(Adw.ViewSwitcher(stack=self.stack,
@@ -199,6 +257,55 @@ class TipsWindow(Adw.ApplicationWindow):
         box.append(page)
         return box
 
+    def _build_whats_new(self):
+        """Every past update note, newest first, each one collapsed to its title.
+
+        ExpanderRow rather than a wall of text: after a few months this is dozens
+        of entries, and the question being asked is almost always "when did X
+        change", which is answered by scanning titles. Opening one is the
+        follow-up, not the first move.
+        """
+        page = Adw.PreferencesPage()
+        entries = read_whats_new()
+        if not entries:
+            group = Adw.PreferencesGroup(title="What's new")
+            row = Adw.ActionRow(
+                title="No update history on this system yet",
+                subtitle="It arrives with the first update, and is kept at "
+                         + WHATS_NEW + ".",
+            )
+            row.set_subtitle_lines(0)
+            group.add(row)
+            page.add(group)
+        else:
+            group = Adw.PreferencesGroup(
+                title="What's new",
+                description="Every change to Refract, newest first. The same notes "
+                            "shown when an update installs.",
+            )
+            for heading, body in entries:
+                exp = Adw.ExpanderRow(title=GLib.markup_escape_text(heading))
+                exp.set_title_lines(0)
+                label = Gtk.Label(
+                    label=_markup(body),
+                    use_markup=True,
+                    wrap=True,
+                    xalign=0.0,
+                    selectable=True,
+                    margin_top=8, margin_bottom=12, margin_start=12, margin_end=12,
+                )
+                # A note is prose, not a form field: the row's own layout would
+                # centre and ellipsise it.
+                holder = Adw.ActionRow(activatable=False)
+                holder.set_child(label)
+                exp.add_row(holder)
+                group.add(exp)
+            page.add(group)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        page.set_vexpand(True)
+        box.append(page)
+        return box
+
     def _launch(self, _btn, argv):
         try:
             Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE)
@@ -215,6 +322,8 @@ class TipsApp(Adw.Application):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
         self.add_main_option("first-run", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
                              "Only open if these tips have never been shown", None)
+        self.add_main_option("whats-new", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
+                             "Open on the update history", None)
 
     def do_command_line(self, cmdline):
         opts = cmdline.get_options_dict()
@@ -224,6 +333,10 @@ class TipsApp(Adw.Application):
         if opts.contains("first-run") and os.path.exists(STAMP):
             return 0
         self.activate()
+        if opts.contains("whats-new"):
+            win = self.props.active_window
+            if win:
+                win.stack.set_visible_child_name("whatsnew")
         return 0
 
     def do_activate(self):
