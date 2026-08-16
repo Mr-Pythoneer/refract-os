@@ -23,11 +23,19 @@ set -uo pipefail
 
 REPO_SLUG="${REFRACT_REPO:-Mr-Pythoneer/refract-os}"
 REMOTE_REF="${REFRACT_CHANNEL:-main}"
-BUILD_ID_FILE="/etc/refract/build-id"
+# Overridable (mirrors REFRACT_REPO/REFRACT_CHANNEL above, and distro-modectl's
+# GOV_AVAIL_FILE/ENABLED_MODES_FILE) so a test can point `check` at a fixture
+# build-id and exercise both the up-to-date and update-available branches
+# without needing a real installed system.
+BUILD_ID_FILE="${REFRACT_BUILD_ID_FILE:-/etc/refract/build-id}"
 STATE_DIR="/var/lib/refract"
 INSTALL_ROOT="/opt/distro"
 BIN_DIR="/usr/local/bin"
 EXT_DIR="/usr/share/gnome-shell/extensions"
+# Same paths iso/build.sh installs to, so `apply` converges an installed machine
+# on what a fresh install of the same commit would have.
+DESKTOP_DIR="/usr/share/applications"
+USER_UNIT_DIR="/usr/lib/systemd/user"
 
 C_OK=$'\033[32m'; C_WARN=$'\033[33m'; C_ERR=$'\033[31m'; C_DIM=$'\033[36m'; C_OFF=$'\033[0m'
 
@@ -66,6 +74,45 @@ remote_commit() {
 
 short() { printf '%.12s' "$1"; }
 
+# THE MARKER FILE — how a non-terminal user ever learns an update exists.
+#
+# Every check path (this CLI, the Refract Updates window, the daily user timer)
+# ends up calling `check`, so writing the answer here means one place keeps it
+# current. The GNOME top-bar extension watches this file and shows an "Update
+# available" item when it appears — that is the whole discoverability story, and
+# it costs the shell no network calls and no polling.
+#
+# Per-user, never root: it lives in the user's XDG state dir, and `check` needs
+# no privilege. A root check (`sudo distro-update check`) writes root's copy,
+# which nothing reads and nothing is harmed by.
+marker_for_home() { printf '%s\n' "$1/.local/state/refract/update-available"; }
+update_marker() {
+    if [ -n "${XDG_STATE_HOME:-}" ]; then
+        printf '%s\n' "$XDG_STATE_HOME/refract/update-available"
+    else
+        marker_for_home "${HOME:-/root}"
+    fi
+}
+mark_update() {  # mark_update <commit> | mark_update ""  (empty clears it)
+    local m; m="$(update_marker)"
+    if [ -z "$1" ]; then rm -f "$m" 2>/dev/null || true; return 0; fi
+    mkdir -p "$(dirname "$m")" 2>/dev/null || return 0
+    printf '%s\n' "$1" > "$m" 2>/dev/null || true
+}
+# After a successful `apply` (which runs as root) the marker belongs to whoever
+# asked for the update, not to root. Resolve them the same two ways
+# distro-modectl does — sudo sets SUDO_USER, the GUI's pkexec sets PKEXEC_UID.
+clear_marker_for_invoker() {
+    local u="" home=""
+    [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ] && u="$SUDO_USER"
+    [ -z "$u" ] && [ -n "${PKEXEC_UID:-}" ] && [ "$PKEXEC_UID" != 0 ] && u="$(id -un "$PKEXEC_UID" 2>/dev/null || true)"
+    if [ -n "$u" ]; then
+        home="$(getent passwd "$u" 2>/dev/null | cut -d: -f6)" || home=""
+        [ -n "$home" ] && rm -f "$(marker_for_home "$home")" 2>/dev/null || true
+    fi
+    mark_update ""
+}
+
 cmd_status() {
     local ic; ic="$(installed_commit)"
     echo "Refract build:  $(short "$ic")"
@@ -86,18 +133,25 @@ cmd_check() {
     ic="$(installed_commit)"
     rc="$(remote_commit)"
     if [ -z "$rc" ]; then
+        # DELIBERATELY leaves the marker alone. "Could not check" is not
+        # "up to date", and clearing the top-bar notice on a single failed
+        # lookup would make a real pending update disappear because the wifi
+        # dropped for thirty seconds.
         echo "${C_WARN}Could not reach GitHub to check for updates.${C_OFF}" >&2
         return 1
     fi
     if [ "$ic" = "unknown" ]; then
         echo "${C_WARN}This build recorded no commit, so it cannot be compared.${C_OFF}" >&2
         echo "Latest available: $(short "$rc")"
+        mark_update "$rc"
         return 10
     fi
     if [ "$ic" = "$rc" ]; then
+        mark_update ""
         echo "${C_OK}Refract is up to date ($(short "$ic")).${C_OFF}"
         return 0
     fi
+    mark_update "$rc"
     echo "Update available: $(short "$ic") -> $(short "$rc")"
     return 10
 }
@@ -157,6 +211,45 @@ cmd_apply() {
         rsync -a "$work/x/iso/gnome-extensions/" "$EXT_DIR/" || true
     fi
 
+    # LAUNCHERS AND THE UPDATE TIMER.
+    #
+    # Until this existed, `apply` refreshed /opt/distro and the distro-* symlinks
+    # and nothing else — so the updater could fix any COMMAND it shipped, but
+    # never the app-grid launcher, the desktop notification or the timer that are
+    # the only ways somebody who doesn't use a terminal ever reaches it. An
+    # improvement to how updates are DELIVERED was therefore reachable only by
+    # flashing a new ISO and reinstalling, which is precisely the thing this
+    # whole module exists to make unnecessary. That is a bootstrapping hole, not
+    # a missing feature: the delivery mechanism could not deliver itself.
+    #
+    # Same destinations iso/build.sh uses, so an updated machine and a freshly
+    # installed one end up byte-identical.
+    note "Refreshing launchers and the update timer..."
+    mkdir -p "$DESKTOP_DIR"
+    local d
+    for d in "$work"/x/modes/*/*.desktop; do
+        [ -f "$d" ] || continue
+        install -m 0644 "$d" "$DESKTOP_DIR/$(basename "$d")" || true
+    done
+    # Only touch systemd's user units on a system that actually has them; a
+    # server/cloud strain with no graphical session has no use for either.
+    if [ -d "$USER_UNIT_DIR" ]; then
+        local u
+        for u in "$work"/x/modes/update/*.service "$work"/x/modes/update/*.timer; do
+            [ -f "$u" ] || continue
+            install -m 0644 "$u" "$USER_UNIT_DIR/$(basename "$u")" || true
+        done
+        if [ -f "$USER_UNIT_DIR/refract-update-check.timer" ]; then
+            mkdir -p "$USER_UNIT_DIR/timers.target.wants"
+            ln -sfn ../refract-update-check.timer \
+                "$USER_UNIT_DIR/timers.target.wants/refract-update-check.timer" || true
+        fi
+    fi
+    # Without this the app grid keeps serving the cached copy and a changed
+    # name, icon or set of search keywords simply never appears.
+    command -v update-desktop-database >/dev/null 2>&1 \
+        && update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
+
     mkdir -p "$STATE_DIR" "$(dirname "$BUILD_ID_FILE")"
     # Record the new commit so `check` stops reporting an update, and stamp when.
     { echo "REFRACT_COMMIT=${rc}"
@@ -166,6 +259,9 @@ cmd_apply() {
           echo "REFRACT_BUILT=${REFRACT_BUILT:-unknown}" )
     } > "$BUILD_ID_FILE.new" && mv "$BUILD_ID_FILE.new" "$BUILD_ID_FILE"
     date -u +%Y-%m-%dT%H:%M:%SZ > "$STATE_DIR/last-update"
+    # The top-bar notice and the "update available" state are stale by
+    # definition now. Clear them for whoever asked, not for root.
+    clear_marker_for_invoker
 
     echo "${C_OK}Refract updated to $(short "$rc").${C_OFF}"
     echo "Log out and back in for a new top-bar extension or layout to take effect."

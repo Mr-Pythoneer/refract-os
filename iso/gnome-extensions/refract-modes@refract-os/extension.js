@@ -33,6 +33,23 @@ const CURRENT_MODE_FILE = '/run/distro-modectl/current-mode';
 const ENABLED_MODES_FILE = '/etc/refract/enabled-modes';
 const MODECTL = '/usr/local/bin/distro-modectl';
 
+// UPDATES, IN THE TOP BAR.
+//
+// The updater already had a GUI (Refract Updates) and a daily notification, and
+// neither was reaching anyone: the launcher sits in the app grid under a name
+// you have to already know, and the notification is gone the moment it is
+// dismissed. So the honest answer to "how do I update" stayed "open a terminal",
+// which is not an answer for most people.
+//
+// This menu is already in the top bar next to Wi-Fi and Bluetooth, and it is
+// already the place you go to change what the machine is doing. An update notice
+// belongs here. It costs the shell NO network calls and NO polling: distro-update
+// writes this marker on every check it performs — CLI, GUI and the daily user
+// timer alike — and the same file monitor that already watches the mode files
+// watches this one.
+const UPDATE_MARKER = GLib.build_filenamev([GLib.get_user_state_dir(), 'refract', 'update-available']);
+const UPDATES_APP = '/usr/local/bin/refract-updates';
+
 // 'normal' is the always-on base and is never written to enabled-modes — the
 // registry loader force-appends it — so it is added here rather than read.
 const BASE_MODE = 'normal';
@@ -69,6 +86,16 @@ function currentMode() {
     return m || BASE_MODE;
 }
 
+// Present => a newer build exists. The file's CONTENT is the commit; only its
+// existence matters here, so a partially-written file can never mislead.
+function updateAvailable() {
+    try {
+        return GLib.file_test(UPDATE_MARKER, GLib.FileTest.EXISTS);
+    } catch (_e) {
+        return false;
+    }
+}
+
 function enabledModes() {
     const modes = readFile(ENABLED_MODES_FILE)
         .split('\n')
@@ -89,13 +116,26 @@ class RefractIndicator extends PanelMenu.Button {
             y_align: Clutter.ActorAlign.CENTER,
             style_class: 'refract-mode-label',
         });
+        // Shown ONLY when an update is pending. A permanent badge is wallpaper
+        // — people stop seeing it — so this appears, gets clicked, and goes.
+        this._updateDot = new St.Icon({
+            style_class: 'system-status-icon',
+            icon_name: 'software-update-available-symbolic',
+            visible: false,
+        });
         this._box.add_child(this._icon);
         this._box.add_child(this._label);
+        this._box.add_child(this._updateDot);
         this.add_child(this._box);
 
         this._monitors = [];
         this._watch(CURRENT_MODE_FILE);
         this._watch(ENABLED_MODES_FILE);
+        // The marker's own directory may not exist yet on a machine that has
+        // never checked. Watch the PARENT too, so the badge appears the first
+        // time a check writes it instead of waiting for a logout.
+        this._watch(UPDATE_MARKER);
+        this._watch(GLib.path_get_dirname(UPDATE_MARKER));
 
         this.menu.connect('open-state-changed', (_m, open) => {
             if (open) this._rebuild();
@@ -129,6 +169,21 @@ class RefractIndicator extends PanelMenu.Button {
 
         this.menu.removeAll();
 
+        // FIRST ITEM, above the modes, because it is the thing with a deadline.
+        // Only rendered when there is genuinely something to install — an
+        // "Updates" entry that is usually a no-op teaches people to skip it.
+        const pending = updateAvailable() && GLib.file_test(UPDATES_APP, GLib.FileTest.IS_EXECUTABLE);
+        this._updateDot.visible = pending;
+        if (pending) {
+            const upd = new PopupMenu.PopupImageMenuItem(
+                'Update available — install…',
+                'software-update-available-symbolic'
+            );
+            upd.connect('activate', () => this._openUpdates());
+            this.menu.addMenuItem(upd);
+            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        }
+
         const header = new PopupMenu.PopupMenuItem(`Mode: ${LABELS[active] ?? active}`, {
             reactive: false,
             style_class: 'popup-inactive-menu-item',
@@ -159,6 +214,18 @@ class RefractIndicator extends PanelMenu.Button {
                 { reactive: false, style_class: 'popup-inactive-menu-item' }
             );
             this.menu.addMenuItem(hint);
+        }
+    }
+
+    // Opens the window rather than installing straight from the menu. `apply`
+    // downloads a tarball and rewrites /opt/distro; doing that behind a menu
+    // click with no progress and nowhere to show an error is how an update
+    // that failed looks identical to one that worked.
+    _openUpdates() {
+        try {
+            Gio.Subprocess.new([UPDATES_APP], Gio.SubprocessFlags.NONE);
+        } catch (e) {
+            Main.notifyError('Refract: could not open Refract Updates', e.message ?? String(e));
         }
     }
 

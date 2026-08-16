@@ -1,11 +1,19 @@
 [Desktop Entry]
 Type=Application
-Name=Refract Updates
-GenericName=System Updates
-Comment=Update Refract's modes, layouts and system tools
+# Named "Software Update" first and foremost, because that is what somebody
+# types when they want one. "Refract Updates" was accurate and undiscoverable:
+# it requires already knowing the product name to search for it, and the person
+# who most needs this window is exactly the person who doesn't.
+Name=Software Update
+GenericName=Update Refract OS
+Comment=Install updates to Refract OS — modes, layouts, the top-bar switcher and the distro-* tools
 Exec=/usr/local/bin/refract-updates
 Icon=software-update-available
 Terminal=false
-Categories=System;Settings;
-Keywords=update;upgrade;refract;system;
+Categories=System;Settings;PackageManager;
+# Every word someone might plausibly type into Activities to find this. The old
+# list was update;upgrade;refract;system; — which misses "software update", the
+# single most likely search, and every phrasing a Windows or macOS user brings
+# with them.
+Keywords=update;updates;upgrade;software update;system update;refract;patch;version;install updates;check for updates;
 StartupNotify=true

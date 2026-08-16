@@ -25,12 +25,26 @@ newest="$(printf '%s' "$out" | sed -n 's/.*-> *\([0-9a-f]\{6,\}\).*/\1/p' | tail
 mkdir -p "$(dirname "$STAMP")"
 printf '%s\n' "$newest" > "$STAMP"
 
-notify-send --app-name="Refract" --icon=software-update-available \
-    --action="default=Open Refract Updates" \
-    "Refract update available" \
-    "A newer build of Refract is ready to install. Open Refract Updates to install it." \
-    >/dev/null 2>&1 &
-# notify-send --action blocks until the notification is dismissed or actioned;
-# backgrounding keeps the timer unit from sitting in "running" for hours.
-sleep 1
+# CLICKING IT NOW ACTUALLY OPENS THE APP. It never did before, twice over:
+# nothing read the action back, and `notify-send --action` BLOCKS until the
+# notification is clicked or dismissed — so backgrounding it and exiting let
+# systemd tear the whole cgroup down a second later, killing the very process
+# that was waiting. A notification whose only instruction is "go find an app in
+# the grid" is not much better than no notification.
+#
+# The subshell below outlives this script; refract-update-check.service sets
+# KillMode=process so systemd leaves it alone. Worst case, if the wait is cut
+# short anyway, the notification has already been delivered over D-Bus and the
+# behaviour is exactly what it was before — visible, just not clickable.
+(
+    act="$(notify-send --app-name="Refract" --icon=software-update-available \
+        --hint=string:desktop-entry:refract-updates \
+        --action="open=Install now" \
+        "Refract update available" \
+        "A newer build of Refract is ready. Click to open Refract Updates." 2>/dev/null)"
+    case "$act" in
+        open|default) setsid /usr/local/bin/refract-updates >/dev/null 2>&1 & ;;
+    esac
+) >/dev/null 2>&1 &
+
 exit 0
