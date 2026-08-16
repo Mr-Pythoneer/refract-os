@@ -173,6 +173,19 @@ jobs:
           chk "refract-monitor compiles"                    'cp /mnt/sq/opt/distro/modes/monitor/refract-monitor /tmp/rm.py && python3 -m py_compile /tmp/rm.py'
           chk "refract-monitor sampler compiles"            'python3 -m py_compile /mnt/sq/opt/distro/modes/monitor/refract_monitor/sampler.py 2>/dev/null || (cp /mnt/sq/opt/distro/modes/monitor/refract_monitor/sampler.py /tmp/rs.py && python3 -m py_compile /tmp/rs.py)'
           chk "Refract Monitor .desktop shipped"            '[ -f /mnt/sq/usr/share/applications/refract-monitor.desktop ]'
+          # THE "REMOVE THE INSTALLATION MEDIUM" PROMPT. finished.conf now restarts
+          # the machine when the user presses Done, and what stops them booting
+          # straight back into the installer is the live medium's own shutdown
+          # hook asking for the stick to be pulled. That hook belongs to casper —
+          # which this project purges from the TARGET — so it must still be
+          # present in the LIVE filesystem. Listed rather than hard-asserted
+          # because the path has moved between Ubuntu releases; the listing is
+          # what tells us where it lives now.
+          echo "--- live-session shutdown hooks (casper eject prompt) ---"
+          sudo ls -1 /mnt/sq/usr/lib/systemd/system-shutdown/ /mnt/sq/lib/systemd/system-shutdown/ 2>/dev/null || echo "(no system-shutdown dir)"
+          chk "casper present in the LIVE image (eject prompt)" 'sudo sh -c "[ -d /mnt/sq/usr/share/initramfs-tools/scripts/casper-bottom ] || [ -f /mnt/sq/usr/bin/casper-set-selections ] || ls /mnt/sq/usr/lib/systemd/system-shutdown/casper* >/dev/null 2>&1"'
+          chk "finished.conf ships (restart is pre-ticked)" '[ -f /mnt/sq/etc/calamares/modules/finished.conf ]'
+          chk "restart box is pre-ticked, not forced"       'grep -q "restartNowMode: user-checked" /mnt/sq/etc/calamares/modules/finished.conf'
           chk "build-id records a commit"                   'grep -qE "^REFRACT_COMMIT=[0-9a-f]{7,}" /mnt/sq/etc/refract/build-id'
           chk "refract-modes uses ESM, not legacy imports.*" '! grep -qE "^[^/]*[^a-zA-Z_.]imports\." "/mnt/sq/usr/share/gnome-shell/extensions/refract-modes@refract-os/extension.js"'
           # The Modes page is netinstall (the only stock module with real
