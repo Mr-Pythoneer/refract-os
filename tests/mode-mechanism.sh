@@ -61,6 +61,24 @@ WALL_DIR=/usr/share/backgrounds/refract
 CFG_DIR=/tmp/.config
 STATE_FILE=/run/distro-modectl/current-mode
 
+# --- the dock, as a real machine has one --------------------------------------
+# DOCK_FILE holds favorite-apps between switches (the gsettings stub reads and
+# writes it), so the five switches below act on ONE evolving dock instead of
+# five independent blank ones. DOCK_DEFAULT is what the image ships and what
+# `dconf reset` restores. DOCK_USER adds a pin of the user's own — code.desktop
+# — because the bug being guarded here destroyed exactly that: pins the user
+# added themselves, which no mode profile knows about and nothing can recreate.
+DOCK_FILE=/tmp/dock-favorites
+DOCK_DEFAULT="google-chrome.desktop org.gnome.Nautilus.desktop org.gnome.Terminal.desktop org.gnome.Settings.desktop org.gnome.Software.desktop"
+DOCK_USER="$DOCK_DEFAULT code.desktop"
+# The .desktop files that "exist" on this machine. apply_pinned_apps refuses to
+# pin a launcher it cannot find, so this fixture decides which of each profile's
+# PINNED_APPS are pinnable. Deliberately PARTIAL: steam and lutris are here but
+# bottles is not, and Blender is here but FreeCAD and Kdenlive are not — which is
+# the realistic case, since none of those six ship in any Refract image and only
+# arrive when someone runs a mode's setup scripts.
+APPS_DIR=/tmp/fixture-applications
+
 FAILS=0
 ok()   { echo "ok   $1: $2"; }
 bad()  { echo "FAIL $1: $2"; FAILS=$((FAILS+1)); }
@@ -89,9 +107,9 @@ make_stubs() {
     rm -rf "$STUB_DIR"; mkdir -p "$STUB_DIR"
     # Generic recorder: append "toolname arg1 arg2 ..." to its own log, exit 0.
     local rec
-    for rec in gsettings cpupower powerprofilesctl \
+    for rec in cpupower powerprofilesctl \
                distro-ai-model distro-ai-detect-tier \
-               gtk-update-icon-cache dconf nvidia-settings gnome-extensions; do
+               gtk-update-icon-cache nvidia-settings gnome-extensions; do
         {
             printf '#!/usr/bin/env bash\n'
             printf 'echo "%s $*" >> "%s/%s.log"\n' "$rec" "$LOG_DIR" "$rec"
@@ -99,6 +117,48 @@ make_stubs() {
         } > "$STUB_DIR/$rec"
         chmod +x "$STUB_DIR/$rec"
     done
+
+    # gsettings needs STATE, not just recording. apply_pinned_apps no longer
+    # blind-writes the dock: it READS favorite-apps, subtracts the previous
+    # mode's overlay and writes base+wanted back. A stub that records and prints
+    # nothing makes every read return an empty dock, so the very thing this is
+    # meant to prove — that a user's own pins SURVIVE a mode switch — could not
+    # be observed. This stub keeps the list in a file across all five switches,
+    # exactly like dconf does on a real machine. Everything that is not
+    # favorite-apps still just records and exits 0, so the wallpaper/theme/accent
+    # assertions are untouched.
+    # Written with an UNQUOTED heredoc: the paths below interpolate now, and
+    # everything the stub must evaluate at RUN time is escaped as \$.
+    cat > "$STUB_DIR/gsettings" <<STUB
+#!/usr/bin/env bash
+echo "gsettings \$*" >> "$LOG_DIR/gsettings.log"
+if [ "\${2:-}" = "org.gnome.shell" ] && [ "\${3:-}" = "favorite-apps" ]; then
+    if [ "\$1" = "get" ]; then
+        read -r -a a < "$DOCK_FILE" 2>/dev/null || a=()
+        if [ \${#a[@]} -eq 0 ]; then echo "@as []"
+        else j=\$(printf "'%s', " "\${a[@]}"); echo "[\${j%, }]"; fi
+        exit 0
+    fi
+    if [ "\$1" = "set" ]; then
+        printf '%s\n' "\$4" | tr -d "[]'\\"" | sed 's/@as//' | tr ',' ' ' | xargs > "$DOCK_FILE"
+        exit 0
+    fi
+fi
+exit 0
+STUB
+    chmod +x "$STUB_DIR/gsettings"
+
+    # dconf: record, and make `dconf reset .../favorite-apps` restore the image
+    # default, which is what the real dconf does when the user value is cleared.
+    cat > "$STUB_DIR/dconf" <<STUB
+#!/usr/bin/env bash
+echo "dconf \$*" >> "$LOG_DIR/dconf.log"
+if [ "\${1:-}" = "reset" ] && [ "\${2:-}" = "/org/gnome/shell/favorite-apps" ]; then
+    echo "$DOCK_DEFAULT" > "$DOCK_FILE"
+fi
+exit 0
+STUB
+    chmod +x "$STUB_DIR/dconf"
 
     # systemctl needs special handling: apply_services only issues `enable --now
     # <svc>` when `systemctl list-unit-files "<svc>*"` reports the unit installed
@@ -186,6 +246,7 @@ run_switch() {  # run_switch <mode>
     PATH="$STUB_DIR:$PATH" \
     HOME=/tmp \
     XDG_CONFIG_HOME="$CFG_DIR" \
+    REFRACT_DESKTOP_DIRS="$APPS_DIR" \
     DBUS_SESSION_BUS_ADDRESS="unix:path=/tmp/fake-bus" \
     DISPLAY='' \
         "$MODECTL" switch "$mode" --yes </dev/null 2>&1 | sed 's/^/    | /' || {
@@ -273,15 +334,41 @@ assert_common() {  # assert_common <mode> <gov> <power> <accent-hex> <gpu:max|au
     log_has "$mode" sudo "switch $mode --yes" "sudo re-exec forwarded 'switch $mode --yes'"
 }
 
-assert_pinned() {  # assert_pinned <mode> <app1> <app2> <app3>
-    local mode="$1"; shift
-    local want
-    want="[$(printf "'%s', " "$@")"; want="${want%, }]"
-    log_has "$mode" gsettings "favorite-apps $want" "dock favorite-apps pinned: $*"
+# THE DOCK CONTRACT, rewritten. The old assertions here codified the bug:
+# assert_pinned checked that the dock had been REPLACED by the mode's three apps,
+# and assert_no_pin checked that a mode with no pins left the dock alone. Together
+# they described a switcher that destroys the user's dock on entering Gaming and
+# never gives it back — which is what a real install did, and what got reported:
+# "when changing modes, it unpins all the pinned apps".
+#
+# What must hold instead: after ANY switch the dock is the user's own list plus
+# this mode's installed pins, in that order, and nothing else.
+assert_dock() {  # assert_dock <mode> <expected full dock, space-separated>
+    local mode="$1" want="$2" got
+    got="$(cat "$DOCK_FILE" 2>/dev/null || echo MISSING)"
+    if [ "$got" = "$want" ]; then ok "$mode" "dock == [$want]"
+    else bad "$mode" "dock == [$want] (got [$got])"; fi
 }
 
-assert_no_pin() {  # assert_no_pin <mode>
-    log_lacks "$1" gsettings "favorite-apps" "dock favorite-apps NOT modified (empty PINNED_APPS)"
+# The user's own pins are the point. Asserted separately from the whole-dock
+# comparison so a failure says WHICH half broke.
+assert_user_pins_survive() {  # assert_user_pins_survive <mode>
+    local mode="$1" missing="" a
+    for a in $DOCK_USER; do
+        grep -qwF -- "$a" "$DOCK_FILE" 2>/dev/null || missing="$missing $a"
+    done
+    if [ -z "$missing" ]; then ok "$mode" "every pin the user had is still in the dock"
+    else bad "$mode" "user pins survive the switch (lost:$missing)"; fi
+}
+
+# A launcher that isn't installed must never be pinned: gnome-shell drops it
+# silently, so pinning one costs a dock slot and shows nothing.
+assert_not_pinned() {  # assert_not_pinned <mode> <app...>
+    local mode="$1"; shift
+    local a bad_=""
+    for a in "$@"; do grep -qwF -- "$a" "$DOCK_FILE" 2>/dev/null && bad_="$bad_ $a"; done
+    if [ -z "$bad_" ]; then ok "$mode" "uninstalled launchers not pinned ($*)"
+    else bad "$mode" "uninstalled launchers must not be pinned (found:$bad_)"; fi
 }
 
 assert_no_services() {  # assert_no_services <mode>
@@ -290,10 +377,23 @@ assert_no_services() {  # assert_no_services <mode>
 
 # ============================ RUN ALL 5 MODES ================================
 
+# The dock and the installed-applications fixture are set up ONCE, before the
+# first switch, and deliberately NOT reset between modes: the property under
+# test is what five consecutive switches do to one dock over time, which is
+# exactly what a person does to their machine and exactly what nothing checked.
+rm -rf "$APPS_DIR"; mkdir -p "$APPS_DIR"
+for a in $DOCK_USER steam.desktop net.lutris.Lutris.desktop org.blender.Blender.desktop; do
+    : > "$APPS_DIR/$a"
+done
+echo "$DOCK_USER" > "$DOCK_FILE"
+rm -f "$CFG_DIR/refract/dock-managed"
+
 # ---- gaming: performance/performance, GPU max, red, dock pins, unload AI ----
 run_switch gaming
 assert_common gaming performance performance "#ff5a52" max
-assert_pinned gaming steam.desktop net.lutris.Lutris.desktop com.usebottles.bottles.desktop
+assert_dock gaming "$DOCK_USER steam.desktop net.lutris.Lutris.desktop"
+assert_user_pins_survive gaming
+assert_not_pinned gaming com.usebottles.bottles.desktop
 assert_no_services gaming
 log_has  gaming distro-ai-model "unload" "distro-ai-model unload (STOP_AI_MODEL=true)"
 log_lacks gaming distro-ai-model "use" "distro-ai-model 'use' NOT called (no autostart use-case)"
@@ -302,7 +402,12 @@ tool_silent gaming distro-ai-detect-tier "tier auto-detect NOT run (not AI mode)
 # ---- ai: schedutil/balanced, GPU auto, blue, NO pins, load 'coding' --------
 run_switch ai
 assert_common ai schedutil balanced "#4a9df0" auto
-assert_no_pin ai
+# THE REGRESSION. AI has an empty PINNED_APPS, and the old code returned early
+# on empty — so Gaming's three replacements stayed forever and the dock never
+# came back. Leaving a mode must REMOVE that mode's overlay and nothing else.
+assert_dock ai "$DOCK_USER"
+assert_user_pins_survive ai
+assert_not_pinned ai steam.desktop net.lutris.Lutris.desktop
 assert_no_services ai
 log_has  ai distro-ai-model "use coding" "distro-ai-model use coding (AI_AUTOSTART_USECASE)"
 log_lacks ai distro-ai-model "unload" "distro-ai-model unload NOT called (STOP_AI_MODEL=false)"
@@ -311,7 +416,8 @@ log_has  ai distro-ai-detect-tier "--yes" "distro-ai-detect-tier --yes on first 
 # ---- server: powersave/power-saver, GPU auto, viridian, services, unload ---
 run_switch server
 assert_common server powersave power-saver "#7bc043" auto
-assert_no_pin server
+assert_dock server "$DOCK_USER"
+assert_user_pins_survive server
 log_has server systemctl "enable --now ssh" "systemctl enable --now ssh"
 log_has server systemctl "enable --now docker" "systemctl enable --now docker"
 log_has server systemctl "enable --now netdata" "systemctl enable --now netdata"
@@ -325,7 +431,9 @@ log_lacks server distro-ai-model "use" "distro-ai-model 'use' NOT called (no aut
 # ---- creative: performance/performance, GPU max, magenta, dock pins, unload -
 run_switch creative
 assert_common creative performance performance "#e857a0" max
-assert_pinned creative org.freecad.FreeCAD.desktop org.blender.Blender.desktop org.kde.kdenlive.desktop
+assert_dock creative "$DOCK_USER org.blender.Blender.desktop"
+assert_user_pins_survive creative
+assert_not_pinned creative org.freecad.FreeCAD.desktop org.kde.kdenlive.desktop
 assert_no_services creative
 log_has  creative distro-ai-model "unload" "distro-ai-model unload (STOP_AI_MODEL=true)"
 log_lacks creative distro-ai-model "use" "distro-ai-model 'use' NOT called (no autostart use-case)"
@@ -333,7 +441,9 @@ log_lacks creative distro-ai-model "use" "distro-ai-model 'use' NOT called (no a
 # ---- normal: schedutil/balanced, GPU auto, NO accent, NO pins, unload ------
 run_switch normal
 assert_common normal schedutil balanced "#ffa23d" auto
-assert_no_pin normal
+assert_dock normal "$DOCK_USER"
+assert_user_pins_survive normal
+assert_not_pinned normal org.blender.Blender.desktop
 assert_no_services normal
 log_has  normal distro-ai-model "unload" "distro-ai-model unload (STOP_AI_MODEL=true)"
 log_lacks normal distro-ai-model "use" "distro-ai-model 'use' NOT called (no autostart use-case)"

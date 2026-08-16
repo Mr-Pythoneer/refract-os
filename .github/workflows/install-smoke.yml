@@ -147,6 +147,15 @@ jobs:
           # upstream would silently leave the dock pinning a missing app.
           chk "gnome-software present (dock pins it post-install)" '[ -x /mnt/sq/usr/bin/gnome-software ]'
           chk "flatpak present (app store backend)"                '[ -x /mnt/sq/usr/bin/flatpak ]'
+          # …and a way to find out WHY it isn't opening, which is a separate
+          # problem from it being installed. The dock pin is the only route most
+          # people have to the store, and a mode switch used to delete it; on top
+          # of that, first launch silently downloads two app catalogues with no
+          # progress shown. distro-appstore reports and repairs both, so it must
+          # be on PATH on EVERY strain — including one whose dock is empty, which
+          # is precisely when a dock icon would be no help.
+          chk "distro-appstore on PATH"                           '[ -e /mnt/sq/usr/local/bin/distro-appstore ]'
+          chk "distro-appstore is executable"                     '[ -x /mnt/sq/opt/distro/modes/update/distro-appstore ]'
           # The top-bar mode switcher. An extension that is listed in
           # enabled-extensions but absent from the image is a silent no-op —
           # GNOME logs it and moves on, so the panel simply has no switcher and

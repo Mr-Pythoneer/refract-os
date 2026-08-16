@@ -9,7 +9,8 @@ The actual mechanism behind DESIGN.md §4's 5 modes. One base system, one script
 - Per-mode systemd service enable/disable (checks the unit exists first, warns instead of failing if it doesn't)
 - Wiring into AI mode: on entering AI mode it loads the Ollama model for the profile's `AI_AUTOSTART_USECASE` (default `coding`) via `distro-ai-model`; leaving to another mode (`STOP_AI_MODEL=true`) unloads it to free VRAM. This runs as the user (distro-ai-model config is per-user), before the sudo re-exec — see `modes/ai/`.
 - A safety prompt before disabling a display manager (gdm/sddm/lightdm) in Server mode, since that can kill an active desktop session — this is exactly the kind of disruptive action that shouldn't happen silently
-- Best-effort `PINNED_APPS` dock-pinning via GNOME's `gsettings favorite-apps` (runs pre-sudo, needs the user's own session bus)
+- `PINNED_APPS` dock **overlay** via GNOME's `gsettings favorite-apps` (runs pre-sudo, needs the user's own session bus). The mode's apps are ADDED to whatever dock the user already has and taken back out on the next switch — the set added is recorded in `~/.config/refract/dock-managed`. A pin whose `.desktop` isn't installed is skipped rather than pinned, since gnome-shell silently drops those and a pinned ghost is just a missing icon.
+  - This used to be `gsettings set favorite-apps "[<the mode's apps>]"`, which **replaces** the list. Switching to Gaming therefore deleted the user's whole dock — and since none of steam/lutris/bottles ship in any image, the dock came out empty and stayed that way, because the modes with no pins returned early instead of restoring anything. Reported from a real install, 2026-08-16.
 
 ## What's explicitly NOT done yet, and why
 

@@ -11,8 +11,9 @@
 #     or unloads it when leaving to another mode (STOP_AI_MODEL=true)
 #   - asks for explicit confirmation before disabling a display manager
 #     (CONFIRM_DISPLAY_MANAGER_STOP=true) since that can kill an active desktop session
-#   - pinning PINNED_APPS to the GNOME favorite-apps dock (best-effort,
-#     GNOME-specific, desktop-file IDs unverified — see profiles/*.conf)
+#   - overlaying PINNED_APPS onto the GNOME favorite-apps dock: the mode's pins
+#     are ADDED to the user's own dock and removed again on the next switch,
+#     never substituted for it (GNOME-specific; see apply_pinned_apps)
 #
 # What this script deliberately does NOT do (see README.md for why):
 #   - Normal mode's theme/dock-position/icon setup — that's a ONE-TIME job,
@@ -172,6 +173,19 @@ user_config_dir() {
         printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}"
         return 0
     fi
+    local home=""
+    home="$(user_home)" || return 1
+    printf '%s\n' "$home/.config"
+}
+
+# The desktop user's HOME, resolved the same two ways user_config_dir resolves
+# its config dir. Split out because the dock also needs the home itself, not
+# just .config, to find per-user and per-user-Flatpak .desktop files.
+user_home() {
+    if [ "$(id -u)" -ne 0 ]; then
+        printf '%s\n' "$HOME"
+        return 0
+    fi
     # `|| var=""`: target_user/getent exit non-zero when there is no desktop user
     # / no passwd entry, and a bare assignment would trip `set -e`.
     local u="" home=""
@@ -179,7 +193,7 @@ user_config_dir() {
     [ -n "$u" ] || return 1
     home="$(getent passwd "$u" 2>/dev/null | cut -d: -f6)" || home=""
     [ -n "$home" ] || return 1
-    printf '%s\n' "$home/.config"
+    printf '%s\n' "$home"
 }
 
 apply_cpu_governor() {
@@ -337,9 +351,86 @@ apply_ai_model() {
     fi
 }
 
+# Where a .desktop file can legitimately live. The dock can only show a launcher
+# that EXISTS — gnome-shell silently drops a favourite whose .desktop is missing,
+# so pinning an app that isn't installed produces a hole, not an icon.
+# Overridable (mirrors GOV_AVAIL_FILE/ENABLED_MODES_FILE) so the test suite can
+# point this at a fixture instead of the machine's real /usr/share.
+desktop_dirs() {
+    if [ -n "${REFRACT_DESKTOP_DIRS:-}" ]; then
+        printf '%s\n' "${REFRACT_DESKTOP_DIRS}" | tr ':' '\n'
+        return 0
+    fi
+    printf '%s\n' /usr/share/applications \
+                  /usr/local/share/applications \
+                  /var/lib/flatpak/exports/share/applications
+    local home=""
+    home="$(user_home)" || home=""
+    [ -n "$home" ] && printf '%s\n' "$home/.local/share/applications" \
+                                    "$home/.local/share/flatpak/exports/share/applications"
+    return 0
+}
+
+desktop_installed() {  # desktop_installed <foo.desktop>
+    local id="$1" d
+    [ -n "$id" ] || return 1
+    while IFS= read -r d; do
+        [ -n "$d" ] || continue
+        [ -e "$d/$id" ] && return 0
+    done < <(desktop_dirs)
+    return 1
+}
+
+_contains() {  # _contains <needle> [haystack...]
+    local needle="$1" i; shift
+    for i in "$@"; do [ "$i" = "$needle" ] && return 0; done
+    return 1
+}
+
+# The dock as a list of ids, one per line. gsettings prints a GVariant array —
+# ['a.desktop', 'b.desktop'], or `@as []` when the list is empty.
+read_favorites() {
+    local raw=""
+    raw="$(run_as_user gsettings get org.gnome.shell favorite-apps 2>/dev/null)" || return 0
+    printf '%s\n' "$raw" \
+        | sed 's/^[[:space:]]*@as[[:space:]]*//' \
+        | tr -d "[]'\"" \
+        | tr ',' '\n' \
+        | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
+        | grep -v '^$' || true
+}
+
+# THE DOCK IS THE USER'S. A mode only borrows a few slots in it.
+#
+# WHAT THIS USED TO DO, AND WHY IT WAS DESTRUCTIVE. One line:
+#     gsettings set org.gnome.shell favorite-apps "[<this mode's PINNED_APPS>]"
+# `gsettings set` REPLACES the list — there is no append. So switching to Gaming
+# overwrote the entire dock with steam/lutris/bottles and Chrome, Files,
+# Terminal, Settings, the app store and every pin the user had added were gone.
+# Switching back did not restore them: normal/ai/server have an empty
+# PINNED_APPS and the old code RETURNED EARLY on empty, so the loss was
+# permanent and silent. Reported from a real install (2026-08-16): "when
+# changing modes, it unpins all the pinned apps".
+#
+# It was worse than losing pins. NONE of steam, lutris or bottles ships in any
+# image — they are installed on demand by modes/gaming/setup/* — and gnome-shell
+# drops favourites whose .desktop does not exist, so the dock came out
+# COMPLETELY EMPTY. That is also why the app store became unreachable in the
+# same report: GNOME Software's icon was deleted along with everything else, and
+# the dock is where shellprocess_cleanup.conf deliberately puts it as the
+# answer to "how do I install things".
+#
+# WHAT IT DOES NOW — the mode's pins are an OVERLAY, not a replacement:
+#     base   = the current dock MINUS whatever the previous mode added
+#     wanted = this mode's pins that are actually installed, and that aren't
+#              already the user's own
+#     dock   = base + wanted
+# The exact set added is recorded in ~/.config/refract/dock-managed so the next
+# switch can take back precisely those and nothing else. An empty PINNED_APPS is
+# therefore NOT a no-op any more: it is what removes the previous overlay, which
+# is the half that was missing.
 apply_pinned_apps() {
     local -n apps=$1
-    [ ${#apps[@]} -eq 0 ] && return 0
     if ! command -v gsettings >/dev/null 2>&1; then
         echo "NOTE: gsettings not found — skipping favorite-apps pin (GNOME-only feature)." >&2
         return 0
@@ -348,11 +439,80 @@ apply_pinned_apps() {
         echo "NOTE: no desktop user — favorite-apps pin needs a graphical login, not a pure root/SSH shell. Skipping." >&2
         return 0
     fi
-    local joined
-    joined=$(printf "'%s', " "${apps[@]}")
-    joined="[${joined%, }]"
-    echo "Pinning to dock (GNOME favorite-apps, desktop-file IDs unverified): ${apps[*]}"
-    run_as_user gsettings set org.gnome.shell favorite-apps "$joined" || echo "WARNING: gsettings call failed — desktop-file IDs may not match what's actually installed." >&2
+
+    local cfg="" managed_file=""
+    cfg="$(user_config_dir)" || cfg=""
+    [ -n "$cfg" ] && managed_file="$cfg/refract/dock-managed"
+
+    local -a current=() prev=() base=() wanted=() missing=() final=()
+    mapfile -t current < <(read_favorites)
+
+    if [ -n "$managed_file" ] && [ -r "$managed_file" ]; then
+        mapfile -t prev < <(grep -v '^[[:space:]]*$' "$managed_file" 2>/dev/null || true)
+    elif [ ${#current[@]} -gt 0 ]; then
+        # ONE-TIME REPAIR, for docks the old behaviour already destroyed. If we
+        # have never tracked an overlay on this account AND nothing currently
+        # pinned can even be launched, this is not a dock anybody built — it is
+        # the wreckage of an earlier switch. Reset to the image default rather
+        # than leaving a machine with no visible route to its own app store.
+        # Guarded by "no managed file" so it can fire at most once, and by "zero
+        # live entries" so it can never touch a dock that still works.
+        local live=0 f
+        for f in "${current[@]}"; do desktop_installed "$f" && live=$((live+1)); done
+        if [ "$live" -eq 0 ]; then
+            echo "Dock repair: none of the ${#current[@]} pinned launchers exist on this system — restoring the default dock." >&2
+            run_as_user dconf reset /org/gnome/shell/favorite-apps 2>/dev/null || true
+            mapfile -t current < <(read_favorites)
+        fi
+    fi
+
+    local f
+    for f in "${current[@]}"; do
+        _contains "$f" "${prev[@]}" && continue
+        base+=("$f")
+    done
+    for f in "${apps[@]}"; do
+        if ! desktop_installed "$f"; then missing+=("$f"); continue; fi
+        _contains "$f" "${base[@]}"   && continue   # already the user's own — leave it theirs
+        _contains "$f" "${wanted[@]}" && continue
+        wanted+=("$f")
+    done
+    final=("${base[@]}" "${wanted[@]}")
+
+    # Only write when the result actually differs. A no-op `gsettings set` still
+    # fires a dconf change notification, and the dock visibly redraws for it.
+    if [ "$(printf '%s\n' "${current[@]}")" != "$(printf '%s\n' "${final[@]}")" ]; then
+        local joined="@as []"
+        if [ ${#final[@]} -gt 0 ]; then
+            joined=$(printf "'%s', " "${final[@]}")
+            joined="[${joined%, }]"
+        fi
+        run_as_user gsettings set org.gnome.shell favorite-apps "$joined" \
+            || echo "WARNING: gsettings call failed — the dock was left as it was." >&2
+    fi
+
+    if [ ${#wanted[@]} -gt 0 ]; then
+        echo "Dock: added ${wanted[*]} for ${MODE_NAME} mode — your own pins are kept."
+    elif [ ${#prev[@]} -gt 0 ]; then
+        echo "Dock: removed the previous mode's pins; your own dock is unchanged."
+    fi
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "NOTE: ${MODE_NAME} mode pins ${missing[*]}, but they are not installed — not adding a dead icon." >&2
+        echo "NOTE:   install them first (see /opt/distro/modes/*/setup) and the pin appears on the next switch." >&2
+    fi
+
+    # Record exactly what we added, so the next switch removes exactly that.
+    # The EMPTY case must still be written: that is how a mode with no pins
+    # records "I added nothing", which is what makes the next switch's removal
+    # step correct instead of re-deleting a stale list.
+    if [ -n "$managed_file" ]; then
+        run_as_user mkdir -p "$(dirname "$managed_file")" 2>/dev/null || return 0
+        if [ ${#wanted[@]} -gt 0 ]; then
+            printf '%s\n' "${wanted[@]}" | run_as_user tee "$managed_file" >/dev/null 2>&1 || true
+        else
+            : | run_as_user tee "$managed_file" >/dev/null 2>&1 || true
+        fi
+    fi
 }
 
 # Writes the mode's ACCENT into the user's GTK accent overrides, so the UI chrome

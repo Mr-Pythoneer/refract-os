@@ -1,0 +1,263 @@
+#!/usr/bin/env bash
+# distro-appstore — find out why the app store isn't opening, and fix it.
+#
+# WHY THIS EXISTS. "I've been trying to open the software store for 10 minutes"
+# (real report, 2026-08-16) has at least four completely different causes on this
+# image, and none of them produce an error message anywhere the owner can see:
+#
+#   1. THE ICON IS GONE. Until this build, switching to Gaming or Creative mode
+#      REPLACED the whole GNOME dock with that mode's pins — and none of
+#      steam/lutris/bottles/FreeCAD/Blender/Kdenlive ship in any Refract image,
+#      so gnome-shell dropped every one of them and the dock came out EMPTY.
+#      GNOME Software's icon went with it. That bug is fixed in distro-modectl's
+#      apply_pinned_apps, but a machine that was already bitten keeps the wiped
+#      dock until something puts the icon back. `fix` does.
+#
+#   2. FIRST LAUNCH IS SILENTLY SLOW. GNOME Software's first run refreshes two
+#      separate catalogues — PackageKit's apt metadata and Flatpak's Flathub
+#      AppStream — and it does it BEFORE it has anything to draw. On a fresh
+#      install both are cold, so the window is blank or absent for as long as
+#      the download takes. There is no progress bar for that wait, which is
+#      exactly what "it won't open" looks like. `fix` performs both refreshes in
+#      the terminal WITH their output, so the wait is visible and finite, and
+#      the next launch has a warm cache.
+#
+#   3. NO REPOSITORY. hooks/0470-appstore.chroot adds the Flathub remote at
+#      build time, but that step is allowed to fail (a build chroot may have no
+#      network) and it logs rather than aborting the ISO. If it did fail, the
+#      store opens onto an empty shelf, which reads as broken.
+#
+#   4. IT REALLY ISN'T INSTALLED. gnome-software arrives only as a dependency of
+#      gnome-software-plugin-flatpak. `status` checks the binary rather than
+#      trusting that chain.
+#
+# `status` is read-only and needs no privileges. `fix` is the only thing that
+# changes anything, and it says what it is about to do first.
+set -uo pipefail
+
+SOFTWARE_BIN=/usr/bin/gnome-software
+SOFTWARE_DESKTOP=org.gnome.Software.desktop
+FLATHUB_URL=https://dl.flathub.org/repo/flathub.flatpakrepo
+
+C_OK=$'\033[32m'; C_WARN=$'\033[33m'; C_ERR=$'\033[31m'; C_DIM=$'\033[36m'; C_OFF=$'\033[0m'
+yes_()  { echo "  ${C_OK}✓${C_OFF} $*"; }
+no_()   { echo "  ${C_ERR}✗${C_OFF} $*"; }
+warn_() { echo "  ${C_WARN}!${C_OFF} $*"; }
+note()  { echo "${C_DIM}$*${C_OFF}"; }
+
+usage() {
+    cat <<'USAGE'
+distro-appstore — diagnose and repair the GNOME Software app store.
+
+  distro-appstore status   what is and isn't working (read-only, no password)
+  distro-appstore fix      put the icon back, add Flathub, warm the catalogues
+  distro-appstore open     launch the store in the foreground, errors visible
+  distro-appstore -h       this text
+
+`fix` is safe to re-run. Its slow step is downloading the app catalogues, which
+is the same download GNOME Software does invisibly on its first launch — doing
+it here just means you can watch it finish.
+USAGE
+}
+
+# ---------------------------------------------------------------------------
+# The dock. Reading and writing favorite-apps needs the DESKTOP user's session
+# bus, so refuse rather than silently no-op when we are root — a root shell has
+# no session bus, and `gsettings set` there writes to a dconf database no
+# graphical session will ever read.
+# ---------------------------------------------------------------------------
+have_session() { [ "$(id -u)" -ne 0 ] && command -v gsettings >/dev/null 2>&1; }
+
+favorites() {
+    gsettings get org.gnome.shell favorite-apps 2>/dev/null \
+        | sed 's/^[[:space:]]*@as[[:space:]]*//' | tr -d "[]'\"" | tr ',' '\n' \
+        | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' || true
+}
+
+in_dock() { favorites | grep -qxF "$SOFTWARE_DESKTOP"; }
+
+# The Flatpak AppStream cache, per remote. Present => the Flathub catalogue has
+# been downloaded at least once and the store will open onto a populated shelf.
+flathub_cached() {
+    [ -n "$(find /var/lib/flatpak/appstream/flathub -mindepth 2 -maxdepth 2 -name active 2>/dev/null | head -n1)" ]
+}
+
+# APT's catalogue. AppStream 1.0 (Ubuntu 24.04) uses /var/cache/swcatalog;
+# older releases used /var/cache/app-info. Check both rather than asserting
+# either — a wrong guess here would report "no catalogue" on a healthy machine.
+apt_catalogue() {
+    local d
+    for d in /var/cache/swcatalog /var/lib/swcatalog /var/cache/app-info /var/lib/app-info; do
+        [ -d "$d" ] && [ -n "$(find "$d" -type f 2>/dev/null | head -n1)" ] && { printf '%s\n' "$d"; return 0; }
+    done
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+cmd_status() {
+    local problems=0
+
+    echo "App store"
+    if [ -x "$SOFTWARE_BIN" ]; then
+        yes_ "GNOME Software is installed ($SOFTWARE_BIN)"
+    else
+        no_  "GNOME Software is NOT installed — nothing can open."
+        note "     sudo apt install gnome-software gnome-software-plugin-flatpak"
+        problems=$((problems + 1))
+    fi
+    if [ -f "/usr/share/applications/$SOFTWARE_DESKTOP" ]; then
+        yes_ "its launcher exists ($SOFTWARE_DESKTOP)"
+    else
+        no_  "no launcher at /usr/share/applications/$SOFTWARE_DESKTOP"
+        problems=$((problems + 1))
+    fi
+
+    echo
+    echo "Dock"
+    if ! command -v gsettings >/dev/null 2>&1; then
+        warn_ "can't check — gsettings isn't installed, so this isn't a GNOME desktop."
+    elif [ "$(id -u)" -eq 0 ]; then
+        warn_ "can't check as root — the dock belongs to your session. Re-run as your normal user."
+    elif in_dock; then
+        yes_ "the store is pinned to your dock"
+    else
+        local n; n="$(favorites | grep -c . || true)"
+        no_  "the store is NOT pinned to your dock (${n} item(s) pinned)"
+        if [ "${n:-0}" -eq 0 ]; then
+            note "     Your dock is empty. Older builds wiped it on every mode switch;"
+            note "     'distro-appstore fix' puts it back."
+        fi
+        problems=$((problems + 1))
+    fi
+
+    echo
+    echo "Where apps come from"
+    if command -v flatpak >/dev/null 2>&1; then
+        if flatpak remotes 2>/dev/null | grep -q '^flathub'; then
+            yes_ "Flathub is configured"
+        else
+            no_  "Flathub is NOT configured — the store would show almost nothing."
+            problems=$((problems + 1))
+        fi
+        if flathub_cached; then
+            yes_ "the Flathub catalogue is downloaded (the store opens fast)"
+        else
+            warn_ "the Flathub catalogue has never been downloaded."
+            note "     GNOME Software fetches it on first launch with NO progress shown,"
+            note "     which is the single most common reason it looks like it won't open."
+            problems=$((problems + 1))
+        fi
+    else
+        warn_ "flatpak is not installed — Flathub apps are unavailable."
+    fi
+    local catdir=""
+    if catdir="$(apt_catalogue)"; then
+        yes_ "the Ubuntu catalogue is present ($catdir)"
+    else
+        warn_ "no Ubuntu app catalogue found — the store's apt half will be empty."
+        problems=$((problems + 1))
+    fi
+
+    echo
+    if [ "$problems" -eq 0 ]; then
+        echo "${C_OK}Everything the store needs is in place.${C_OFF}"
+        note "If it still won't open, run 'distro-appstore open' to see its errors."
+    else
+        echo "${C_WARN}${problems} thing(s) to fix. Run: distro-appstore fix${C_OFF}"
+    fi
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Two privilege levels in one command, deliberately. The dock is per-user and
+# must NOT be touched as root; the remote and the catalogues are system-wide and
+# need root. So the dock is done first as whoever invoked this, and the system
+# half is escalated with sudo only if we aren't root already.
+# ---------------------------------------------------------------------------
+as_root() {
+    if [ "$(id -u)" -eq 0 ]; then "$@"; return $?; fi
+    if ! command -v sudo >/dev/null 2>&1; then
+        echo "${C_WARN}skipped (needs root, and sudo isn't available): $*${C_OFF}" >&2
+        return 1
+    fi
+    sudo "$@"
+}
+
+cmd_fix() {
+    if [ "$(id -u)" -eq 0 ]; then
+        echo "${C_WARN}Run this as your normal user, not with sudo.${C_OFF}" >&2
+        echo "It asks for a password itself for the parts that need one — but the dock" >&2
+        echo "belongs to your session, and root can't reach it." >&2
+        return 1
+    fi
+
+    echo "1/3  Dock"
+    if [ ! -f "/usr/share/applications/$SOFTWARE_DESKTOP" ]; then
+        no_ "no store launcher installed — skipping the dock (nothing to pin)."
+    elif ! have_session; then
+        no_ "no GNOME session — skipping the dock."
+    elif in_dock; then
+        yes_ "already pinned, left alone."
+    else
+        # APPEND. Never replace: the whole reason this command exists is that
+        # something else replaced this list and destroyed it.
+        local -a fav=()
+        mapfile -t fav < <(favorites)
+        fav+=("$SOFTWARE_DESKTOP")
+        local joined; joined=$(printf "'%s', " "${fav[@]}"); joined="[${joined%, }]"
+        if gsettings set org.gnome.shell favorite-apps "$joined" 2>/dev/null; then
+            yes_ "pinned the store to your dock."
+        else
+            no_ "couldn't write the dock setting."
+        fi
+    fi
+
+    echo
+    echo "2/3  Flathub"
+    if ! command -v flatpak >/dev/null 2>&1; then
+        warn_ "flatpak isn't installed — skipping."
+    elif flatpak remotes 2>/dev/null | grep -q '^flathub'; then
+        yes_ "already configured."
+    elif as_root flatpak remote-add --if-not-exists flathub "$FLATHUB_URL"; then
+        yes_ "added."
+    else
+        no_ "couldn't add it (no network?)."
+    fi
+
+    echo
+    echo "3/3  App catalogues — this is the slow part, and the point of the exercise."
+    note "     This is the same download GNOME Software does invisibly on its first"
+    note "     launch. Here you can watch it. Tens of megabytes; minutes on slow wifi."
+    if command -v flatpak >/dev/null 2>&1; then
+        echo "     Flathub..."
+        as_root flatpak update --appstream || warn_ "Flathub catalogue refresh didn't complete."
+    fi
+    if command -v pkcon >/dev/null 2>&1; then
+        echo "     Ubuntu..."
+        as_root pkcon refresh force || warn_ "Ubuntu catalogue refresh didn't complete."
+    else
+        note "     pkcon not installed — skipping the Ubuntu half."
+    fi
+
+    echo
+    echo "${C_OK}Done.${C_OFF} Open the store with the dock icon, or: distro-appstore open"
+    return 0
+}
+
+# Launch in the FOREGROUND with stderr attached. Clicking the icon discards
+# everything the process prints, so a store that dies on startup dies silently.
+# Run this way, whatever it complains about lands in your terminal.
+cmd_open() {
+    [ -x "$SOFTWARE_BIN" ] || { echo "${C_ERR}GNOME Software is not installed.${C_OFF}" >&2; return 1; }
+    note "Starting GNOME Software in the foreground. First run can take a few minutes"
+    note "while it downloads the app catalogues. Ctrl-C to give up."
+    "$SOFTWARE_BIN" "$@"
+}
+
+case "${1:-status}" in
+    status)             cmd_status ;;
+    fix)                cmd_fix ;;
+    open)               shift; cmd_open "$@" ;;
+    -h|--help|help)     usage ;;
+    *)                  echo "unknown command '$1' (try --help)" >&2; exit 1 ;;
+esac

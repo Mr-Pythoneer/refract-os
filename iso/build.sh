@@ -349,6 +349,13 @@ ln -sf /opt/distro/modes/layouts/distro-layoutctl "$INCLUDES/usr/local/bin/distr
 ln -sf /opt/distro/modes/update/distro-update        "$INCLUDES/usr/local/bin/distro-update"
 ln -sf /opt/distro/modes/update/refract-updates      "$INCLUDES/usr/local/bin/refract-updates"
 ln -sf /opt/distro/modes/update/refract-update-check "$INCLUDES/usr/local/bin/refract-update-check"
+# distro-appstore lives here rather than under a mode because it is the other
+# half of the same question — "how does software get onto this machine". apt and
+# Flathub deliver applications, distro-update delivers Refract itself, and this
+# is the command that tells you which of those is broken when the store won't
+# open. It must be reachable on EVERY strain, including one whose dock the old
+# apply_pinned_apps emptied, so it is a PATH entry and not a dock icon.
+ln -sf /opt/distro/modes/update/distro-appstore      "$INCLUDES/usr/local/bin/distro-appstore"
 
 # --- Refract Monitor --------------------------------------------------------
 # CPU / GPU / Memory / Energy, one page each. Its sampler package sits beside it

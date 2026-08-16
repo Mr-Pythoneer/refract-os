@@ -25,6 +25,31 @@ jobs:
       - name: Assert Calamares commands use only defined variables
         run: bash tests/check-calamares-vars.sh
 
+      # A mode's dock pins are an OVERLAY on the user's own dock, never a
+      # replacement. The old code was a single `gsettings set favorite-apps
+      # "[<the mode's apps>]"`, which wipes every pin the user has — and because
+      # none of steam/lutris/bottles/FreeCAD/Blender/Kdenlive ship in any image,
+      # the dock came out EMPTY and took the app store's icon with it. The
+      # behaviour is proven end-to-end by tests/mode-mechanism.sh in the chroot
+      # (mode-test.yml); these are the cheap static guards that catch a
+      # reintroduction on every push, without waiting for an ISO to exist.
+      - name: Assert the dock is never blind-overwritten
+        run: |
+          set -euo pipefail
+          m=modes/modectl/distro-modectl
+          # The read side must exist: without it there is nothing to overlay ONTO.
+          grep -q 'gsettings get org.gnome.shell favorite-apps' "$m" \
+            || { echo "FAIL: apply_pinned_apps no longer READS the current dock"; exit 1; }
+          # The overlay must be remembered, or it can never be removed again.
+          grep -q 'dock-managed' "$m" \
+            || { echo "FAIL: the mode's added pins are not recorded, so nothing can remove them"; exit 1; }
+          # An empty PINNED_APPS must NOT short-circuit: that is the exact line
+          # that made the loss permanent (normal/ai/server all have no pins).
+          if grep -qF '${#apps[@]} -eq 0 ] && return' "$m"; then
+            echo "FAIL: apply_pinned_apps returns early on empty PINNED_APPS — leaving a mode would not restore the dock"; exit 1
+          fi
+          echo "ok: dock pins are an overlay, recorded, and cleaned up on the way out"
+
       - name: Validate the gaming compat-db schema
         # Also covered by the suite, but a standalone, clearly-named check so a
         # malformed compat-db/apps.json fails CI with an obvious signal.
