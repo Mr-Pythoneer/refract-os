@@ -11,3 +11,13 @@ fwupd
 fonts-inter
 fonts-firacode
 fonts-noto-color-emoji
+## Refract Updates GUI (modes/update/refract-updates) — a libadwaita window, so
+## it needs the GTK4 + Adwaita GObject introspection bindings for Python. These
+## are usually present on an Ubuntu GNOME desktop, but "usually" is how the app
+## store went missing: pinned explicitly so a dependency change upstream cannot
+## silently leave the updater unable to start.
+python3-gi
+gir1.2-gtk-4.0
+gir1.2-adw-1
+## notify-send, for the daily "update available" notification.
+libnotify-bin

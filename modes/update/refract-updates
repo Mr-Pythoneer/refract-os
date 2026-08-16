@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+"""Refract Updates — the settings page for updating Refract itself.
+
+WHY A SEPARATE APP. GNOME Settings cannot host third-party panels; there is no
+supported plugin interface for adding a tab to it. So this is a standalone app
+built with libadwaita's preferences widgets, which is what GNOME Settings itself
+is made of — it reads as a settings page because it is built from the same parts.
+
+WHAT IT UPDATES. Only the Refract layer: /opt/distro, the distro-* commands, mode
+profiles, layouts and the GNOME top-bar extension. Ubuntu packages, security
+patches and applications belong to GNOME Software and unattended-upgrades, and
+this deliberately does not touch them — the two systems are kept apart so a
+failure here can never cost the machine its security updates. The window says so
+in as many words, because "Update" with no scope stated invites the assumption
+that it covers everything.
+
+ALL WORK IS DONE BY distro-update. This process never writes to the system: it
+runs `distro-update check` and, on request, `pkexec distro-update apply`. One
+implementation, used by the CLI, this window and the background timer alike.
+"""
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
+
+APP_ID = "os.refract.Updates"
+DISTRO_UPDATE = "/usr/local/bin/distro-update"
+
+# distro-update's documented exit codes. 1 is NOT "up to date" — a machine that
+# cannot reach the network must say so, not quietly imply it is current.
+EXIT_UP_TO_DATE = 0
+EXIT_UPDATE_AVAILABLE = 10
+
+
+class UpdatesWindow(Adw.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Refract Updates")
+        self.set_default_size(620, 460)
+
+        self._busy = False
+        self._update_available = False
+
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        toolbar.add_top_bar(header)
+
+        page = Adw.PreferencesPage()
+
+        # --- status -------------------------------------------------------
+        self.status_group = Adw.PreferencesGroup(title="Refract OS")
+        self.status_row = Adw.ActionRow(
+            title="Checking…", subtitle="Looking for a newer Refract build"
+        )
+        self.spinner = Gtk.Spinner()
+        self.status_row.add_suffix(self.spinner)
+        self.status_group.add(self.status_row)
+
+        self.check_button = Gtk.Button(label="Check for Updates")
+        self.check_button.add_css_class("pill")
+        self.check_button.connect("clicked", lambda *_: self.check())
+
+        self.install_button = Gtk.Button(label="Install Update")
+        self.install_button.add_css_class("pill")
+        self.install_button.add_css_class("suggested-action")
+        self.install_button.connect("clicked", lambda *_: self.apply())
+        self.install_button.set_visible(False)
+
+        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12,
+                          halign=Gtk.Align.CENTER, margin_top=12, margin_bottom=6)
+        buttons.append(self.check_button)
+        buttons.append(self.install_button)
+        self.status_group.add(buttons)
+        page.add(self.status_group)
+
+        # --- this build ---------------------------------------------------
+        self.detail_group = Adw.PreferencesGroup(title="This system")
+        self.row_build = Adw.ActionRow(title="Build", subtitle="…")
+        self.row_strain = Adw.ActionRow(title="Edition", subtitle="…")
+        self.row_built = Adw.ActionRow(title="Built", subtitle="…")
+        for r in (self.row_build, self.row_strain, self.row_built):
+            self.detail_group.add(r)
+        page.add(self.detail_group)
+
+        # --- scope note ---------------------------------------------------
+        scope = Adw.PreferencesGroup(title="What this updates")
+        scope.add(Adw.ActionRow(
+            title="Refract components only",
+            subtitle="Modes, layouts, the distro-* commands and the top-bar switcher.",
+        ))
+        scope.add(Adw.ActionRow(
+            title="Ubuntu packages are handled elsewhere",
+            subtitle="Apps and security updates come from Software and Software Updater.",
+        ))
+        page.add(scope)
+
+        self.toasts = Adw.ToastOverlay()
+        self.toasts.set_child(page)
+        toolbar.set_content(self.toasts)
+        self.set_content(toolbar)
+
+        self.load_status()
+        self.check()
+
+    # ---- helpers ---------------------------------------------------------
+    def _run(self, argv, done):
+        """Run argv, hand (exit_status, stdout, stderr) to done(). Never raises."""
+        try:
+            proc = Gio.Subprocess.new(
+                argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+            )
+        except GLib.Error as e:
+            done(-1, "", str(e))
+            return
+
+        def finished(p, res):
+            try:
+                _ok, out, err = p.communicate_utf8_finish(res)
+                done(p.get_exit_status(), out or "", err or "")
+            except GLib.Error as e:
+                done(-1, "", str(e))
+
+        proc.communicate_utf8_async(None, None, finished)
+
+    def _set_busy(self, busy, message=None):
+        self._busy = busy
+        self.check_button.set_sensitive(not busy)
+        self.install_button.set_sensitive(not busy)
+        if busy:
+            self.spinner.start()
+            self.spinner.set_visible(True)
+            if message:
+                self.status_row.set_title(message)
+                self.status_row.set_subtitle("")
+        else:
+            self.spinner.stop()
+            self.spinner.set_visible(False)
+
+    def load_status(self):
+        def done(_status, out, _err):
+            fields = {}
+            for line in out.splitlines():
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    fields[k.strip()] = v.strip()
+            self.row_build.set_subtitle(fields.get("Refract build", "unknown"))
+            self.row_strain.set_subtitle(fields.get("Strain", "unknown"))
+            self.row_built.set_subtitle(fields.get("Built", "unknown"))
+
+        self._run([DISTRO_UPDATE, "status"], done)
+
+    # ---- actions ---------------------------------------------------------
+    def check(self):
+        if self._busy:
+            return
+        self._set_busy(True, "Checking for updates…")
+        self.install_button.set_visible(False)
+
+        def done(status, out, err):
+            self._set_busy(False)
+            text = (out + err).strip().splitlines()
+            detail = text[-1] if text else ""
+            if status == EXIT_UP_TO_DATE:
+                self._update_available = False
+                self.status_row.set_title("Refract is up to date")
+                self.status_row.set_subtitle(detail)
+            elif status == EXIT_UPDATE_AVAILABLE:
+                self._update_available = True
+                self.status_row.set_title("An update is available")
+                self.status_row.set_subtitle(detail)
+                self.install_button.set_visible(True)
+            else:
+                # Explicitly NOT "up to date" — being unable to check is its own
+                # state and must look different from being current.
+                self._update_available = False
+                self.status_row.set_title("Could not check for updates")
+                self.status_row.set_subtitle(detail or "Check your network connection.")
+
+        self._run([DISTRO_UPDATE, "check"], done)
+
+    def apply(self):
+        if self._busy:
+            return
+        self._set_busy(True, "Installing update…")
+
+        def done(status, out, err):
+            self._set_busy(False)
+            if status == 0:
+                self.status_row.set_title("Update installed")
+                self.status_row.set_subtitle(
+                    "Log out and back in for the new desktop pieces to load."
+                )
+                self.install_button.set_visible(False)
+                self.toasts.add_toast(Adw.Toast(title="Refract updated"))
+                self.load_status()
+            else:
+                # pkexec returns 126/127 when the password dialog is dismissed.
+                if status in (126, 127):
+                    msg = "Authentication was cancelled."
+                else:
+                    lines = (err or out).strip().splitlines()
+                    msg = lines[-1] if lines else "distro-update failed."
+                self.status_row.set_title("Update failed")
+                self.status_row.set_subtitle(msg)
+                self.toasts.add_toast(Adw.Toast(title="Update failed"))
+
+        self._run(["pkexec", DISTRO_UPDATE, "apply"], done)
+
+
+class UpdatesApp(Adw.Application):
+    def __init__(self):
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+
+    def do_activate(self):
+        win = self.props.active_window
+        if not win:
+            win = UpdatesWindow(self)
+        win.present()
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(UpdatesApp().run(sys.argv))

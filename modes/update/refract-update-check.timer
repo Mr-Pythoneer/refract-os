@@ -1,0 +1,16 @@
+[Unit]
+Description=Check for Refract OS updates daily
+Documentation=https://github.com/Mr-Pythoneer/refract-os
+
+[Timer]
+# 10 minutes after login rather than immediately: a notification competing with
+# the desktop still drawing itself is noise, and the first minutes of a session
+# are the busiest.
+OnStartupSec=10min
+OnUnitActiveSec=1d
+# Without this, every Refract machine on earth checks at the same instant.
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

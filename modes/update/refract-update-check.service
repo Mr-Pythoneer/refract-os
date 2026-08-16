@@ -1,0 +1,13 @@
+[Unit]
+Description=Check for Refract OS updates
+Documentation=https://github.com/Mr-Pythoneer/refract-os
+# Only meaningful with a network; failing quietly beats a red unit in the journal.
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/refract-update-check
+# A failed check is not an error worth reporting to the user: the machine may
+# simply be offline. distro-update itself distinguishes "up to date" from
+# "could not check", and the GUI shows the difference.
+SuccessExitStatus=0 1

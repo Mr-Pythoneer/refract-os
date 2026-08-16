@@ -340,6 +340,33 @@ ln -sf /opt/distro/modes/modectl/distro-modectl "$INCLUDES/usr/local/bin/distro-
 # machine is tuned FOR). Same staging shape: real file under /opt/distro, symlink
 # into PATH.
 ln -sf /opt/distro/modes/layouts/distro-layoutctl "$INCLUDES/usr/local/bin/distro-layoutctl"
+
+# --- Refract's own updater --------------------------------------------------
+# Without this an installed machine can never receive a fix: /opt/distro, the
+# distro-* commands and the GNOME extension all arrive from the ISO, and there is
+# no apt repo behind them. distro-update refreshes exactly that layer; apt keeps
+# owning Ubuntu packages and security patches, and the two never touch.
+ln -sf /opt/distro/modes/update/distro-update        "$INCLUDES/usr/local/bin/distro-update"
+ln -sf /opt/distro/modes/update/refract-updates      "$INCLUDES/usr/local/bin/refract-updates"
+ln -sf /opt/distro/modes/update/refract-update-check "$INCLUDES/usr/local/bin/refract-update-check"
+
+# The GUI, as an app-grid entry. GNOME Settings has no third-party panel
+# interface, so "an update tab in settings" is a libadwaita window built from the
+# same widgets Settings itself uses.
+mkdir -p "$INCLUDES/usr/share/applications"
+cp "$REPO_ROOT/modes/update/refract-updates.desktop" \
+   "$INCLUDES/usr/share/applications/refract-updates.desktop"
+
+# Daily check as a USER timer, not a system one: checking needs no privilege, and
+# a root timer that pushes notifications into someone's session is a worse design
+# than a user timer that cannot change the system at all. Enabled by symlink
+# because `systemctl --user enable` cannot run against an image being built.
+mkdir -p "$INCLUDES/usr/lib/systemd/user/timers.target.wants"
+cp "$REPO_ROOT/modes/update/refract-update-check.service" \
+   "$REPO_ROOT/modes/update/refract-update-check.timer" \
+   "$INCLUDES/usr/lib/systemd/user/"
+ln -sf ../refract-update-check.timer \
+   "$INCLUDES/usr/lib/systemd/user/timers.target.wants/refract-update-check.timer"
 # First-login applier. shellprocess@layout can only WRITE /etc/refract/layout —
 # at install time the target has no user session and therefore no dconf to apply
 # the appearance into. This autostart entry applies it once, when a session
@@ -400,6 +427,21 @@ echo -e "\033[36mBaking in Refract OS identity...\033[0m"
 VERSION_NUM="1.0"; VERSION_CODENAME="forge"
 # Per-strain VARIANT label (capitalize first letter).
 VARIANT_LABEL="$(printf '%s' "$STRAIN" | sed 's/^./\U&/')"
+
+# BUILD IDENTITY — what distro-update compares against to decide whether this
+# machine is behind. Without a recorded commit there is no way for an installed
+# system to know what it is running, and the only "update" available is a full
+# reinstall. GITHUB_SHA is set in CI; a local build falls back to git, and to
+# "unknown" outside a checkout (in which case distro-update simply always offers
+# the latest rather than pretending to compare).
+_build_sha="${GITHUB_SHA:-$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)}"
+mkdir -p "$INCLUDES/etc/refract"
+cat > "$INCLUDES/etc/refract/build-id" <<BUILDID
+REFRACT_COMMIT=${_build_sha}
+REFRACT_STRAIN=${STRAIN}
+REFRACT_BUILT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+BUILDID
+echo -e "\033[36mBuild identity: ${_build_sha} (${STRAIN})\033[0m"
 
 mkdir -p "$INCLUDES/etc" "$INCLUDES/usr/lib"
 _osrelease() {

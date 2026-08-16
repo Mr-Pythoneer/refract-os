@@ -1,0 +1,36 @@
+#!/bin/sh
+# Background update check -> one desktop notification, at most once per new build.
+#
+# Runs as the USER (a user systemd timer), never as root: checking needs no
+# privilege, and a root timer that pops notifications into somebody's session is
+# a worse design than a user timer that cannot change the system at all.
+#
+# NOTIFY ONCE PER BUILD, not once per check. A daily nag about the same update is
+# how people learn to ignore update notifications entirely. The commit that was
+# last advertised is remembered, and a repeat is silent.
+set -u
+
+STAMP="${XDG_STATE_HOME:-$HOME/.local/state}/refract/last-notified-commit"
+command -v distro-update >/dev/null 2>&1 || exit 0
+
+out="$(distro-update check 2>&1)"; rc=$?
+[ "$rc" -eq 10 ] || exit 0   # 0 = current, 1 = could not check; neither is news
+
+# "Update available: <old> -> <new>" — the new commit is the last field.
+newest="$(printf '%s' "$out" | sed -n 's/.*-> *\([0-9a-f]\{6,\}\).*/\1/p' | tail -n1)"
+[ -n "$newest" ] || newest="$(printf '%s' "$out" | tr -d '\n')"
+
+[ -r "$STAMP" ] && [ "$(cat "$STAMP" 2>/dev/null)" = "$newest" ] && exit 0
+
+mkdir -p "$(dirname "$STAMP")"
+printf '%s\n' "$newest" > "$STAMP"
+
+notify-send --app-name="Refract" --icon=software-update-available \
+    --action="default=Open Refract Updates" \
+    "Refract update available" \
+    "A newer build of Refract is ready to install. Open Refract Updates to install it." \
+    >/dev/null 2>&1 &
+# notify-send --action blocks until the notification is dismissed or actioned;
+# backgrounding keeps the timer unit from sitting in "running" for hours.
+sleep 1
+exit 0

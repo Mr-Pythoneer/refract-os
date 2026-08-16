@@ -149,6 +149,22 @@ jobs:
           chk "refract-modes extension.js shipped"          '[ -f "/mnt/sq/usr/share/gnome-shell/extensions/refract-modes@refract-os/extension.js" ]'
           chk "refract-modes metadata.json is valid JSON"   'python3 -c "import json;d=json.load(open(\"/mnt/sq/usr/share/gnome-shell/extensions/refract-modes@refract-os/metadata.json\"));assert d[\"uuid\"]==\"refract-modes@refract-os\";assert \"46\" in d[\"shell-version\"]"'
           chk "refract-modes is in enabled-extensions"      'grep -q "refract-modes@refract-os" /mnt/sq/etc/dconf/db/local.d/00-refract'
+          # THE UPDATER. Without it an installed machine can never receive a fix —
+          # /opt/distro and the distro-* commands come from the ISO and no apt
+          # repo backs them. Each half is asserted because each fails silently:
+          # a missing binary is a dead menu entry, a missing .desktop is an app
+          # nobody can find, and a missing timer means the notification that was
+          # the whole point simply never fires.
+          chk "distro-update in PATH"                       '[ -L /mnt/sq/usr/local/bin/distro-update ]'
+          chk "refract-updates GUI in PATH"                 '[ -L /mnt/sq/usr/local/bin/refract-updates ]'
+          chk "refract-updates GUI compiles"                'cp /mnt/sq/opt/distro/modes/update/refract-updates /tmp/ru.py && python3 -m py_compile /tmp/ru.py'
+          chk "Refract Updates .desktop shipped"            '[ -f /mnt/sq/usr/share/applications/refract-updates.desktop ]'
+          chk "update-check timer is enabled by symlink"    '[ -L /mnt/sq/usr/lib/systemd/user/timers.target.wants/refract-update-check.timer ]'
+          chk "python3-gi present (the GUI needs it)"       'ls -d /mnt/sq/usr/lib/python3/dist-packages/gi >/dev/null 2>&1'
+          chk "notify-send present (update notification)"   '[ -x /mnt/sq/usr/bin/notify-send ]'
+          # build-id is what distro-update compares against; with no commit
+          # recorded the machine cannot tell whether it is behind.
+          chk "build-id records a commit"                   'grep -qE "^REFRACT_COMMIT=[0-9a-f]{7,}" /mnt/sq/etc/refract/build-id'
           chk "refract-modes uses ESM, not legacy imports.*" '! grep -qE "^[^/]*[^a-zA-Z_.]imports\." "/mnt/sq/usr/share/gnome-shell/extensions/refract-modes@refract-os/extension.js"'
           # The Modes page is netinstall (the only stock module with real
           # checkboxes). Its group entries name refract-mode-* SENTINELS which

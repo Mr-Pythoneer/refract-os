@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+# distro-update — bring Refract's OWN code up to date, without reinstalling.
+#
+# WHY THIS EXISTS. Everything that makes this Refract rather than Ubuntu —
+# /opt/distro, the distro-* CLIs, the mode profiles, the layouts, the GNOME
+# top-bar switcher — is copied in from the ISO at install time. There is no apt
+# repo and no PPA, so before this existed the only way to get a fix onto an
+# installed machine was to download a new ISO, flash it and reinstall. Nobody
+# reinstalls their operating system to get a bug fix.
+#
+# WHAT IT DOES NOT TOUCH: apt. Ubuntu packages, security updates and
+# applications remain the job of GNOME Software, update-manager and
+# unattended-upgrades. This handles exactly the Refract layer, which is the part
+# with no other delivery mechanism. Keeping those two separate means an update
+# here can never break the system's ability to receive security patches.
+#
+# HOW "BEHIND" IS DECIDED. iso/build.sh records the commit it was built from in
+# /etc/refract/build-id. This compares that against the head of the repo's
+# default branch. The ISO is built from that branch, so it is the honest
+# comparison — when tagged releases exist, switch REMOTE_REF to the tag and the
+# rest of this script is unchanged.
+set -uo pipefail
+
+REPO_SLUG="${REFRACT_REPO:-Mr-Pythoneer/refract-os}"
+REMOTE_REF="${REFRACT_CHANNEL:-main}"
+BUILD_ID_FILE="/etc/refract/build-id"
+STATE_DIR="/var/lib/refract"
+INSTALL_ROOT="/opt/distro"
+BIN_DIR="/usr/local/bin"
+EXT_DIR="/usr/share/gnome-shell/extensions"
+
+C_OK=$'\033[32m'; C_WARN=$'\033[33m'; C_ERR=$'\033[31m'; C_DIM=$'\033[36m'; C_OFF=$'\033[0m'
+
+die() { echo "${C_ERR}distro-update: $*${C_OFF}" >&2; exit 1; }
+note() { echo "${C_DIM}$*${C_OFF}"; }
+
+usage() {
+    cat <<'USAGE'
+distro-update — update Refract's own components (not Ubuntu packages).
+
+  distro-update check      is a newer build available? (no changes made)
+  distro-update apply      download and install it (needs root)
+  distro-update status     what this machine is running
+  distro-update -h         this text
+
+Ubuntu packages, security updates and apps are handled by GNOME Software /
+Software Updater / unattended-upgrades. This only updates the Refract layer:
+/opt/distro, the distro-* commands, mode profiles, layouts and the GNOME
+top-bar extension.
+USAGE
+}
+
+installed_commit() {
+    [ -r "$BUILD_ID_FILE" ] || { echo unknown; return; }
+    # shellcheck disable=SC1090
+    ( . "$BUILD_ID_FILE" 2>/dev/null; printf '%s' "${REFRACT_COMMIT:-unknown}" )
+}
+
+remote_commit() {
+    # No jq dependency: the sha is the first "sha" field of the commit object.
+    curl -fsSL --max-time 20 \
+        "https://api.github.com/repos/${REPO_SLUG}/commits/${REMOTE_REF}" 2>/dev/null \
+        | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{40\}\)".*/\1/p' \
+        | head -n1
+}
+
+short() { printf '%.12s' "$1"; }
+
+cmd_status() {
+    local ic; ic="$(installed_commit)"
+    echo "Refract build:  $(short "$ic")"
+    # shellcheck disable=SC1090  # runtime path, not resolvable statically
+    [ -r "$BUILD_ID_FILE" ] && { . "$BUILD_ID_FILE" 2>/dev/null; \
+        echo "Strain:         ${REFRACT_STRAIN:-unknown}"; \
+        echo "Built:          ${REFRACT_BUILT:-unknown}"; }
+    [ -r "$STATE_DIR/last-update" ] && echo "Last updated:   $(cat "$STATE_DIR/last-update")"
+    echo "Channel:        ${REPO_SLUG}@${REMOTE_REF}"
+}
+
+# Exit codes are the interface the GUI and the timer rely on:
+#   0 = up to date, 10 = update available, 1 = could not tell (offline, etc).
+# A network failure must NEVER read as "up to date" — that is how a machine sits
+# quietly out of date for months.
+cmd_check() {
+    local ic rc
+    ic="$(installed_commit)"
+    rc="$(remote_commit)"
+    if [ -z "$rc" ]; then
+        echo "${C_WARN}Could not reach GitHub to check for updates.${C_OFF}" >&2
+        return 1
+    fi
+    if [ "$ic" = "unknown" ]; then
+        echo "${C_WARN}This build recorded no commit, so it cannot be compared.${C_OFF}" >&2
+        echo "Latest available: $(short "$rc")"
+        return 10
+    fi
+    if [ "$ic" = "$rc" ]; then
+        echo "${C_OK}Refract is up to date ($(short "$ic")).${C_OFF}"
+        return 0
+    fi
+    echo "Update available: $(short "$ic") -> $(short "$rc")"
+    return 10
+}
+
+cmd_apply() {
+    [ "$(id -u)" -eq 0 ] || die "'apply' needs root — try: sudo distro-update apply"
+    command -v curl >/dev/null 2>&1 || die "curl is required"
+    command -v rsync >/dev/null 2>&1 || die "rsync is required"
+    command -v tar >/dev/null 2>&1 || die "tar is required"
+
+    local rc; rc="$(remote_commit)"
+    [ -n "$rc" ] || die "could not reach GitHub — check the network and try again"
+
+    local work; work="$(mktemp -d)" || die "could not create a temp dir"
+    # shellcheck disable=SC2064
+    trap "rm -rf '$work'" EXIT INT TERM
+
+    note "Downloading ${REPO_SLUG}@$(short "$rc")..."
+    if ! curl -fsSL --max-time 300 \
+            "https://codeload.github.com/${REPO_SLUG}/tar.gz/${rc}" -o "$work/src.tgz"; then
+        die "download failed — nothing has been changed"
+    fi
+    mkdir -p "$work/x"
+    tar -xzf "$work/src.tgz" -C "$work/x" --strip-components=1 \
+        || die "the download was corrupt — nothing has been changed"
+
+    # Sanity-check the payload BEFORE touching the installed system. A truncated
+    # or unexpected tarball must not be allowed to half-replace /opt/distro.
+    [ -d "$work/x/modes" ] && [ -d "$work/x/drivers" ] \
+        || die "downloaded tree has no modes/ or drivers/ — refusing to install it"
+    [ -x "$work/x/modes/modectl/distro-modectl" ] \
+        || die "downloaded tree has no distro-modectl — refusing to install it"
+
+    note "Updating ${INSTALL_ROOT}..."
+    mkdir -p "$INSTALL_ROOT"
+    rsync -a --delete "$work/x/modes" "$work/x/drivers" "$INSTALL_ROOT/" \
+        || die "failed to update ${INSTALL_ROOT}"
+
+    # Refresh the CLI symlinks: a new release may add or remove commands, and a
+    # dangling link to a script that no longer exists is worse than a missing one.
+    note "Refreshing commands in ${BIN_DIR}..."
+    local f name
+    for f in "$BIN_DIR"/distro-*; do
+        [ -L "$f" ] || continue
+        [ -e "$f" ] || rm -f "$f"
+    done
+    while IFS= read -r -d '' f; do
+        name="$(basename "$f")"
+        chmod +x "$f" 2>/dev/null || true
+        ln -sfn "$f" "$BIN_DIR/$name"
+    done < <(find "$INSTALL_ROOT/modes" "$INSTALL_ROOT/drivers" -type f -name 'distro-*' -print0 2>/dev/null)
+
+    # The GNOME top-bar extension ships in the repo too, so it updates here.
+    if [ -d "$work/x/iso/gnome-extensions" ]; then
+        note "Updating GNOME Shell extensions..."
+        mkdir -p "$EXT_DIR"
+        rsync -a "$work/x/iso/gnome-extensions/" "$EXT_DIR/" || true
+    fi
+
+    mkdir -p "$STATE_DIR" "$(dirname "$BUILD_ID_FILE")"
+    # Record the new commit so `check` stops reporting an update, and stamp when.
+    { echo "REFRACT_COMMIT=${rc}"
+      # shellcheck disable=SC1090
+      [ -r "$BUILD_ID_FILE" ] && ( . "$BUILD_ID_FILE" 2>/dev/null
+          echo "REFRACT_STRAIN=${REFRACT_STRAIN:-unknown}"
+          echo "REFRACT_BUILT=${REFRACT_BUILT:-unknown}" )
+    } > "$BUILD_ID_FILE.new" && mv "$BUILD_ID_FILE.new" "$BUILD_ID_FILE"
+    date -u +%Y-%m-%dT%H:%M:%SZ > "$STATE_DIR/last-update"
+
+    echo "${C_OK}Refract updated to $(short "$rc").${C_OFF}"
+    echo "Log out and back in for a new top-bar extension or layout to take effect."
+}
+
+case "${1:-}" in
+    check)              cmd_check ;;
+    apply)              cmd_apply ;;
+    status)             cmd_status ;;
+    -h|--help|help|"")  usage ;;
+    *)                  die "unknown command '$1' (try --help)" ;;
+esac

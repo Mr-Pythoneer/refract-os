@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Refract Updates
+GenericName=System Updates
+Comment=Update Refract's modes, layouts and system tools
+Exec=/usr/local/bin/refract-updates
+Icon=software-update-available
+Terminal=false
+Categories=System;Settings;
+Keywords=update;upgrade;refract;system;
+StartupNotify=true
