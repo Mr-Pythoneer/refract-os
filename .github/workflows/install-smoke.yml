@@ -154,7 +154,13 @@ jobs:
           # progress shown. distro-appstore reports and repairs both, so it must
           # be on PATH on EVERY strain — including one whose dock is empty, which
           # is precisely when a dock icon would be no help.
-          chk "distro-appstore on PATH"                           '[ -e /mnt/sq/usr/local/bin/distro-appstore ]'
+          # -L, NOT -e. These are symlinks to /opt/distro/... — an ABSOLUTE target that
+          # resolves against the RUNNER's root, not the mounted image, so -e follows it
+          # to a path that does not exist and reports a missing symlink that is right
+          # there. That is how this reported FAIL on a build that had shipped it
+          # correctly (run 31927792592): an assertion whose failure is indistinguishable
+          # from the bug it hunts. Every other symlink check here already used -L.
+          chk "distro-appstore on PATH"                           '[ -L /mnt/sq/usr/local/bin/distro-appstore ]'
           chk "distro-appstore is executable"                     '[ -x /mnt/sq/opt/distro/modes/update/distro-appstore ]'
           # THE APP GRID, as the owner actually sees it. Nothing anywhere listed
           # this, so duplicate launchers shipped unnoticed until somebody opened
@@ -198,7 +204,7 @@ jobs:
           chk "only the branded installer is offered"   '! { [ -f /mnt/sq/usr/share/applications/calamares.desktop ] && ! grep -q "^NoDisplay=true" /mnt/sq/usr/local/share/applications/calamares.desktop 2>/dev/null; }'
           # …and the replacement is genuinely there, or "one monitor" is a lie.
           chk "Refract Monitor is the one that survived" '[ -f /mnt/sq/usr/share/applications/refract-monitor.desktop ]'
-          chk "distro-appgrid on PATH (so it is reversible)" '[ -e /mnt/sq/usr/local/bin/distro-appgrid ]'
+          chk "distro-appgrid on PATH (so it is reversible)" '[ -L /mnt/sq/usr/local/bin/distro-appgrid ]'
           # The top-bar mode switcher. An extension that is listed in
           # enabled-extensions but absent from the image is a silent no-op —
           # GNOME logs it and moves on, so the panel simply has no switcher and
