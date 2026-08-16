@@ -132,6 +132,13 @@ jobs:
           # source, and /mnt/sq is a read-only squashfs mount — so checking it in
           # place fails on the filesystem, not on the code, and reports a syntax
           # error that does not exist.
+          # netinstall puts NON-critical groups under "try_install", not "install"
+          # (Config::finalizeGlobalStorage splits on isCritical). Reading only
+          # "install" silently discarded every mode the user ticked — an install
+          # with Normal+Gaming+AI produced a machine with only Normal, with
+          # nothing anywhere reporting a problem. Nothing else in CI can see this
+          # without running Calamares, so assert the parser at least looks at both.
+          chk "refractselections reads try_install too"     'grep -q "try_install" /mnt/sq/etc/calamares/custom-modules/refractselections/main.py'
           chk "refractselections main.py compiles"          'cp /mnt/sq/etc/calamares/custom-modules/refractselections/main.py /tmp/rs_main.py && python3 -m py_compile /tmp/rs_main.py'
           chk "modules-search covers custom-modules"        'grep -q "custom-modules" /mnt/sq/etc/calamares/settings.conf'
           # The installed system pins GNOME Software to the dock in place of the

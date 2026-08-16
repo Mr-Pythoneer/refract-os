@@ -117,7 +117,15 @@ def _modes_from_package_operations():
             src = str(op.get("source", ""))
             if src and "modes" not in src:
                 continue
-            for entry in op.get("install", []) or []:
+            # BOTH KEYS. netinstall's Config::finalizeGlobalStorage splits the
+            # selection by isCritical(): critical groups go to "install",
+            # EVERYTHING ELSE goes to "try_install". None of the Modes groups set
+            # critical, so all five landed in try_install — and reading only
+            # "install" found nothing, every time. That is why an install with
+            # Normal + Gaming + AI ticked produced a machine with only Normal
+            # (observed on hardware, 2026-08-16). Reading both is correct whether
+            # or not a group is ever marked critical later.
+            for entry in (op.get("install") or []) + (op.get("try_install") or []):
                 # Entries are usually plain strings, but the schema also allows
                 # {"package": name, ...} maps for pre/post-script forms.
                 name = entry.get("package", "") if isinstance(entry, dict) else str(entry)
