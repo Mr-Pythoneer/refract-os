@@ -45,6 +45,20 @@ if ! sudo sshd -t; then
     sudo rm -f "$SSHD_CONFIG"
     exit 1
 fi
+# OPEN THE PORT. hooks/0460-firewall.chroot enables ufw with a default-deny
+# incoming policy, and adds the SSH rule only on strains that ship sshd at BUILD
+# time. Server mode is available on every strain, so installing sshd here on a
+# workstation/laptop image produced a running, hardened, correctly-enabled sshd
+# behind a firewall that silently dropped every connection to it — this script
+# printed its green success line and remote login did not work, with nothing
+# saying why. Idempotent; a no-op if ufw is absent or the rule already exists.
+if command -v ufw >/dev/null 2>&1; then
+    if sudo ufw status 2>/dev/null | grep -q '^Status: active'; then
+        sudo ufw allow OpenSSH >/dev/null 2>&1 || sudo ufw allow 22/tcp >/dev/null 2>&1 || true
+        echo -e "\033[36mOpened SSH in the firewall (ufw).\033[0m"
+    fi
+fi
+
 sudo systemctl enable --now ssh
 sudo systemctl reload ssh
 

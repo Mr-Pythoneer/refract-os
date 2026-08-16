@@ -57,6 +57,10 @@ ASSUME_YES=false
 # Overridable so the test suite can point apply_cpu_governor at a fixture instead
 # of the real sysfs node (see tests/test_modectl.sh).
 GOV_AVAIL_FILE="${GOV_AVAIL_FILE:-/sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors}"
+# Which display manager a previous switch turned off, so leaving that mode can
+# turn it back on. Persistent, not /run: the whole failure this prevents is only
+# visible after a REBOOT, so the record has to survive one.
+DM_DISABLED_FILE="${DM_DISABLED_FILE:-/var/lib/refract/display-manager-disabled}"
 
 # Populate VALID_MODES from the registry file. Contract (design §3.2/§3.3):
 #   - file absent/unreadable -> ALL_MODES (back-compat: pre-feature + existing
@@ -299,10 +303,36 @@ apply_services() {
         # (Xorg is owned by gdm under WaylandEnable=false), losing unsaved work.
         if [[ "$svc" =~ ^(gdm|gdm3|sddm|lightdm)$ ]]; then
             systemctl disable "$svc" 2>/dev/null || true
+            # RECORD IT, so leaving this mode can undo it. Without this the round
+            # trip is one-way: `switch server` disables gdm, `switch normal`
+            # prints "Now in: Normal mode" and changes nothing about it, and the
+            # machine boots to a text console on the next reboot with no
+            # indication anywhere that a mode switch did it. No profile, hook or
+            # unit in the tree ever ran `systemctl enable gdm`.
+            mkdir -p "$(dirname "$DM_DISABLED_FILE")" 2>/dev/null || true
+            printf '%s\n' "$svc" >> "$DM_DISABLED_FILE" 2>/dev/null || true
         else
             systemctl disable --now "$svc" 2>/dev/null || true
         fi
     done
+
+    # Undo the above when the mode we are entering does NOT want it undone.
+    # Deliberately not driven by a per-profile ENABLE_SERVICES=(gdm): the display
+    # manager varies by install (gdm/gdm3/sddm/lightdm) and hardcoding one in
+    # four profiles would silently do nothing on the others. What was actually
+    # disabled is the only reliable thing to re-enable.
+    if [ -r "$DM_DISABLED_FILE" ]; then
+        local dm restored=""
+        while IFS= read -r dm; do
+            [ -n "$dm" ] || continue
+            _contains "$dm" "${disable_list[@]:-}" && continue   # this mode still wants it off
+            systemctl enable "$dm" >/dev/null 2>&1 && restored="$restored $dm"
+        done < <(sort -u "$DM_DISABLED_FILE" 2>/dev/null)
+        if [ -n "$restored" ]; then
+            rm -f "$DM_DISABLED_FILE" 2>/dev/null || true
+            echo "Re-enabled the display manager ($(echo "$restored" | tr -s ' ')) that Server mode had turned off — your desktop will start again on the next boot."
+        fi
+    fi
 }
 
 # AI-model handling runs as the USER, so this is called BEFORE the sudo re-exec.
@@ -596,8 +626,8 @@ apply_theme() {
     # first time they changed mode. Modes decide what the machine is tuned FOR;
     # layouts decide how it LOOKS. Re-apply the ACTIVE layout instead, so a mode
     # switch preserves the look the user actually picked.
+    _layout=$(tr -d '[:space:]' < /etc/refract/layout 2>/dev/null || echo refract)
     if command -v distro-layoutctl >/dev/null 2>&1; then
-        _layout=$(tr -d '[:space:]' < /etc/refract/layout 2>/dev/null || echo refract)
         distro-layoutctl switch "${_layout:-refract}" >/dev/null 2>&1 || true
     fi
     apply_accent
@@ -610,7 +640,14 @@ apply_theme() {
             run_as_user gnome-extensions disable blur-my-shell@aunetx 2>/dev/null || true
         fi
     fi
-    echo "Applied ${MODE_NAME} look: macOS-style (MacTahoe-Dark)${WALLPAPER:+ + wallpaper}, liquid-glass=${LIQUID_GLASS:-false}."
+    # NAME THE LAYOUT THAT WAS ACTUALLY APPLIED. This line used to say
+    # "macOS-style (MacTahoe-Dark)" unconditionally — left over from when
+    # apply_theme forced that theme. Theming became the layout's job three
+    # commits later and the message did not follow, so a machine on the DEFAULT
+    # layout (refract = Adwaita-dark) was told on every single mode switch that
+    # a macOS theme had just been applied to it. Anyone debugging a theme problem
+    # from this output was hunting a theme the system was not using.
+    echo "Applied ${MODE_NAME} look: ${_layout:-refract} layout${WALLPAPER:+ + wallpaper}, liquid-glass=${LIQUID_GLASS:-false}."
 }
 
 confirm_or_abort() {
@@ -808,14 +845,24 @@ run_mode_setup() {
             fi
             ;;
         *)
-            # Server (and any future system-daemon mode): setup scripts install
-            # system services, so run them as root via sudo.
+            # BARE bash, same as the branch above. This used to say `sudo bash`
+            # on the reasoning that server scripts install system services — but
+            # modes/server/setup/*.sh are USER scripts that call sudo internally
+            # on every privileged line, structurally identical to the gaming and
+            # creative ones. Running them under `sudo bash` makes $USER resolve to
+            # root, and 02-install-docker.sh contains exactly the pattern the
+            # branch above warns about:
+            #     if ! groups "$USER" | grep -qw docker; then usermod -aG docker "$USER"
+            # so the advice added ROOT to the docker group and left the actual
+            # desktop user unable to run docker without sudo — while printing
+            # that it had added them.
             local setup_dir="$MODES_DIR/$mode/setup"
-            echo "'$mode' enabled. Install its apps by running its setup scripts as root, in order:"
+            echo "'$mode' enabled. Install its apps by running its setup scripts as your normal user, in order:"
+            echo "(they ask for your password themselves where they need it)"
             if [ -d "$setup_dir" ]; then
-                echo "  for s in \"$setup_dir\"/[0-9]*.sh; do sudo bash \"\$s\"; done"
+                echo "  for s in \"$setup_dir\"/[0-9]*.sh; do bash \"\$s\"; done"
             else
-                echo "  for s in /opt/distro/modes/$mode/setup/[0-9]*.sh; do sudo bash \"\$s\"; done"
+                echo "  for s in /opt/distro/modes/$mode/setup/[0-9]*.sh; do bash \"\$s\"; done"
             fi
             ;;
     esac

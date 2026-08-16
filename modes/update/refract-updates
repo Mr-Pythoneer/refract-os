@@ -24,6 +24,10 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
+import re  # noqa: E402
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
 APP_ID = "os.refract.Updates"
 DISTRO_UPDATE = "/usr/local/bin/distro-update"
 
@@ -103,6 +107,22 @@ class UpdatesWindow(Adw.ApplicationWindow):
         self.check()
 
     # ---- helpers ---------------------------------------------------------
+    @staticmethod
+    def _clean(text):
+        """Strip ANSI colour and neutralise Pango markup.
+
+        distro-update colours its output unconditionally with no isatty check, so
+        Gio.Subprocess captures raw ESC sequences — which Pango renders as .notdef
+        boxes. The two most common outcomes, "up to date" and "could not reach
+        GitHub", both came out wrapped in hex boxes.
+
+        The escape matters independently: AdwActionRow subtitles are Pango markup,
+        and this text can contain a git error or a URL with an & in it, which
+        makes Pango reject the whole string and blank the row.
+        """
+        text = _ANSI_RE.sub("", text or "")
+        return GLib.markup_escape_text(text.strip())
+
     def _run(self, argv, done):
         """Run argv, hand (exit_status, stdout, stderr) to done(). Never raises."""
         try:
@@ -143,9 +163,9 @@ class UpdatesWindow(Adw.ApplicationWindow):
                 if ":" in line:
                     k, v = line.split(":", 1)
                     fields[k.strip()] = v.strip()
-            self.row_build.set_subtitle(fields.get("Refract build", "unknown"))
-            self.row_strain.set_subtitle(fields.get("Strain", "unknown"))
-            self.row_built.set_subtitle(fields.get("Built", "unknown"))
+            self.row_build.set_subtitle(self._clean(fields.get("Refract build", "unknown")))
+            self.row_strain.set_subtitle(self._clean(fields.get("Strain", "unknown")))
+            self.row_built.set_subtitle(self._clean(fields.get("Built", "unknown")))
 
         self._run([DISTRO_UPDATE, "status"], done)
 
@@ -158,7 +178,7 @@ class UpdatesWindow(Adw.ApplicationWindow):
 
         def done(status, out, err):
             self._set_busy(False)
-            text = (out + err).strip().splitlines()
+            text = self._clean(out + err).splitlines()
             detail = text[-1] if text else ""
             if status == EXIT_UP_TO_DATE:
                 self._update_available = False
@@ -198,7 +218,7 @@ class UpdatesWindow(Adw.ApplicationWindow):
                 if status in (126, 127):
                     msg = "Authentication was cancelled."
                 else:
-                    lines = (err or out).strip().splitlines()
+                    lines = self._clean(err or out).splitlines()
                     msg = lines[-1] if lines else "distro-update failed."
                 self.status_row.set_title("Update failed")
                 self.status_row.set_subtitle(msg)

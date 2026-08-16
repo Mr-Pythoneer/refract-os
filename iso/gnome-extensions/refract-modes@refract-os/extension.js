@@ -27,6 +27,7 @@ import GObject from 'gi://GObject';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import * as Dialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const CURRENT_MODE_FILE = '/run/distro-modectl/current-mode';
@@ -200,7 +201,7 @@ class RefractIndicator extends PanelMenu.Button {
                 item.setOrnament(PopupMenu.Ornament.CHECK);
                 item.reactive = false;
             } else {
-                item.connect('activate', () => this._switchTo(mode));
+                item.connect('activate', () => this._confirmThenSwitch(mode));
             }
             this.menu.addMenuItem(item);
         }
@@ -229,9 +230,41 @@ class RefractIndicator extends PanelMenu.Button {
         }
     }
 
+    // Server mode turns the display manager off. distro-modectl guards that
+    // behind CONFIRM_DISPLAY_MANAGER_STOP, and this menu was passing --yes for
+    // every mode — so the guard existed and was never once shown to the person
+    // it protects. One click plus a password prompt disabled gdm, and the only
+    // message shown was "Switched to Server mode."; the machine then booted to
+    // a text console with nothing connecting the two. The confirmation has to
+    // happen HERE, because there is no terminal for distro-modectl to ask on.
+    _confirmThenSwitch(mode) {
+        if (mode !== 'server') {
+            this._switchTo(mode);
+            return;
+        }
+        const dlg = new Dialog.ModalDialog({ styleClass: 'refract-confirm' });
+        dlg.contentLayout.add_child(new St.Label({
+            style_class: 'headline',
+            text: 'Turn off the desktop?',
+        }));
+        dlg.contentLayout.add_child(new St.Label({
+            text: 'Server mode stops the graphical login from starting at boot.\n' +
+                  'This session keeps running, but after the next restart this\n' +
+                  'machine comes up at a text console.\n\n' +
+                  'Switching to any other mode turns it back on.',
+        }));
+        dlg.setButtons([
+            { label: 'Cancel', action: () => dlg.close(), key: Clutter.KEY_Escape },
+            { label: 'Switch to Server', action: () => { dlg.close(); this._switchTo(mode); },
+              default: true },
+        ]);
+        dlg.open();
+    }
+
     _switchTo(mode) {
         try {
-            // --yes because there is no terminal to answer a confirmation on.
+            // --yes because there is no terminal to answer on. For Server that
+            // is only reached after _confirmThenSwitch has actually asked.
             const proc = Gio.Subprocess.new(
                 ['pkexec', MODECTL, 'switch', mode, '--yes'],
                 Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE

@@ -490,6 +490,15 @@ class MonitorWindow(Adw.ApplicationWindow):
             f"{sampler.fmt_bytes(m['swap_used'])} / {sampler.fmt_bytes(m['swap_total'])}"
             if m["swap_total"] else "Not configured")
 
+        # ONLY WHILE THE MEMORY PAGE IS VISIBLE. top_processes opens and reads
+        # /proc/<pid>/status for every process — the most expensive per-process
+        # file in procfs — so this was ~450 file reads per second on an idle
+        # desktop, while sitting on the CPU or Energy page with the list off
+        # screen. It was also strictly more work than the Processes page it is
+        # gated against, which reads the single-line /proc/<pid>/stat instead:
+        # the battery-cost reasoning three methods up was being defeated here.
+        if self.stack.get_visible_child_name() != "ram":
+            return
         procs = sampler.top_processes(8)
         for r in self.proc_rows:
             self.proc_group.remove(r)

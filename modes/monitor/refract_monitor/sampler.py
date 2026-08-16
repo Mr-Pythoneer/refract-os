@@ -492,9 +492,31 @@ def power():
         if cur is not None and volt:
             power_w = abs(cur) * abs(volt) / 1e12
 
-    energy_now = _read_int(f"{b}/energy_now") or _read_int(f"{b}/charge_now")
-    energy_full = _read_int(f"{b}/energy_full") or _read_int(f"{b}/charge_full")
-    design = _read_int(f"{b}/energy_full_design") or _read_int(f"{b}/charge_full_design")
+    # WATT-HOURS, VIA WHICHEVER CONVENTION THIS KERNEL USES. Two exist:
+    # energy_* in µWh, or charge_* in µAh — and µAh only becomes watt-hours after
+    # multiplying by the pack voltage. power_w above already handles that split;
+    # the remaining-time maths below used to fall back to charge_now and then
+    # divide by 1e6 as if it were µWh, so on any charge_*-reporting battery
+    # (common on ASUS/Acer, universal on smart-battery packs) it divided AMP-hours
+    # by WATTS. On a typical 11.4 V pack that is an ~11x error: a laptop with 4 h
+    # left displayed "0.4 h remaining", which reads as "plug in now".
+    volt_v = None
+    _v = _read_int(f"{b}/voltage_now")
+    if _v:
+        volt_v = abs(_v) / 1_000_000.0
+
+    def _wh(energy_key, charge_key):
+        v = _read_int(f"{b}/{energy_key}")
+        if v is not None:
+            return abs(v) / 1_000_000.0          # µWh -> Wh
+        v = _read_int(f"{b}/{charge_key}")
+        if v is not None and volt_v:
+            return abs(v) / 1_000_000.0 * volt_v  # µAh -> Ah -> Wh
+        return None
+
+    energy_now = _wh("energy_now", "charge_now")
+    energy_full = _wh("energy_full", "charge_full")
+    design = _wh("energy_full_design", "charge_full_design")
 
     health = None
     if energy_full and design:
@@ -502,11 +524,10 @@ def power():
 
     remaining_h = None
     if power_w and power_w > 0.1 and energy_now:
-        scale = 1_000_000.0
         if status == "Charging" and energy_full:
-            remaining_h = max(0.0, (energy_full - energy_now) / scale) / power_w
+            remaining_h = max(0.0, energy_full - energy_now) / power_w
         elif status == "Discharging":
-            remaining_h = (energy_now / scale) / power_w
+            remaining_h = energy_now / power_w
 
     profile = None
     try:

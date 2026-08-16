@@ -50,6 +50,7 @@ distro-update — update Refract's own components (not Ubuntu packages).
 
   distro-update check      is a newer build available? (no changes made)
   distro-update apply      download and install it (needs root)
+  distro-update notes      what changed, in plain language
   distro-update status     what this machine is running
   distro-update -h         this text
 
@@ -75,6 +76,103 @@ remote_commit() {
 }
 
 short() { printf '%.12s' "$1"; }
+
+# ------------------------------------------------------------------ WHAT'S NEW
+# A dev's note, in plain language, shown every time an update lands.
+#
+# WHY NOT COMMIT MESSAGES. This repo's commits are long and written for whoever
+# has to maintain the thing — file paths, exit codes, the reasoning behind a
+# tradeoff. Dumping that on someone who clicked "Install Update" answers a
+# question they did not ask. WHATS-NEW.md is the same changes described to the
+# person living with them.
+#
+# WHY DATES AND NOT COMMITS. An entry cannot name the commit it lands in — the
+# hash does not exist until after the file is written. Dates can be written by
+# hand and compared against something the machine already records: build.sh
+# stamps REFRACT_BUILT into /etc/refract/build-id, and `apply` stamps
+# STATE_DIR/last-update. The newer of those two is "what this machine has already
+# seen", which is exactly the cutoff wanted.
+NOTES_FILE="WHATS-NEW.md"
+NOTES_SHOWN="$STATE_DIR/last-notes"
+# The heading of the newest entry this machine has been shown. This is the real
+# cursor; see notes_new for why a date could never be one.
+NOTES_MARKER="$STATE_DIR/last-note-id"
+
+# YYYY-MM-DD of the newest thing this machine has already got. Empty => unknown,
+# and the caller shows nothing rather than dumping the entire file at someone.
+seen_date() {
+    local built="" updated=""
+    # shellcheck disable=SC1090
+    [ -r "$BUILD_ID_FILE" ] && built="$( . "$BUILD_ID_FILE" 2>/dev/null; printf '%s' "${REFRACT_BUILT:-}" )"
+    [ -r "$STATE_DIR/last-update" ] && updated="$(cat "$STATE_DIR/last-update" 2>/dev/null)"
+    built="${built:0:10}"; updated="${updated:0:10}"
+    # String comparison is correct here and only here: ISO-8601 dates sort
+    # lexicographically, which is the entire reason for using that format.
+    if [ -n "$updated" ] && { [ -z "$built" ] || [[ "$updated" > "$built" ]]; }; then
+        printf '%s\n' "$updated"
+    else
+        printf '%s\n' "$built"
+    fi
+}
+
+# Entries from a WHATS-NEW.md on stdin that this machine has not been shown.
+#
+# A DATE ALONE IS NOT ENOUGH, and using one was a bug. Entries are dated by day,
+# but several builds can ship in one day — and they do. With a strict "newer than
+# my build date" test, a machine built on the 16th sees nothing from an update
+# shipped later on the 16th, which is precisely the first update anyone takes.
+# With a >= test instead, every subsequent run re-shows the same entries forever,
+# because after updating the machine's own date IS that date.
+#
+# So the real cursor is the last HEADING shown, not a date. The file is
+# newest-first, so "print from the top until you reach what you already saw" is
+# exact regardless of how many entries share a day. The date is kept only as the
+# fallback for a machine that has never been shown anything — and there it is
+# inclusive (>=), so the same-day case works on the first run too.
+notes_new() {
+    local cutoff="$1" marker="${2:-}"
+    awk -v cutoff="$cutoff" -v marker="$marker" '
+        /^## / {
+            if (marker != "") {
+                if ($0 == marker) exit
+            } else if (cutoff != "" && substr($2, 1, 10) < cutoff) {
+                exit
+            }
+            seen_first = 1
+        }
+        # Everything above the first heading is the file preamble, never an entry.
+        seen_first { print }
+    '
+}
+
+fetch_notes() {
+    curl -fsSL --max-time 20 \
+        "https://raw.githubusercontent.com/${REPO_SLUG}/${REMOTE_REF}/${NOTES_FILE}" 2>/dev/null
+}
+
+cmd_notes() {
+    local cutoff marker body
+    cutoff="$(seen_date)"
+    marker=""; [ -r "$NOTES_MARKER" ] && marker="$(cat "$NOTES_MARKER" 2>/dev/null)"
+    body="$(fetch_notes)" || body=""
+    if [ -z "$body" ]; then
+        echo "${C_WARN}Could not fetch the release notes.${C_OFF}" >&2
+        # Fall back to whatever the last update showed — offline is a normal
+        # state and the notes for the build you are running are still useful.
+        [ -r "$NOTES_SHOWN" ] && { echo; cat "$NOTES_SHOWN"; return 0; }
+        return 1
+    fi
+    body="$(printf '%s\n' "$body" | notes_new "$cutoff" "$marker")"
+    if [ -z "$body" ]; then
+        # Not an error, and not silence either — "you are up to date with the
+        # notes" is a different answer from "something went wrong".
+        echo "${C_OK}Nothing new since your build.${C_OFF}"
+        [ -r "$NOTES_SHOWN" ] && { echo; echo "${C_DIM}Last time, this changed:${C_OFF}"; cat "$NOTES_SHOWN"; }
+        return 0
+    fi
+    printf '%s\n' "$body"
+    return 0
+}
 
 # THE MARKER FILE — how a non-terminal user ever learns an update exists.
 #
@@ -167,6 +265,12 @@ cmd_apply() {
     local rc; rc="$(remote_commit)"
     [ -n "$rc" ] || die "could not reach GitHub — check the network and try again"
 
+    # CAPTURED BEFORE ANYTHING IS WRITTEN. The cutoff is derived from build-id
+    # and last-update, and this function overwrites both — read it afterwards and
+    # it is always "now", so every note is filtered out and the user is told
+    # nothing changed on the one occasion they most want to know what did.
+    local notes_cutoff; notes_cutoff="$(seen_date)"
+
     local work; work="$(mktemp -d)" || die "could not create a temp dir"
     # shellcheck disable=SC2064
     trap "rm -rf '$work'" EXIT INT TERM
@@ -187,10 +291,52 @@ cmd_apply() {
     [ -x "$work/x/modes/modectl/distro-modectl" ] \
         || die "downloaded tree has no distro-modectl — refusing to install it"
 
+    # RE-APPLY MODE OMISSION BEFORE THE RSYNC.
+    #
+    # An image built with REFRACT_OMIT_MODES=ai has had modes/ai deleted, its
+    # profile removed and distro-modectl's ALL_MODES=() rewritten — the design
+    # calls that "provably absent", not merely hidden. rsync of the whole
+    # upstream tree undoes every part of that: it recreates /opt/distro/modes/ai,
+    # recreates profiles/ai.conf, restores the stock distro-modectl with all five
+    # modes in ALL_MODES, and the symlink refresh below then puts distro-ai-* back
+    # on PATH. An update would silently reinstall the thing the build deliberately
+    # left out, on a machine chosen for not having it.
+    # DETECTED FROM DISK, not from a recorded flag. Omission happens two
+    # different ways — iso/build.sh strips modes at BUILD time under
+    # REFRACT_OMIT_MODES, and distro-apply-mode-selection strips them at INSTALL
+    # time from what was ticked in the installer — and only one of those could
+    # ever write a build-id field. What is actually missing under /opt/distro is
+    # true for both, needs no new state, and cannot drift out of sync with
+    # reality the way a stamp can.
+    local omitted="" m
+    for m in gaming ai server creative; do
+        [ -d "$INSTALL_ROOT/modes/$m" ] || omitted="$omitted $m"
+    done
+    omitted="$(echo "$omitted" | xargs)"
+
     note "Updating ${INSTALL_ROOT}..."
     mkdir -p "$INSTALL_ROOT"
     rsync -a --delete "$work/x/modes" "$work/x/drivers" "$INSTALL_ROOT/" \
         || die "failed to update ${INSTALL_ROOT}"
+
+    if [ -n "$omitted" ]; then
+        local kept=""
+        for m in gaming ai server creative normal; do
+            case " $omitted " in *" $m "*) continue ;; esac
+            kept="$kept $m"
+        done
+        for m in $omitted; do
+            case "$m" in *[!a-z]*|"") continue ;; esac   # never rm -rf on junk
+            rm -rf "${INSTALL_ROOT:?}/modes/$m"
+            rm -f  "${INSTALL_ROOT:?}/modes/modectl/profiles/$m.conf"
+            rm -f  "$BIN_DIR/distro-$m"-*
+        done
+        # Same edit iso/build.sh makes to the shipped copy, re-applied to the one
+        # that was just downloaded.
+        sed -i "s/^ALL_MODES=(.*/ALL_MODES=($(echo "$kept" | xargs))/" \
+            "$INSTALL_ROOT/modes/modectl/distro-modectl" 2>/dev/null || true
+        note "Kept this build mode-omitted: $(echo "$omitted" | xargs) removed again."
+    fi
 
     # Refresh the CLI symlinks: a new release may add or remove commands, and a
     # dangling link to a script that no longer exists is worse than a missing one.
@@ -324,11 +470,33 @@ cmd_apply() {
 
     echo "${C_OK}Refract updated to $(short "$rc").${C_OFF}"
     echo "Log out and back in for a new top-bar extension or layout to take effect."
+
+    # WHAT ACTUALLY CHANGED. Read from the tree that was just downloaded, not
+    # re-fetched over the network: it is already on disk, it is guaranteed to be
+    # the version that was installed, and an update that succeeded should not be
+    # able to fail at the last step because a second HTTP request timed out.
+    local notes="" notes_marker=""
+    [ -r "$NOTES_MARKER" ] && notes_marker="$(cat "$NOTES_MARKER" 2>/dev/null)"
+    [ -f "$work/x/$NOTES_FILE" ] && notes="$(notes_new "$notes_cutoff" "$notes_marker" < "$work/x/$NOTES_FILE")"
+    if [ -n "$notes" ]; then
+        echo
+        echo "${C_DIM}──────────────────────────── what changed ────────────────────────────${C_OFF}"
+        printf '%s\n' "$notes"
+        echo "${C_DIM}──────────────────────────────────────────────────────────────────────${C_OFF}"
+        # Kept so the Refract Updates window can show the same text, and so
+        # `distro-update notes` still works on a machine that is now offline.
+        mkdir -p "$STATE_DIR" 2>/dev/null || true
+        printf '%s\n' "$notes" > "$NOTES_SHOWN" 2>/dev/null || true
+        # Advance the cursor to the newest heading just shown, so the next
+        # update starts from here and nothing is ever repeated.
+        printf '%s\n' "$notes" | grep -m1 '^## ' > "$NOTES_MARKER" 2>/dev/null || true
+    fi
 }
 
 case "${1:-}" in
     check)              cmd_check ;;
     apply)              cmd_apply ;;
+    notes)              cmd_notes ;;
     status)             cmd_status ;;
     -h|--help|help|"")  usage ;;
     *)                  die "unknown command '$1' (try --help)" ;;
