@@ -39,6 +39,39 @@ USER_UNIT_DIR="/usr/lib/systemd/user"
 SYSTEM_UNIT_DIR="/usr/lib/systemd/system"
 UDEV_DIR="/usr/lib/udev/rules.d"
 
+# ------------------------------------------------------------------- SIGNING
+# The Ed25519 public key every image carries. Its private half exists only as a
+# GitHub Actions secret and signs the manifest in .github/workflows/sign-layer.yml.
+#
+# THIS PATH IS LOCAL AND IS NEVER FETCHED. That is the entire point: a key
+# downloaded from the same channel as the payload proves nothing, because
+# whoever can replace one can replace the other.
+PUBKEY="${REFRACT_PUBKEY:-/usr/share/refract/refract-signing.pub}"
+LAYER_BASE="${REFRACT_LAYER_BASE:-https://github.com/${REPO_SLUG}/releases/download/layer-latest}"
+
+have_pubkey() { [ -s "$PUBKEY" ] && command -v openssl >/dev/null 2>&1; }
+
+# Fetch manifest + signature, verify, print the manifest. Non-zero on ANY doubt.
+#
+# FAIL CLOSED, EVERY BRANCH. A verifier that returns success when it could not
+# reach the signature, or when openssl is missing, is not a verifier — it is a
+# delay before installing whatever arrived. The one permitted "unverified" path
+# is have_pubkey() being false, which is decided by the CALLER and announced.
+fetch_verified_manifest() {  # fetch_verified_manifest <workdir>
+    local w="$1"
+    curl -fsSL --max-time 30 "$LAYER_BASE/refract-layer.manifest"     -o "$w/m"   2>/dev/null || return 1
+    curl -fsSL --max-time 30 "$LAYER_BASE/refract-layer.manifest.sig" -o "$w/m.sig" 2>/dev/null || return 1
+    [ -s "$w/m" ] && [ -s "$w/m.sig" ] || return 1
+    # -rawin is REQUIRED for Ed25519: it signs the message itself rather than a
+    # pre-computed digest, and without the flag openssl errors out rather than
+    # verifying — which would look like a bad signature on a good file.
+    openssl pkeyutl -verify -rawin -pubin -inkey "$PUBKEY" \
+        -sigfile "$w/m.sig" -in "$w/m" >/dev/null 2>&1 || return 1
+    cat "$w/m"
+}
+
+manifest_field() { printf '%s\n' "$2" | awk -v k="$1" '$1==k {print $2; exit}'; }
+
 C_OK=$'\033[32m'; C_WARN=$'\033[33m'; C_ERR=$'\033[31m'; C_DIM=$'\033[36m'; C_OFF=$'\033[0m'
 
 die() { echo "${C_ERR}distro-update: $*${C_OFF}" >&2; exit 1; }
@@ -68,7 +101,19 @@ installed_commit() {
 }
 
 remote_commit() {
-    # No jq dependency: the sha is the first "sha" field of the commit object.
+    # PREFER THE SIGNED MANIFEST. Taking the "what is the latest version"
+    # answer from an unauthenticated API means whoever controls that response
+    # can also pin a machine at an old build by answering with its current
+    # commit — a downgrade/freeze attack that needs no ability to forge code at
+    # all. When a key is present the answer comes from bytes we can verify.
+    if have_pubkey; then
+        local w m
+        w="$(mktemp -d)" || return 1
+        m="$(fetch_verified_manifest "$w")"; rm -rf "$w"
+        [ -n "$m" ] && { manifest_field commit "$m"; return 0; }
+        return 1
+    fi
+    # No key yet (an install that predates signing). Legacy path.
     curl -fsSL --max-time 20 \
         "https://api.github.com/repos/${REPO_SLUG}/commits/${REMOTE_REF}" 2>/dev/null \
         | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{40\}\)".*/\1/p' \
@@ -275,14 +320,57 @@ cmd_apply() {
     # shellcheck disable=SC2064
     trap "rm -rf '$work'" EXIT INT TERM
 
-    note "Downloading ${REPO_SLUG}@$(short "$rc")..."
-    if ! curl -fsSL --max-time 300 \
-            "https://codeload.github.com/${REPO_SLUG}/tar.gz/${rc}" -o "$work/src.tgz"; then
-        die "download failed — nothing has been changed"
+    if have_pubkey; then
+        # THE VERIFIED PATH. Nothing is extracted until the manifest's signature
+        # checks out against the key that shipped with this machine AND the
+        # tarball's digest matches what that signed manifest says it should be.
+        # Both, in that order: a valid signature over a manifest for a different
+        # tarball is exactly what an attacker who can swap only the payload
+        # would produce.
+        note "Downloading the signed layer..."
+        local mani
+        mani="$(fetch_verified_manifest "$work")" \
+            || die "the update's signature did not verify — REFUSING to install it.
+  Nothing has been changed. This means the downloaded update was not published by
+  this project's signing key: either something on the network altered it, or the
+  release is broken. Do not work around this."
+        local want_sha got_sha
+        want_sha="$(manifest_field sha256 "$mani")"
+        [ -n "$want_sha" ] || die "the signed manifest carries no digest — refusing to install"
+
+        curl -fsSL --max-time 300 "$LAYER_BASE/refract-layer.tar.gz" -o "$work/src.tgz" \
+            || die "download failed — nothing has been changed"
+        got_sha="$(sha256sum "$work/src.tgz" 2>/dev/null | cut -d" " -f1)"
+        [ -n "$got_sha" ] || die "could not hash the download — refusing to install"
+        [ "$got_sha" = "$want_sha" ] \
+            || die "the download does not match its signed manifest — REFUSING to install.
+  expected $want_sha
+  got      $got_sha
+  Nothing has been changed."
+
+        mkdir -p "$work/x"
+        tar -xzf "$work/src.tgz" -C "$work/x" \
+            || die "the download was corrupt — nothing has been changed"
+        note "Signature verified."
+    else
+        # NO KEY ON THIS MACHINE. Installed before signing existed, so there is
+        # nothing to verify against and the key itself has to arrive somehow.
+        # This is the one unverified install, it is announced, and the update it
+        # performs is what makes every subsequent one verified. Refusing here
+        # instead would strand every existing install on the unsigned path
+        # forever, which is not more secure — it is the same risk, permanently.
+        echo "${C_WARN}This machine has no Refract signing key yet, so this update cannot be" >&2
+        echo "verified. It is the update that installs the key; every update after it" >&2
+        echo "will be checked. If you are on an untrusted network, wait until you are not.${C_OFF}" >&2
+        note "Downloading ${REPO_SLUG}@$(short "$rc")..."
+        if ! curl -fsSL --max-time 300 \
+                "https://codeload.github.com/${REPO_SLUG}/tar.gz/${rc}" -o "$work/src.tgz"; then
+            die "download failed — nothing has been changed"
+        fi
+        mkdir -p "$work/x"
+        tar -xzf "$work/src.tgz" -C "$work/x" --strip-components=1 \
+            || die "the download was corrupt — nothing has been changed"
     fi
-    mkdir -p "$work/x"
-    tar -xzf "$work/src.tgz" -C "$work/x" --strip-components=1 \
-        || die "the download was corrupt — nothing has been changed"
 
     # Sanity-check the payload BEFORE touching the installed system. A truncated
     # or unexpected tarball must not be allowed to half-replace /opt/distro.
@@ -351,6 +439,15 @@ cmd_apply() {
         chmod +x "$f" 2>/dev/null || true
         ln -sfn "$f" "$BIN_DIR/$name"
     done < <(find "$INSTALL_ROOT/modes" "$INSTALL_ROOT/drivers" -type f -name 'distro-*' -print0 2>/dev/null)
+
+    # THE KEY ITSELF. Without this step the trust-on-first-use bootstrap never
+    # completes: a machine with no key would take an unverified update forever,
+    # every time, because nothing would ever put a key on it.
+    if [ -f "$work/x/iso/keys/refract-signing.pub" ]; then
+        mkdir -p "$(dirname "$PUBKEY")"
+        install -m 0644 "$work/x/iso/keys/refract-signing.pub" "$PUBKEY" \
+            && note "Installed the update signing key — future updates will be verified."
+    fi
 
     # The GNOME top-bar extension ships in the repo too, so it updates here.
     if [ -d "$work/x/iso/gnome-extensions" ]; then
@@ -492,6 +589,16 @@ cmd_apply() {
         printf '%s\n' "$notes" | grep -m1 '^## ' > "$NOTES_MARKER" 2>/dev/null || true
     fi
 }
+
+# Sourceable, like distro-modectl (DISTRO_MODECTL_SOURCE=1), so tests can call
+# the REAL functions instead of trying to carve them out of this file with sed.
+# That is not a hypothetical convenience: the signing test's first version did
+# extract them with two overlapping sed ranges, which duplicated every line of
+# fetch_verified_manifest and ran manifest_field's range to the end of the file
+# — producing something that returned 0 for a tampered signature and passed.
+if [ "${DISTRO_UPDATE_SOURCE:-}" = "1" ]; then
+    return 0 2>/dev/null || true
+fi
 
 case "${1:-}" in
     check)              cmd_check ;;

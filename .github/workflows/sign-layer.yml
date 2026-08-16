@@ -1,0 +1,154 @@
+name: sign-layer
+
+# Publish the Refract layer as a SIGNED, byte-stable tarball.
+#
+# WHY THIS EXISTS. distro-update downloaded https://codeload.github.com/.../tar.gz
+# and installed it as root with no integrity check beyond TLS. TLS proves you are
+# talking to github.com; it does not prove the bytes are the ones this repo's
+# author published. Anything that can terminate TLS — a school or corporate proxy
+# whose CA is in the machine's trust store, which is the exact deployment this
+# distro targets — could hand a Refract machine arbitrary code and it would be
+# installed as root. Ubuntu's own updates are GPG-signed; Refract's were not.
+#
+# WHY NOT JUST CHECKSUM GITHUB'S ARCHIVE. codeload's tar.gz is GENERATED on
+# request, not stored. GitHub has changed its compression settings before and
+# silently broken everybody's recorded checksums. A digest over that file is a
+# promise that cannot be kept. So this builds our own archive, deterministically,
+# and publishes it as a release asset we control.
+#
+# WHY Ed25519 VIA openssl AND NOT GPG. openssl is already on every Refract image
+# — gnupg's presence is not guaranteed on the slimmer strains, and adding a
+# package to make updates verifiable would be a strange trade. The public key is
+# 113 bytes. Verification is one `openssl pkeyutl -verify` whose exit status is
+# 0 for a good signature and 1 for a tampered file, a truncated signature, or the
+# wrong key (all four cases measured before this was written).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decide whether signing is configured
+        id: gate
+        env:
+          KEY: ${{ secrets.REFRACT_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          # Four states, and three of them must NOT be a red X on every push:
+          #
+          #   neither      -> signing is not set up yet. Skip quietly. Clients
+          #                   have no key either, so nothing is expecting one.
+          #   key, no pub  -> we could sign, but no shipped image could verify it.
+          #                   Publishing that is pointless; ERROR.
+          #   pub, no key  -> shipped images DO expect a signature and there is
+          #                   none. Publishing unsigned would put an unverifiable
+          #                   tarball at the URL clients now trust; ERROR.
+          #   both         -> sign and publish.
+          #
+          # FAIL CLOSED means never publishing an unsigned layer, not failing
+          # every build before the key exists.
+          have_key=0; [ -n "${KEY:-}" ] && have_key=1
+          have_pub=0; [ -f iso/keys/refract-signing.pub ] && have_pub=1
+          if [ "$have_key" = 0 ] && [ "$have_pub" = 0 ]; then
+            echo "Signing is not configured yet — see docs/signing.md. Nothing published."
+            echo "go=no" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ "$have_key" = 0 ]; then
+            echo "::error::iso/keys/refract-signing.pub exists, so shipped images expect a SIGNED update — but REFRACT_SIGNING_KEY is not set. Refusing to publish an unsigned layer. See docs/signing.md." >&2
+            exit 1
+          fi
+          if [ "$have_pub" = 0 ]; then
+            echo "::error::REFRACT_SIGNING_KEY is set but iso/keys/refract-signing.pub is missing — no client could verify the signature. Commit the public key. See docs/signing.md." >&2
+            exit 1
+          fi
+          echo "go=yes" >> "$GITHUB_OUTPUT"
+
+      - name: Build a deterministic tarball
+        if: steps.gate.outputs.go == 'yes'
+        run: |
+          set -euo pipefail
+          mkdir -p out stage
+          # Exactly what distro-update installs, and nothing else. Shipping the
+          # whole repo would put the ISO pipeline and CI on every user's disk.
+          for p in modes drivers WHATS-NEW.md; do
+            cp -a "$p" stage/
+          done
+          mkdir -p stage/iso
+          cp -a iso/gnome-extensions stage/iso/gnome-extensions
+          # THE PUBLIC KEY TRAVELS IN THE PAYLOAD. A machine installed before
+          # signing existed has no key to verify with, so the first update it
+          # takes is necessarily unsigned — and that update is what delivers the
+          # key. Every update after it is verified. (Same shape as SSH's
+          # trust-on-first-use; the alternative is that no existing install can
+          # ever reach a signed channel at all.)
+          cp -a iso/keys stage/iso/keys
+
+          # DETERMINISTIC, or the digest below means nothing on a rebuild:
+          #   --sort=name        stable member order (readdir order is not)
+          #   --mtime + --owner/--group/--numeric-owner  strip build-time metadata
+          #   gzip -n            omit the timestamp gzip otherwise embeds
+          tar --sort=name \
+              --mtime="@0" --owner=0 --group=0 --numeric-owner \
+              --format=gnu \
+              -cf - -C stage . | gzip -n -9 > out/refract-layer.tar.gz
+
+          sha="$(sha256sum out/refract-layer.tar.gz | cut -d' ' -f1)"
+          {
+            echo "refract-layer-manifest v1"
+            echo "commit ${GITHUB_SHA}"
+            echo "sha256 ${sha}"
+            echo "built $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > out/refract-layer.manifest
+          cat out/refract-layer.manifest
+
+      - name: Sign the manifest
+        if: steps.gate.outputs.go == 'yes'
+        env:
+          KEY: ${{ secrets.REFRACT_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          # umask + a file the runner alone can read. The key is a secret; it
+          # should not sit world-readable on the runner's filesystem even briefly.
+          umask 077
+          printf '%s\n' "$KEY" > /tmp/signing.pem
+          openssl pkeyutl -sign -rawin -inkey /tmp/signing.pem \
+              -in out/refract-layer.manifest -out out/refract-layer.manifest.sig
+          rm -f /tmp/signing.pem
+
+          # VERIFY WHAT WAS JUST SIGNED, with the public key committed to the
+          # repo. This is what catches the key in the secret having drifted from
+          # the key baked into every ISO — a mismatch there means every machine
+          # rejects every update, and finding that out from user reports rather
+          # than from CI would be a bad day.
+          openssl pkeyutl -verify -rawin -pubin -inkey iso/keys/refract-signing.pub \
+              -sigfile out/refract-layer.manifest.sig -in out/refract-layer.manifest \
+            || { echo "::error::The signing secret does not match iso/keys/refract-signing.pub — every shipped image would REJECT this update. Nothing published." >&2; exit 1; }
+          echo "signature verifies against the public key that ships in the ISO"
+
+      - name: Publish to the rolling layer release
+        if: steps.gate.outputs.go == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # One rolling tag, overwritten each push — the client always wants the
+          # newest layer, and accumulating a release per commit would be noise.
+          gh release view layer-latest >/dev/null 2>&1 \
+            || gh release create layer-latest --title "Refract layer (rolling)" \
+                 --notes "Signed Refract layer for distro-update. Verified against iso/keys/refract-signing.pub." \
+                 --latest=false
+          gh release upload layer-latest \
+              out/refract-layer.tar.gz \
+              out/refract-layer.manifest \
+              out/refract-layer.manifest.sig \
+              --clobber
+          echo "published $(sha256sum out/refract-layer.tar.gz | cut -d' ' -f1)"

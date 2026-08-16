@@ -373,6 +373,25 @@ ln -sf /opt/distro/modes/power/distro-powerctl       "$INCLUDES/usr/local/bin/di
 # two of them are fixable. This tells them apart by reading the USB bus.
 ln -sf /opt/distro/drivers/distro-fingerprint         "$INCLUDES/usr/local/bin/distro-fingerprint"
 
+# --- the update signing key -------------------------------------------------
+# The public half of the Ed25519 pair that signs every update. distro-update
+# verifies against THIS LOCAL COPY and never against anything it downloads —
+# a key fetched over the same channel as the payload proves nothing, since
+# whoever can replace one can replace the other. See docs/signing.md.
+#
+# Absent until the key is generated; the build does not fail over it, and
+# distro-update falls back to the announced unsigned path. Do not "fix" that by
+# fetching the key at runtime.
+mkdir -p "$INCLUDES/usr/share/refract"
+if [ -f "$REPO_ROOT/iso/keys/refract-signing.pub" ]; then
+    install -m 0644 "$REPO_ROOT/iso/keys/refract-signing.pub" \
+        "$INCLUDES/usr/share/refract/refract-signing.pub"
+    echo "Staged the update signing key -> /usr/share/refract/refract-signing.pub"
+else
+    echo "NOTE: no iso/keys/refract-signing.pub — this image will take UNSIGNED updates." >&2
+    echo "NOTE:   generate one with docs/signing.md before shipping to anyone else." >&2
+fi
+
 # --- system units and udev rules, by convention -----------------------------
 # modes/<m>/systemd/system/* and modes/<m>/udev/*.rules. Same convention
 # distro-update apply uses, so an updated machine and a fresh install converge:

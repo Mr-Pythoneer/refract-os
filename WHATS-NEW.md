@@ -10,6 +10,22 @@ stops at the first heading the machine has already been shown, so an entry
 appended at the bottom is never displayed to anyone who is up to date. Adding
 one with `>>` is the obvious mistake and it fails silently.
 
+## 2026-08-16 — Updates are signed now
+
+The one thing the audit found that wasn't fixed on the day: your laptop
+downloaded updates and ran them as administrator, and the only thing vouching
+for that code was HTTPS. HTTPS proves you reached GitHub. It does not prove the
+code is the code that was published — and a network that inspects traffic (very
+common at schools and workplaces) can sit in the middle of that.
+
+Now every update carries a signature, like a wax seal. The matching key is baked
+into the OS itself, so your machine checks the seal before installing anything
+and refuses outright if it doesn't match. Nothing on the network can forge it.
+
+One exception, and it's announced on screen: the update that *installs* the key
+can't itself be checked, because there's nothing to check it against yet. Every
+update after that one is verified.
+
 ## 2026-08-16 — Security and bug audit: fixes
 
 An adversarial audit of the whole repo raised 25 issues; 19 survived
