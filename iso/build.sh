@@ -520,6 +520,19 @@ cp "$REPO_ROOT/iso/branding/plymouth/refract/refract.script"   "$INCLUDES/usr/sh
 mkdir -p "$INCLUDES/usr/share/glib-2.0/schemas"
 cp "$REPO_ROOT/iso/branding/glib/99_refract.gschema.override" "$INCLUDES/usr/share/glib-2.0/schemas/99_refract.gschema.override"
 # dconf db for favorites (belt-and-suspenders alongside the schema override).
+# GNOME Shell extensions we ship ourselves. refract-modes puts a mode switcher in
+# the top bar next to Wi-Fi/Bluetooth — modes are this distro's headline feature
+# and until now the only way to change one was a terminal command, which is a
+# developer's answer to a desktop user's question. Enabled via the dconf
+# enabled-extensions list below. Harmless on non-GNOME strains: with no
+# gnome-shell to load it, it is a few KB of dormant JavaScript.
+if [ -d "$REPO_ROOT/iso/gnome-extensions" ]; then
+    mkdir -p "$INCLUDES/usr/share/gnome-shell/extensions"
+    rsync -a --delete "$REPO_ROOT/iso/gnome-extensions/" \
+        "$INCLUDES/usr/share/gnome-shell/extensions/"
+    echo -e "\033[36mStaged GNOME Shell extensions: $(ls -1 "$REPO_ROOT/iso/gnome-extensions" | tr '\n' ' ')\033[0m"
+fi
+
 mkdir -p "$INCLUDES/etc/dconf/db/local.d" "$INCLUDES/etc/dconf/profile"
 cp "$REPO_ROOT/iso/branding/dconf/local.d/00-refract" "$INCLUDES/etc/dconf/db/local.d/00-refract"
 # The polish layer (smoothness/input/fonts/window-buttons) is GNOME dconf — only

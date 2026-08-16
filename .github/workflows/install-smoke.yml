@@ -140,6 +140,16 @@ jobs:
           # upstream would silently leave the dock pinning a missing app.
           chk "gnome-software present (dock pins it post-install)" '[ -x /mnt/sq/usr/bin/gnome-software ]'
           chk "flatpak present (app store backend)"                '[ -x /mnt/sq/usr/bin/flatpak ]'
+          # The top-bar mode switcher. An extension that is listed in
+          # enabled-extensions but absent from the image is a silent no-op —
+          # GNOME logs it and moves on, so the panel simply has no switcher and
+          # nothing anywhere says why. Assert BOTH halves, and that the ESM
+          # entry point does not use the legacy `imports.*` API, which GNOME 46
+          # removed (it would throw at load and, again, fail silently).
+          chk "refract-modes extension.js shipped"          '[ -f "/mnt/sq/usr/share/gnome-shell/extensions/refract-modes@refract-os/extension.js" ]'
+          chk "refract-modes metadata.json is valid JSON"   'python3 -c "import json;d=json.load(open(\"/mnt/sq/usr/share/gnome-shell/extensions/refract-modes@refract-os/metadata.json\"));assert d[\"uuid\"]==\"refract-modes@refract-os\";assert \"46\" in d[\"shell-version\"]"'
+          chk "refract-modes is in enabled-extensions"      'grep -q "refract-modes@refract-os" /mnt/sq/etc/dconf/db/local.d/00-refract'
+          chk "refract-modes uses ESM, not legacy imports.*" '! grep -qE "^[^/]*[^a-zA-Z_.]imports\." "/mnt/sq/usr/share/gnome-shell/extensions/refract-modes@refract-os/extension.js"'
           # The Modes page is netinstall (the only stock module with real
           # checkboxes). Its group entries name refract-mode-* SENTINELS which
           # are never meant to reach apt — they exist only so netinstall records

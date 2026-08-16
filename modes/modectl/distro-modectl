@@ -123,6 +123,17 @@ target_user() {
     if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
         printf '%s\n' "$SUDO_USER"; return
     fi
+    # pkexec, not sudo. The GNOME top-bar switcher cannot use sudo — sudo has no
+    # way to ask for a password from a graphical session with no controlling
+    # terminal — so it escalates with pkexec, which sets PKEXEC_UID instead of
+    # SUDO_USER. Without this branch target_user() comes back EMPTY on that path,
+    # and every per-user step (theme, dock, blur, AI model) is silently skipped:
+    # the mode switch would appear to work while changing nothing the user can see.
+    if [ -n "${PKEXEC_UID:-}" ] && [ "$PKEXEC_UID" != "0" ]; then
+        local pn; pn="$(id -un "$PKEXEC_UID" 2>/dev/null || true)"
+        if [ -n "$pn" ]; then printf '%s\n' "$pn"; else printf '%s\n' "$PKEXEC_UID"; fi
+        return
+    fi
     if [ "$(id -u)" -ne 0 ]; then
         # Prefer the name; fall back to the numeric uid when there's no passwd
         # entry (e.g. a live/chroot uid) — checking OUTPUT, not just exit status.

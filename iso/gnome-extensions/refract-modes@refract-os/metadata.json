@@ -1,0 +1,7 @@
+{
+  "uuid": "refract-modes@refract-os",
+  "name": "Refract Modes",
+  "description": "Switch what this machine is tuned for — gaming, AI, server, creative or normal — from the top bar.",
+  "shell-version": ["46"],
+  "url": "https://github.com/Mr-Pythoneer/refract-os"
+}
