@@ -95,8 +95,16 @@ jobs:
           # rewrites that one in place (swapping the installer's dock pin for
           # GNOME Software), so shipping a pristine copy would put an "Install
           # Refract OS" icon back on an installed machine.
-          mkdir -p stage/iso/branding/dconf
-          cp -a iso/branding/dconf/local.d stage/iso/branding/dconf/local.d
+          mkdir -p stage/iso/branding/dconf/local.d
+          # Copy only the drop-ins apply is allowed to install. The client already
+          # excludes 00-refract with a [1-9]* glob, but not shipping it at all
+          # means a future widening of that glob still cannot resurrect the
+          # installer's dock pin — the file simply is not there to install.
+          for f in iso/branding/dconf/local.d/[1-9]*-refract*; do
+            [ -f "$f" ] || continue
+            cp -a "$f" stage/iso/branding/dconf/local.d/
+          done
+          ls -1 stage/iso/branding/dconf/local.d/
 
           # DETERMINISTIC, or the digest below means nothing on a rebuild:
           #   --sort=name        stable member order (readdir order is not)

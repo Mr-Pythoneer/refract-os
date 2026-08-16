@@ -114,4 +114,22 @@ for dir in /usr/share/applications /usr/lib/systemd/system /usr/lib/udev/rules.d
     esac
 done
 
+# --- the one dconf file apply must NEVER install ----------------------------
+# shellprocess_cleanup rewrites 00-refract on the installed system, swapping the
+# installer's dock pin for GNOME Software. Reinstalling a pristine copy would put
+# an "Install Refract OS" icon back on the dock of a machine that is already
+# installed — and clicking it opens a partitioner aimed at the disk you are
+# running from. Two independent guards: the client's glob excludes it, and the
+# signed payload does not contain it.
+case "$update_src" in
+    *'/local.d/[1-9]*-refract*'*) pass "apply's dconf glob cannot match 00-refract" ;;
+    *) fail "apply's dconf glob cannot match 00-refract" \
+            "a broader glob would restore the installer's dock pin" ;;
+esac
+sign_src="$(cat "$REPO_ROOT/.github/workflows/sign-layer.yml")"
+case "$sign_src" in
+    *'dconf/local.d/[1-9]*-refract*'*) pass "the signed payload excludes 00-refract" ;;
+    *) fail "the signed payload excludes 00-refract" "it should not even be shipped" ;;
+esac
+
 finish
