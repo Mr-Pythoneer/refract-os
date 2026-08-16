@@ -77,7 +77,8 @@ fi
 # --- autostart must reach EXISTING users, not just new ones -----------------
 # /etc/skel is copied when an account is created. An entry added there after a
 # machine is installed reaches nobody who already uses it.
-if printf '%s\n' "$build_src" | grep -q 'skel/.config/autostart/refract-'; then
+case "$build_src" in *"skel/.config/autostart/refract-"*) _skel=1 ;; *) _skel=0 ;; esac
+if [ "$_skel" = 1 ]; then
     fail "autostart entries go to /etc/xdg/autostart, not /etc/skel" \
          "a skel entry never reaches the person already using the machine"
 else
@@ -96,13 +97,21 @@ while IFS= read -r f; do
 done < <(find "$REPO_ROOT/modes" -path '*/firstlogin/*.desktop' 2>/dev/null | sort)
 
 # --- shared destinations must not drift -------------------------------------
+# `case`, not `printf | grep -q`. Under `set -o pipefail` a MATCHING `grep -q`
+# exits the instant it finds the line, printf takes SIGPIPE, and the pipeline
+# reports 141 — so the assertion fails precisely when the thing it checks for is
+# PRESENT. It passed on macOS (printf is a builtin that swallows EPIPE
+# differently) and failed on the Ubuntu runner, which is the worst possible
+# split: green locally, red only in CI. Shell string matching has no pipeline
+# and no such trap.
 for dir in /usr/share/applications /usr/lib/systemd/system /usr/lib/udev/rules.d /usr/share/refract; do
-    if printf '%s\n' "$build_src" | grep -qF "$dir" && printf '%s\n' "$update_src" | grep -qF "$dir"; then
-        pass "both paths agree on $dir"
-    else
-        fail "both paths agree on $dir" \
-             "build.sh:$(printf '%s\n' "$build_src" | grep -cF "$dir") apply:$(printf '%s\n' "$update_src" | grep -cF "$dir")"
-    fi
+    case "$build_src" in
+        *"$dir"*) case "$update_src" in
+                      *"$dir"*) pass "both paths agree on $dir" ;;
+                      *) fail "both paths agree on $dir" "apply never writes to it" ;;
+                  esac ;;
+        *) fail "both paths agree on $dir" "iso/build.sh never writes to it" ;;
+    esac
 done
 
 finish

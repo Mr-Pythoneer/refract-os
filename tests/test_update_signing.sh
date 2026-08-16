@@ -102,7 +102,9 @@ assert_contains "a digest mismatch refuses to install" \
     "$src" "REFUSING to install"
 # The verifier must never be at the end of a pipeline: `openssl ... | head` exits
 # with head's status, which is 0 for a BAD signature.
-if printf '%s\n' "$src" | grep -q 'pkeyutl -verify.*|'; then
+# Same reason the parity test uses `case`: a matching `grep -q` at the end of a
+# pipeline under pipefail returns 141, not 0.
+if grep -q 'pkeyutl -verify.*|' "$UPDATE"; then
     fail "the verify call is not piped (a pipeline would return the wrong status)"
 else
     pass "the verify call is not piped (a pipeline would return the wrong status)"
