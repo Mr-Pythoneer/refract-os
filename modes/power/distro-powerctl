@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+# distro-powerctl — follow the wall socket, in Normal mode only.
+#
+# WHY ONLY NORMAL. Gaming, AI and Creative exist because the user has told the
+# machine to prioritise throughput over runtime. Dropping one of them to
+# power-saver the moment a cable is pulled would silently undo the thing they
+# asked for — you would unplug a laptop mid-game and watch the frame rate halve
+# for reasons nothing on screen explains. Normal is the mode with no such
+# instruction, so Normal is the only mode where "be sensible about battery" is
+# an inference this is allowed to make. Server mode is already power-saver, and
+# a machine in Server mode is not the one being unplugged.
+#
+# WHAT IT SETS, AND WHAT IT DELIBERATELY DOES NOT. Only the power-profiles-daemon
+# profile. p-p-d already owns the CPU governor and the Intel energy-performance
+# preference and sets them coherently per profile; setting the governor here as
+# well would mean two things writing the same sysfs node with no ordering
+# between them, and the loser would be whichever ran last. One writer.
+#
+# HOW IT IS TRIGGERED. A udev rule on power_supply change events (99-refract-power.rules)
+# starts refract-power.service, which runs `apply`. The service is also wanted by
+# multi-user.target so the profile is right at boot, not only after the first
+# plug or unplug — a laptop booted on battery would otherwise sit on balanced
+# until someone touched the cable.
+set -uo pipefail
+
+STATE_FILE="${STATE_FILE:-/run/distro-modectl/current-mode}"
+# Overridable so the test suite can point at a fixture power supply tree instead
+# of the runner's real one — CI machines have no battery, so without this the
+# battery branch could never be exercised at all.
+PSDIR="${REFRACT_POWER_SUPPLY_DIR:-/sys/class/power_supply}"
+CONFIG="${REFRACT_POWER_CONFIG:-/etc/refract/power-auto}"
+
+AC_PROFILE=balanced
+BATTERY_PROFILE=power-saver
+AUTO_MODES="normal"
+
+usage() {
+    cat <<'USAGE'
+distro-powerctl — on battery, Normal mode drops to power-saver by itself.
+
+  distro-powerctl status    what it sees and what it would do
+  distro-powerctl apply     set the profile now (run by udev on plug/unplug)
+  distro-powerctl enable    turn the automatic switching on  (default)
+  distro-powerctl disable   turn it off and leave the profile alone
+
+Only Normal mode is switched automatically. Gaming, AI and Creative are explicit
+requests for performance and are never quietly turned down; Server is already on
+power-saver.
+USAGE
+}
+
+# Mains present and online? Returns 0 on AC, 1 on battery, 2 if this machine has
+# no mains supply at all — a desktop, where the whole question is meaningless and
+# doing nothing is the only correct answer.
+ac_state() {
+    local d found=1
+    for d in "$PSDIR"/*; do
+        [ -r "$d/type" ] || continue
+        [ "$(cat "$d/type" 2>/dev/null)" = "Mains" ] || continue
+        found=0
+        [ "$(cat "$d/online" 2>/dev/null)" = "1" ] && return 0
+    done
+    [ "$found" = 0 ] && return 1
+    return 2
+}
+
+current_mode() {
+    local m=""
+    [ -r "$STATE_FILE" ] && m="$(tr -d '[:space:]' < "$STATE_FILE" 2>/dev/null)"
+    printf '%s\n' "${m:-normal}"
+}
+
+# Default ON. The file only ever needs to exist to turn it OFF, so a machine
+# that has never heard of this feature gets the sensible behaviour.
+is_enabled() {
+    [ -r "$CONFIG" ] || return 0
+    case "$(tr -d '[:space:]' < "$CONFIG" 2>/dev/null)" in
+        off|0|false|disabled) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+wanted_profile() {
+    ac_state
+    case $? in
+        0) printf '%s\n' "$AC_PROFILE" ;;
+        1) printf '%s\n' "$BATTERY_PROFILE" ;;
+        *) return 1 ;;
+    esac
+}
+
+cmd_status() {
+    local mode want cur
+    mode="$(current_mode)"
+    ac_state
+    case $? in
+        0) echo "Power source:    mains (plugged in)" ;;
+        1) echo "Power source:    battery" ;;
+        *) echo "Power source:    no battery on this machine — automatic switching does not apply" ;;
+    esac
+    echo "Current mode:    $mode"
+    if is_enabled; then echo "Automatic:       on"; else echo "Automatic:       off (distro-powerctl enable)"; fi
+    if command -v powerprofilesctl >/dev/null 2>&1; then
+        cur="$(powerprofilesctl get 2>/dev/null || echo unknown)"
+        echo "Active profile:  $cur"
+    fi
+    if ! want="$(wanted_profile)"; then
+        echo "Would set:       nothing"
+    elif [[ " $AUTO_MODES " != *" $mode "* ]]; then
+        echo "Would set:       nothing — $mode mode is an explicit request for performance and is left alone"
+    else
+        echo "Would set:       $want"
+    fi
+    return 0
+}
+
+cmd_apply() {
+    is_enabled || { echo "distro-powerctl: automatic switching is off." >&2; return 0; }
+    local mode want
+    mode="$(current_mode)"
+    # NOT an error. udev fires this on every power_supply event on every machine,
+    # including desktops and including while the user is in Gaming mode. Exiting
+    # 0 quietly is the correct behaviour for "nothing to do here"; a non-zero
+    # exit would fill the journal with failed units on a perfectly healthy box.
+    [[ " $AUTO_MODES " == *" $mode "* ]] || return 0
+    want="$(wanted_profile)" || return 0
+    command -v powerprofilesctl >/dev/null 2>&1 || {
+        echo "distro-powerctl: powerprofilesctl not installed — cannot set a profile." >&2
+        return 0
+    }
+    # Don't set what is already set: p-p-d broadcasts a profile change over
+    # D-Bus and GNOME shows a toast for it, so a no-op write is a visible
+    # notification about nothing every time udev sees a battery event — which
+    # on some laptops is every few seconds while charging.
+    [ "$(powerprofilesctl get 2>/dev/null)" = "$want" ] && return 0
+    if powerprofilesctl set "$want" 2>/dev/null; then
+        echo "distro-powerctl: $mode mode on $( [ "$want" = "$BATTERY_PROFILE" ] && echo battery || echo mains ) -> $want"
+    else
+        echo "distro-powerctl: could not set the $want profile." >&2
+    fi
+    return 0
+}
+
+cmd_toggle() {  # cmd_toggle on|off
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "This needs root: sudo distro-powerctl $([ "$1" = on ] && echo enable || echo disable)" >&2
+        return 1
+    fi
+    mkdir -p "$(dirname "$CONFIG")" || return 1
+    printf '%s\n' "$1" > "$CONFIG" || return 1
+    echo "Automatic power switching: $1"
+    [ "$1" = on ] && cmd_apply
+    return 0
+}
+
+case "${1:-status}" in
+    status)          cmd_status ;;
+    apply)           cmd_apply ;;
+    enable)          cmd_toggle on ;;
+    disable)         cmd_toggle off ;;
+    -h|--help|help)  usage ;;
+    *)               echo "unknown command '$1' (try --help)" >&2; exit 1 ;;
+esac

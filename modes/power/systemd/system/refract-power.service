@@ -1,0 +1,20 @@
+[Unit]
+Description=Match the power profile to the power source (Normal mode only)
+Documentation=https://github.com/Mr-Pythoneer/refract-os
+# power-profiles-daemon is the only thing this writes through, so there is
+# nothing to do before it is up. Without this ordering a boot-time run races
+# p-p-d's own startup and the `set` is silently dropped.
+After=power-profiles-daemon.service
+Wants=power-profiles-daemon.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/distro-powerctl apply
+# Nothing here is worth failing a boot over, and distro-powerctl already exits 0
+# for every "not applicable" case (desktop with no battery, a non-Normal mode).
+SuccessExitStatus=0 1
+
+[Install]
+# Also run at boot, not only on plug/unplug: a laptop booted on battery would
+# otherwise sit on the balanced profile until somebody touched the cable.
+WantedBy=multi-user.target

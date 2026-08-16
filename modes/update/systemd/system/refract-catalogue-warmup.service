@@ -1,0 +1,33 @@
+[Unit]
+Description=Build the app catalogue GNOME Software needs (first networked boot)
+Documentation=https://github.com/Mr-Pythoneer/refract-os
+# The image ships WITHOUT /var/lib/swcatalog — 22 MB that iso/config/binary_rootfs/
+# excludes strips, which is more headroom than the lowspec strain has. That
+# directory is the source of every app icon, screenshot, description and star
+# rating in GNOME Software, and without it Software also cannot offer apps it has
+# no metadata for. Nothing rebuilt it, so a fresh install came up with a store
+# full of grey placeholders and missing apps.
+#
+# network-online, not network: apt and Flathub both need routable connectivity,
+# and starting before it just guarantees the first attempt fails.
+After=network-online.target
+Wants=network-online.target
+# Once. The marker is written only on SUCCESS, so an offline first boot is
+# retried on the next one instead of being recorded as done.
+ConditionPathExists=!/var/lib/refract/catalogue-warmed
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/distro-appstore warm
+# Downloading two full software catalogues on a slow connection is genuinely
+# slow, and being killed halfway leaves a half-built cache.
+TimeoutStartSec=30min
+# Background work. Without this it competes with the desktop drawing itself on
+# exactly the boot where a new owner is forming their first impression of how
+# fast the machine is.
+Nice=10
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle
+
+[Install]
+WantedBy=multi-user.target

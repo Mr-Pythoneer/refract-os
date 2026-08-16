@@ -1,0 +1,235 @@
+#!/usr/bin/env python3
+"""Refract Tips — what this OS does that Ubuntu doesn't, in one window.
+
+WHY THIS EXISTS. Refract's distinguishing features are all invisible on a fresh
+desktop. Modes, layouts, the top-bar switcher, the update path, Refract Monitor
+and the distro-* commands are either behind a menu somebody has to notice or
+behind a name they'd have to already know. gnome-initial-setup is purged and
+masked (see hooks/0200-refract-identity.chroot), so there is no first-run wizard
+either — a new owner gets a desktop and no indication that any of it is there.
+
+WHAT IT DELIBERATELY IS NOT. A general Linux tutorial. Everything here is about
+THIS system: nothing about apt, nothing about the terminal for its own sake,
+nothing a GNOME user already knows. If a tip would be equally true on stock
+Ubuntu, it does not belong.
+
+Every row that names an action can PERFORM it. A tip about Refract Monitor with
+no way to open Refract Monitor is a paragraph about a thing, not help.
+"""
+import os
+import subprocess
+import sys
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
+
+APP_ID = "os.refract.Tips"
+STAMP = os.path.join(GLib.get_user_config_dir(), "refract-tips-seen")
+
+# (page key, page title, icon, [ (group title, [ (row title, subtitle, action|None) ]) ])
+# An action is (button label, argv). The button is only shown when argv[0] exists,
+# so a tip about a tool this strain does not ship degrades to plain text rather
+# than to a button that does nothing.
+PAGES = [
+    ("modes", "Modes", "preferences-system-symbolic", [
+        ("What modes are", [
+            ("One machine, several personalities",
+             "A mode retunes the whole system for what you're doing — CPU governor, power "
+             "profile, GPU clocks, background services, wallpaper and accent colour. It is not "
+             "a separate install and switching takes a couple of seconds.", None),
+            ("Switch from the top bar",
+             "The Refract icon sits next to Wi-Fi and Bluetooth. Click it, pick a mode. That "
+             "menu also tells you when a Refract update is waiting.", None),
+            ("Or from a terminal, if you prefer",
+             "distro-modectl switch gaming — and distro-modectl status to see where you are.",
+             ("Show current mode", ["gnome-terminal", "--", "bash", "-lc",
+                                    "distro-modectl status; echo; read -rp 'Press Enter to close…'"])),
+        ]),
+        ("The five", [
+            ("Normal", "Balanced, and the only mode that manages battery for you — see the "
+                       "Battery page.", None),
+            ("Gaming", "Performance governor, GPU pinned to its top clocks, Steam/Lutris/Bottles "
+                       "pinned to your dock once you install them.", None),
+            ("AI", "Performance throughout and a local model loaded on entry. Local inference is "
+                   "the heaviest thing this machine does; nothing about it is a background task.", None),
+            ("Creative", "Performance and max GPU, for rendering and video work.", None),
+            ("Server", "Power-saver, and it can turn the desktop off entirely. It asks first.", None),
+        ]),
+        ("Adding a mode later", [
+            ("You are not stuck with what you ticked at install",
+             "sudo distro-modectl modes enable ai — then it appears in the top-bar menu. "
+             "modes disable takes it back out.", None),
+        ]),
+    ]),
+
+    ("battery", "Battery", "battery-symbolic", [
+        ("Automatic power saving", [
+            ("Unplug and Normal mode saves power by itself",
+             "Pull the charger in Normal mode and the system drops to the power-saver profile; "
+             "plug back in and it returns to balanced. Nothing to click.", None),
+            ("Only in Normal mode, on purpose",
+             "Gaming, AI and Creative are explicit requests for performance. Quietly turning one "
+             "of them down on unplug would undo what you asked for, with nothing on screen to "
+             "explain why the machine got slower.", None),
+            ("Turn it off if you don't want it",
+             "sudo distro-powerctl disable. distro-powerctl status shows what it sees and what "
+             "it would do.",
+             ("Show power status", ["gnome-terminal", "--", "bash", "-lc",
+                                    "distro-powerctl status; echo; read -rp 'Press Enter to close…'"])),
+        ]),
+    ]),
+
+    ("apps", "Apps", "system-software-install-symbolic", [
+        ("Installing things", [
+            ("Software is the app store",
+             "It carries both Ubuntu packages and Flathub apps. Flathub is set up already — it "
+             "is where GIMP, Blender, VLC, OBS and Krita come from.", None),
+            ("First launch can be slow, once",
+             "On a new install Software downloads the app catalogue before it can show anything. "
+             "That happens automatically on the first boot with a network, in the background. If "
+             "the store looks empty or the icons are missing, that step hasn't finished.", None),
+            ("If the store won't open or looks broken",
+             "distro-appstore status says exactly which piece is missing; distro-appstore fix "
+             "repairs it and shows the download instead of hiding it.",
+             ("Check the app store", ["gnome-terminal", "--", "bash", "-lc",
+                                      "distro-appstore status; echo; read -rp 'Press Enter to close…'"])),
+        ]),
+        ("What's already here", [
+            ("Refract Monitor",
+             "CPU, GPU, memory, energy and a process list you can end things from. It replaces "
+             "GNOME's System Monitor, which is why there is only one of them.",
+             ("Open", ["/usr/local/bin/refract-monitor"])),
+            ("Refract Updates",
+             "Updates Refract itself — modes, layouts, the top-bar switcher and the distro-* "
+             "commands. Ubuntu packages stay with Software, deliberately, so a problem in one "
+             "can never cost you security patches.",
+             ("Open", ["/usr/local/bin/refract-updates"])),
+        ]),
+    ]),
+
+    ("look", "Look", "applications-graphics-symbolic", [
+        ("Layouts", [
+            ("Layouts are separate from modes",
+             "A mode decides what the machine is tuned FOR. A layout decides how it LOOKS. "
+             "Changing mode never changes the layout you picked.", None),
+            ("Four of them",
+             "refract, classic, macos, minimal — distro-layoutctl switch macos.", None),
+        ]),
+        ("Per-mode colour", [
+            ("The accent follows the mode",
+             "Each mode has its own accent colour and wallpaper, so a glance at the screen tells "
+             "you which one you're in. Gaming is red, AI blue, Server green, Creative magenta, "
+             "Normal orange.", None),
+        ]),
+    ]),
+
+    ("updates", "Updates", "software-update-available-symbolic", [
+        ("Two update systems, on purpose", [
+            ("Refract Updates — this OS",
+             "Modes, layouts, the switcher, the distro-* commands. There is no apt repo behind "
+             "them, so this is the only way they get fixed. One click, no reinstall.",
+             ("Open", ["/usr/local/bin/refract-updates"])),
+            ("Software — everything else",
+             "Ubuntu packages and applications. Security updates also install themselves in the "
+             "background.", None),
+            ("You'll be told",
+             "When a Refract update is ready, the top-bar menu shows it and a notification "
+             "appears. Clicking either opens the updater.", None),
+        ]),
+    ]),
+]
+
+
+def _exists(argv):
+    if not argv:
+        return False
+    exe = argv[0]
+    if "/" in exe:
+        return os.path.exists(exe)
+    return GLib.find_program_in_path(exe) is not None
+
+
+class TipsWindow(Adw.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Refract Tips")
+        self.set_default_size(820, 660)
+
+        self.stack = Adw.ViewStack()
+        for key, title, icon, groups in PAGES:
+            self.stack.add_titled_with_icon(self._build(groups), key, title, icon)
+
+        header = Adw.HeaderBar()
+        header.set_title_widget(Adw.ViewSwitcher(stack=self.stack,
+                                                 policy=Adw.ViewSwitcherPolicy.WIDE))
+        toolbar = Adw.ToolbarView()
+        toolbar.add_top_bar(header)
+        toolbar.set_content(self.stack)
+        toolbar.add_bottom_bar(Adw.ViewSwitcherBar(stack=self.stack, reveal=False))
+        self.set_content(toolbar)
+
+        # Seen. Written on OPEN rather than on close, so a window someone opened
+        # and immediately dismissed does not come back at every login.
+        try:
+            os.makedirs(os.path.dirname(STAMP), exist_ok=True)
+            with open(STAMP, "w") as f:
+                f.write("seen\n")
+        except OSError:
+            pass
+
+    def _build(self, groups):
+        page = Adw.PreferencesPage()
+        for gtitle, rows in groups:
+            group = Adw.PreferencesGroup(title=gtitle)
+            for title, subtitle, action in rows:
+                row = Adw.ActionRow(title=title, subtitle=subtitle)
+                row.set_subtitle_lines(0)     # wrap, never ellipsise a whole tip
+                row.set_title_lines(0)
+                if action and _exists(action[1]):
+                    btn = Gtk.Button(label=action[0], valign=Gtk.Align.CENTER)
+                    btn.add_css_class("pill")
+                    btn.connect("clicked", self._launch, action[1])
+                    row.add_suffix(btn)
+                group.add(row)
+            page.add(group)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        page.set_vexpand(True)
+        box.append(page)
+        return box
+
+    def _launch(self, _btn, argv):
+        try:
+            Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE)
+        except GLib.Error as e:
+            dlg = Adw.MessageDialog(transient_for=self, heading="Could not start it",
+                                    body=str(e))
+            dlg.add_response("ok", "OK")
+            dlg.connect("response", lambda d, _r: d.destroy())
+            dlg.present()
+
+
+class TipsApp(Adw.Application):
+    def __init__(self):
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+        self.add_main_option("first-run", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
+                             "Only open if these tips have never been shown", None)
+
+    def do_command_line(self, cmdline):
+        opts = cmdline.get_options_dict()
+        # --first-run is what the autostart entry passes. Exiting quietly when
+        # the stamp exists is the whole mechanism: no timer, no dconf key, and
+        # deleting one file brings the tips back for anyone who wants them.
+        if opts.contains("first-run") and os.path.exists(STAMP):
+            return 0
+        self.activate()
+        return 0
+
+    def do_activate(self):
+        win = self.props.active_window or TipsWindow(self)
+        win.present()
+
+
+if __name__ == "__main__":
+    sys.exit(TipsApp().run(sys.argv))

@@ -36,6 +36,8 @@ EXT_DIR="/usr/share/gnome-shell/extensions"
 # on what a fresh install of the same commit would have.
 DESKTOP_DIR="/usr/share/applications"
 USER_UNIT_DIR="/usr/lib/systemd/user"
+SYSTEM_UNIT_DIR="/usr/lib/systemd/system"
+UDEV_DIR="/usr/lib/udev/rules.d"
 
 C_OK=$'\033[32m'; C_WARN=$'\033[33m'; C_ERR=$'\033[31m'; C_DIM=$'\033[36m'; C_OFF=$'\033[0m'
 
@@ -249,6 +251,53 @@ cmd_apply() {
     # name, icon or set of search keywords simply never appears.
     command -v update-desktop-database >/dev/null 2>&1 \
         && update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
+
+    # SYSTEM UNITS AND UDEV RULES, by convention: modes/<m>/systemd/system/*
+    # and modes/<m>/udev/*.rules. Same reasoning as the launchers above — a
+    # feature that needs a unit (battery-aware power switching) or a udev rule
+    # could otherwise only ever reach a machine by reinstalling it.
+    #
+    # UNITS ARE COPIED, BUT ONLY refract-* ARE ENABLED. Copying a unit file is
+    # inert; enabling one starts running code at boot, and auto-enabling
+    # whatever happens to be in the tree would be a much bigger promise than
+    # "update Refract's own layer". Refract's units are all named refract-*, so
+    # that prefix is the boundary, and only units that actually declare an
+    # [Install] section are touched.
+    local u name
+    local -a to_enable=()
+    if [ -d "$SYSTEM_UNIT_DIR" ]; then
+        for u in "$work"/x/modes/*/systemd/system/*; do
+            [ -f "$u" ] || continue
+            name="$(basename "$u")"
+            install -m 0644 "$u" "$SYSTEM_UNIT_DIR/$name" || continue
+            case "$name" in
+                refract-*) grep -q '^\[Install\]' "$u" && to_enable+=("$name") ;;
+            esac
+        done
+    fi
+    if [ -d "$USER_UNIT_DIR" ]; then
+        for u in "$work"/x/modes/*/systemd/user/*; do
+            [ -f "$u" ] || continue
+            install -m 0644 "$u" "$USER_UNIT_DIR/$(basename "$u")" || true
+        done
+    fi
+    if [ -d "$UDEV_DIR" ]; then
+        for u in "$work"/x/modes/*/udev/*.rules; do
+            [ -f "$u" ] || continue
+            install -m 0644 "$u" "$UDEV_DIR/$(basename "$u")" || true
+        done
+        command -v udevadm >/dev/null 2>&1 && udevadm control --reload >/dev/null 2>&1 || true
+    fi
+    # RELOAD FIRST, THEN ENABLE. `systemctl enable` resolves [Install] through
+    # the running manager, so enabling a unit systemd has not re-read yet can
+    # fail on a brand-new unit file — which is exactly the case here, every time.
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        for name in ${to_enable[@]+"${to_enable[@]}"}; do
+            systemctl enable "$name" >/dev/null 2>&1 \
+                || echo "note: could not enable $name" >&2
+        done
+    fi
 
     # Keep the app grid at one entry per job. This is re-run on every update and
     # not just at install time, because the set of duplicates is not static: a

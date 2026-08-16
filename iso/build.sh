@@ -363,6 +363,45 @@ ln -sf /opt/distro/modes/update/distro-appstore      "$INCLUDES/usr/local/bin/di
 # without uninstalling anything) and hooks/0480-appgrid.chroot runs it at build
 # time so a fresh install is already deduplicated.
 ln -sf /opt/distro/modes/appgrid/distro-appgrid      "$INCLUDES/usr/local/bin/distro-appgrid"
+# distro-powerctl — Normal mode follows the wall socket (power-saver on battery,
+# balanced on mains). Every other mode is an explicit request for performance and
+# is deliberately left alone; see the script's header.
+ln -sf /opt/distro/modes/power/distro-powerctl       "$INCLUDES/usr/local/bin/distro-powerctl"
+# distro-fingerprint — why Settings isn't offering fingerprint login. fprintd and
+# libpam-fprintd ship on the laptop strain, but "the fingerprint thing is not
+# there" has four different causes that all look identical in Settings, and only
+# two of them are fixable. This tells them apart by reading the USB bus.
+ln -sf /opt/distro/drivers/distro-fingerprint         "$INCLUDES/usr/local/bin/distro-fingerprint"
+
+# --- system units and udev rules, by convention -----------------------------
+# modes/<m>/systemd/system/* and modes/<m>/udev/*.rules. Same convention
+# distro-update apply uses, so an updated machine and a fresh install converge:
+# if these two ever disagree about where things go, a machine that took an update
+# ends up with two copies of a unit and no error anywhere.
+#
+# Only refract-* units with an [Install] section are ENABLED. Copying a unit is
+# inert; enabling one runs code at boot, and that is not something to do to
+# whatever happens to be in the tree.
+mkdir -p "$INCLUDES/usr/lib/systemd/system/multi-user.target.wants" "$INCLUDES/usr/lib/udev/rules.d"
+for unit in "$REPO_ROOT"/modes/*/systemd/system/*; do
+    [ -f "$unit" ] || continue
+    uname="$(basename "$unit")"
+    install -m 0644 "$unit" "$INCLUDES/usr/lib/systemd/system/$uname"
+    case "$uname" in
+        refract-*)
+            grep -q '^\[Install\]' "$unit" || continue
+            # Symlink by hand rather than shelling out to `systemctl enable
+            # --root`: the includes tree is not a system, and enable would need
+            # a full unit search path to resolve against.
+            grep -q '^WantedBy=multi-user.target' "$unit" \
+                && ln -sf "../$uname" "$INCLUDES/usr/lib/systemd/system/multi-user.target.wants/$uname"
+            ;;
+    esac
+done
+for rule in "$REPO_ROOT"/modes/*/udev/*.rules; do
+    [ -f "$rule" ] || continue
+    install -m 0644 "$rule" "$INCLUDES/usr/lib/udev/rules.d/$(basename "$rule")"
+done
 
 # --- Refract Monitor --------------------------------------------------------
 # CPU / GPU / Memory / Energy, one page each. Its sampler package sits beside it
@@ -374,16 +413,23 @@ ln -sf /opt/distro/modes/monitor/refract-monitor "$INCLUDES/usr/local/bin/refrac
 # died with "cannot create regular file ... No such file or directory" while
 # workstation and handheld passed. A headless strain has no installer icon and
 # therefore no usr/share/applications until something makes one.
+# EVERY modes/<m>/*.desktop, by the same glob distro-update apply uses. These
+# used to be two hand-written cp lines, so adding a third app (Refract Tips)
+# meant remembering to edit this file — and forgetting would ship an app with no
+# way to launch it, which is not an error anything would catch. It also keeps
+# build.sh and distro-update converging on the same set: if they disagree, a
+# machine that took an update ends up with launchers a fresh install lacks.
+#
+# mkdir FIRST. This used to rely on the directory already existing, which is
+# true only on strains that stage the installer launcher — so the server build
+# died with "cannot create regular file ... No such file or directory" while
+# workstation and handheld passed. A headless strain has no installer icon and
+# therefore no usr/share/applications until something makes one.
 mkdir -p "$INCLUDES/usr/share/applications"
-cp "$REPO_ROOT/modes/monitor/refract-monitor.desktop" \
-   "$INCLUDES/usr/share/applications/refract-monitor.desktop"
-
-# The GUI, as an app-grid entry. GNOME Settings has no third-party panel
-# interface, so "an update tab in settings" is a libadwaita window built from the
-# same widgets Settings itself uses.
-mkdir -p "$INCLUDES/usr/share/applications"
-cp "$REPO_ROOT/modes/update/refract-updates.desktop" \
-   "$INCLUDES/usr/share/applications/refract-updates.desktop"
+for dtop in "$REPO_ROOT"/modes/*/*.desktop; do
+    [ -f "$dtop" ] || continue
+    install -m 0644 "$dtop" "$INCLUDES/usr/share/applications/$(basename "$dtop")"
+done
 
 # Daily check as a USER timer, not a system one: checking needs no privilege, and
 # a root timer that pushes notifications into someone's session is a worse design
@@ -404,6 +450,14 @@ install -m 0755 "$REPO_ROOT/modes/layouts/firstlogin/apply-layout-once" \
     "$INCLUDES/usr/local/lib/refract/apply-layout-once"
 install -m 0644 "$REPO_ROOT/modes/layouts/firstlogin/refract-layout.desktop" \
     "$INCLUDES/etc/skel/.config/autostart/refract-layout.desktop"
+# Refract Tips, shown once on the first graphical login. gnome-initial-setup is
+# purged and masked by hooks/0200-refract-identity.chroot, so there is no
+# first-run wizard on this image at all — without this, a new owner gets a
+# desktop with nothing to indicate that modes, layouts, the top-bar switcher or
+# any of the distro-* tools exist. --first-run makes it a no-op after the first.
+install -m 0644 "$REPO_ROOT/modes/tips/firstlogin/refract-tips.desktop" \
+    "$INCLUDES/etc/skel/.config/autostart/refract-tips.desktop"
+ln -sf /opt/distro/modes/tips/refract-tips "$INCLUDES/usr/local/bin/refract-tips"
 # Ship the default so a LIVE session (never installed, so no shellprocess ran)
 # still has a layout to apply rather than falling back by accident.
 mkdir -p "$INCLUDES/etc/refract"

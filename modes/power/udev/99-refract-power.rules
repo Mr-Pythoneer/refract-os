@@ -1,0 +1,13 @@
+# Plug or unplug -> re-evaluate the power profile.
+#
+# RUN+= is deliberately NOT used to do the work. udev runs RUN programs with a
+# short timeout, in a context with no D-Bus session and where a slow command
+# blocks the whole event queue — and this has to talk to power-profiles-daemon
+# over the system bus. `systemctl --no-block start` hands the work to systemd
+# and returns immediately, which is the documented way to do anything non-trivial
+# from a udev rule.
+#
+# Matched on ACTION=="change" only. An "add" event fires for every power supply
+# during coldplug at boot, and the unit is already WantedBy=multi-user.target, so
+# matching add as well would just run it several more times for no reason.
+SUBSYSTEM=="power_supply", ACTION=="change", ENV{POWER_SUPPLY_TYPE}=="Mains", RUN+="/usr/bin/systemctl --no-block start refract-power.service"

@@ -399,9 +399,9 @@ log_has  gaming distro-ai-model "unload" "distro-ai-model unload (STOP_AI_MODEL=
 log_lacks gaming distro-ai-model "use" "distro-ai-model 'use' NOT called (no autostart use-case)"
 tool_silent gaming distro-ai-detect-tier "tier auto-detect NOT run (not AI mode)"
 
-# ---- ai: schedutil/balanced, GPU auto, blue, NO pins, load 'coding' --------
+# ---- ai: performance/performance, GPU max, blue, NO pins, load 'coding' ---
 run_switch ai
-assert_common ai schedutil balanced "#4a9df0" auto
+assert_common ai performance performance "#4a9df0" max
 # THE REGRESSION. AI has an empty PINNED_APPS, and the old code returned early
 # on empty — so Gaming's three replacements stayed forever and the dock never
 # came back. Leaving a mode must REMOVE that mode's overlay and nothing else.

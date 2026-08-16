@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+# distro-fingerprint — why Settings isn't offering fingerprint login, and what to do.
+#
+# THE PROBLEM WITH "IT'S NOT THERE". GNOME Settings only shows the Fingerprint
+# Login row when fprintd reports at least one enrolled-capable DEVICE. When it
+# doesn't appear there are four completely different causes and the UI shows the
+# same nothing for all of them:
+#
+#   1. fprintd isn't installed. (It is, on the laptop strain — but the desktop,
+#      lowspec and handheld strains don't ship it, and that is worth saying out
+#      loud rather than leaving someone hunting a setting that cannot exist.)
+#   2. fprintd is installed but its D-Bus service isn't reachable.
+#   3. There IS a reader on the USB bus, but in-tree libfprint has no driver for
+#      it. This is the common case on recent ThinkPads: many Synaptics and Goodix
+#      sensors are "match-on-chip" and need a vendor Touch OEM Driver that Ubuntu
+#      ships only through OEM channels, not the normal archive. Nothing Refract
+#      can install for you, and pretending otherwise wastes an afternoon.
+#   4. The machine genuinely has no reader.
+#
+# Only (1) and (2) are fixable from here, and telling the difference requires
+# looking at the USB bus, which is exactly what nothing was doing. This reads
+# /sys directly rather than shelling out to lsusb, so it needs no extra package.
+#
+# NOTHING HERE ENROLLS BEHIND YOUR BACK. `status` is read-only. `enroll` runs
+# fprintd's own enrolment and then asks pam-auth-update to turn the PAM module
+# on, both visibly.
+set -uo pipefail
+
+SYSUSB="${REFRACT_SYSFS_USB:-/sys/bus/usb/devices}"
+PAM_COMMON="${REFRACT_PAM_COMMON:-/etc/pam.d/common-auth}"
+
+C_OK=$'\033[32m'; C_WARN=$'\033[33m'; C_ERR=$'\033[31m'; C_DIM=$'\033[36m'; C_OFF=$'\033[0m'
+yes_()  { echo "  ${C_OK}✓${C_OFF} $*"; }
+no_()   { echo "  ${C_ERR}✗${C_OFF} $*"; }
+warn_() { echo "  ${C_WARN}!${C_OFF} $*"; }
+note()  { echo "${C_DIM}$*${C_OFF}"; }
+
+# USB vendor IDs that make fingerprint readers. The second field is how likely a
+# vendor Touch OEM Driver is needed — the thing that decides whether this is
+# fixable or not, and the single most useful sentence this tool can produce.
+vendor_name() {
+    case "$1" in
+        06cb) echo "Synaptics|many recent Synaptics sensors are match-on-chip and need a vendor TOD driver" ;;
+        27c6) echo "Goodix|most Goodix sensors need a vendor TOD driver; in-tree libfprint does not drive them" ;;
+        138a) echo "Validity (Synaptics)|older Validity sensors are supported in-tree; newer ones are not" ;;
+        04f3) echo "Elan|generally supported by in-tree libfprint" ;;
+        08ff) echo "AuthenTec|supported in-tree" ;;
+        147e) echo "Upek|supported in-tree" ;;
+        1c7a) echo "LighTuning|partial in-tree support" ;;
+        0483) echo "STMicroelectronics|sometimes a fingerprint reader, often something else" ;;
+        *)    return 1 ;;
+    esac
+}
+
+usage() {
+    cat <<'USAGE'
+distro-fingerprint — diagnose and set up fingerprint login.
+
+  distro-fingerprint status   what hardware is present and what is missing
+  distro-fingerprint enroll   enrol a finger and turn on fingerprint login
+  distro-fingerprint forget   delete your enrolled fingerprints
+  distro-fingerprint -h       this text
+
+`status` changes nothing and needs no password.
+USAGE
+}
+
+# Readers found on the USB bus, one "vid:pid name|caveat" per line.
+scan_usb() {
+    local d vid pid info
+    for d in "$SYSUSB"/*; do
+        [ -r "$d/idVendor" ] || continue
+        vid="$(cat "$d/idVendor" 2>/dev/null)"
+        pid="$(cat "$d/idProduct" 2>/dev/null)"
+        info="$(vendor_name "$vid")" || continue
+        # A vendor ID alone is not proof — Synaptics also makes touchpads and
+        # STMicro makes everything. The interface class is the real signal:
+        # fingerprint readers are vendor-specific (0xff), not HID.
+        printf '%s:%s %s %s\n' "$vid" "$pid" "$(cat "$d/product" 2>/dev/null || echo '')" "$info"
+    done
+}
+
+# OUTPUT, NEVER EXIT STATUS. fprintd-list exits non-zero when it finds no
+# device, which is indistinguishable from the binary being absent if you only
+# test $? — and "the tool is missing" and "the tool works and sees nothing" have
+# completely different answers. Telling those apart is this whole file's job, so
+# getting it wrong here would be self-defeating; the caller checks for the
+# binary separately and this only ever reports what it SAID.
+fprintd_devices() {
+    fprintd-list "${SUDO_USER:-$USER}" 2>&1
+    return 0
+}
+
+cmd_status() {
+    local problems=0 usb devs
+
+    echo "The software"
+    if command -v fprintd-list >/dev/null 2>&1 || [ -x /usr/libexec/fprintd ]; then
+        yes_ "fprintd is installed"
+    else
+        no_  "fprintd is NOT installed — fingerprint login cannot appear in Settings."
+        note "     It ships on the laptop strain only. Add it with:"
+        note "     sudo apt install fprintd libpam-fprintd"
+        problems=$((problems + 1))
+    fi
+    if [ -r "$PAM_COMMON" ] && grep -q 'pam_fprintd' "$PAM_COMMON" 2>/dev/null; then
+        yes_ "the fingerprint PAM module is enabled"
+    else
+        warn_ "the fingerprint PAM module is not enabled yet (this is normal until you enrol)."
+    fi
+
+    echo
+    echo "The hardware"
+    usb="$(scan_usb)"
+    if [ -z "$usb" ]; then
+        no_ "no USB fingerprint reader found on this machine."
+        note "     Internal readers on laptops are USB devices even though nothing is"
+        note "     plugged in, so this usually means the machine has none — or that it"
+        note "     is disabled in the BIOS/UEFI setup."
+        problems=$((problems + 1))
+    else
+        while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            yes_ "possible reader: ${line%%|*}"
+            note "     ${line#*|}"
+        done <<< "$usb"
+    fi
+
+    echo
+    echo "What fprintd can actually see"
+    if ! command -v fprintd-list >/dev/null 2>&1; then
+        no_ "fprintd-list is not installed, so nothing can enumerate a reader."
+        problems=$((problems + 1))
+        devs=""
+    elif devs="$(fprintd_devices)"; printf '%s' "$devs" | grep -qi 'no devices\|impossible to enumerate\|not found\|no such'; then
+        no_ "fprintd sees NO device."
+        if [ -n "$usb" ]; then
+            echo
+            echo "${C_WARN}This is the important line:${C_OFF} the reader is on the bus but fprintd cannot"
+            echo "drive it. That means in-tree libfprint has no driver for this exact sensor —"
+            echo "typically a match-on-chip Synaptics or Goodix part that needs the vendor's"
+            echo "Touch OEM Driver. Ubuntu distributes those through OEM channels rather than"
+            echo "the normal archive, so there is nothing Refract or apt can install to fix it."
+            echo "Search for your vendor:product above plus \"libfprint-2-tod1\" to see whether"
+            echo "a driver exists for it yet."
+        fi
+        problems=$((problems + 1))
+    else
+        yes_ "fprintd enumerates a device"
+        printf '%s\n' "$devs" | sed 's/^/     /'
+    fi
+
+    echo
+    if [ "$problems" -eq 0 ]; then
+        echo "${C_OK}Everything is in place.${C_OFF} Enrol with: distro-fingerprint enroll"
+        note "(or Settings -> Users -> Fingerprint Login)"
+    else
+        echo "${C_WARN}Fingerprint login is not available on this machine right now.${C_OFF}"
+    fi
+    return 0
+}
+
+cmd_enroll() {
+    command -v fprintd-enroll >/dev/null 2>&1 || {
+        echo "${C_ERR}fprintd-enroll is not installed.${C_OFF} Run: sudo apt install fprintd libpam-fprintd" >&2
+        return 1
+    }
+    if [ "$(id -u)" -eq 0 ] && [ -z "${SUDO_USER:-}" ]; then
+        echo "${C_WARN}Run this as yourself, not as root — fingerprints are enrolled per user.${C_OFF}" >&2
+        return 1
+    fi
+    echo "Touch the reader when prompted. Ctrl-C to stop."
+    fprintd-enroll || { echo "${C_ERR}Enrolment did not complete.${C_OFF}" >&2; return 1; }
+
+    # Enrolling a finger does nothing on its own — the PAM module still has to be
+    # turned on, and libpam-fprintd's packaging does not do it. Skipping this is
+    # how someone ends up with a successfully enrolled fingerprint that never
+    # unlocks anything.
+    if [ -r "$PAM_COMMON" ] && grep -q 'pam_fprintd' "$PAM_COMMON" 2>/dev/null; then
+        echo "${C_OK}Fingerprint login is already enabled.${C_OFF}"
+        return 0
+    fi
+    echo
+    echo "Turning on fingerprint login (this needs your password once)..."
+    if sudo pam-auth-update --enable fprintd; then
+        echo "${C_OK}Done. Your fingerprint now works at the lock screen and for sudo.${C_OFF}"
+    else
+        echo "${C_WARN}Your fingerprint is enrolled, but PAM was not updated.${C_OFF}" >&2
+        echo "Run: sudo pam-auth-update  and tick 'Fingerprint authentication'." >&2
+    fi
+    return 0
+}
+
+cmd_forget() {
+    command -v fprintd-delete >/dev/null 2>&1 || { echo "fprintd-delete is not installed." >&2; return 1; }
+    fprintd-delete "${SUDO_USER:-$USER}" && echo "${C_OK}Enrolled fingerprints deleted.${C_OFF}"
+    return 0
+}
+
+case "${1:-status}" in
+    status)          cmd_status ;;
+    enroll|enrol)    cmd_enroll ;;
+    forget|delete)   cmd_forget ;;
+    -h|--help|help)  usage ;;
+    *)               echo "unknown command '$1' (try --help)" >&2; exit 1 ;;
+esac

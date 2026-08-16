@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Refract Tips (first login)
+Comment=Show the tips once, on the first graphical login
+# --first-run exits silently if the tips have already been seen, so this is a
+# no-op on every login after the first. gnome-initial-setup is purged and masked
+# on this image, so without this a new owner gets a desktop with no indication
+# that modes, layouts or the top-bar switcher exist at all.
+Exec=/usr/local/bin/refract-tips --first-run
+# 20 seconds in: competing with the desktop drawing itself is how a welcome
+# window becomes the thing you close before reading.
+X-GNOME-Autostart-Delay=20
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

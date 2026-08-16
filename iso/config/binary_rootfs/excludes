@@ -40,6 +40,21 @@ usr/src/*
 # intact. Nothing in the shipped desktop invokes pocketsphinx by default.
 usr/share/pocketsphinx/*
 # AppStream software-catalogue metadata (~22 MB): a rebuildable cache for the
-# software centre, regenerated on demand by `appstreamcli refresh`. Shipping a
-# stale snapshot of it in the image buys nothing.
+# software centre. Shipping a stale snapshot of it in the image buys nothing,
+# and 22 MB is more headroom than the lowspec strain has under GitHub's 2 GiB
+# single-asset cap — so it stays excluded.
+#
+# BUT: "regenerated on demand by appstreamcli refresh" was true of the mechanism
+# and false of this distro, because NOTHING EVER DEMANDED IT. Stripping this
+# directory removes the source data for every app icon, screenshot, description
+# and star rating GNOME Software shows, and the shipped image had no step
+# anywhere that rebuilt it. The result was reported as: "a lot of the icons in
+# the app store is gone (the screenshots and the stars and a lot of other
+# stuff)", along with apps that could not be installed — Software cannot offer
+# what it has no metadata for.
+#
+# The fix is modes/update/systemd/system/refract-catalogue-warmup.service, which
+# runs `distro-appstore warm` ONCE on the first booted, networked session and
+# rebuilds all of it. Do not delete that unit and leave this exclude in place:
+# the two only make sense together.
 var/lib/swcatalog/*

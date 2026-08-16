@@ -82,13 +82,35 @@ flathub_cached() {
     [ -n "$(find /var/lib/flatpak/appstream/flathub -mindepth 2 -maxdepth 2 -name active 2>/dev/null | head -n1)" ]
 }
 
-# APT's catalogue. AppStream 1.0 (Ubuntu 24.04) uses /var/cache/swcatalog;
-# older releases used /var/cache/app-info. Check both rather than asserting
-# either — a wrong guess here would report "no catalogue" on a healthy machine.
+# APT's catalogue — THE ONE THAT WAS MISSING.
+#
+# iso/config/binary_rootfs/excludes strips var/lib/swcatalog from every image
+# (~22 MB, more headroom than the lowspec strain has), on the reasoning that it
+# is "regenerated on demand by appstreamcli refresh". True of the mechanism,
+# false of this distro: nothing ever demanded it. That directory is the source of
+# every app ICON, SCREENSHOT, DESCRIPTION and STAR RATING GNOME Software shows,
+# and without it Software also cannot offer apps it has no metadata for. All of
+# which was reported at once and read as four separate faults.
+#
+# AppStream 1.0 (Ubuntu 24.04) uses swcatalog; older releases used app-info.
+# Check both rather than asserting either — a wrong guess would report "no
+# catalogue" on a perfectly healthy machine.
 apt_catalogue() {
     local d
     for d in /var/cache/swcatalog /var/lib/swcatalog /var/cache/app-info /var/lib/app-info; do
         [ -d "$d" ] && [ -n "$(find "$d" -type f 2>/dev/null | head -n1)" ] && { printf '%s\n' "$d"; return 0; }
+    done
+    return 1
+}
+
+# Icons specifically. A catalogue with metadata but no icon cache renders a grid
+# of grey placeholders, which is what "a lot of the icons are gone" looks like —
+# and it is a different failure from having no catalogue at all, so it gets its
+# own check rather than being folded into the one above.
+apt_icons() {
+    local d
+    for d in /var/cache/swcatalog/icons /var/lib/swcatalog/icons /var/cache/app-info/icons; do
+        [ -d "$d" ] && [ -n "$(find "$d" -type f 2>/dev/null | head -n1)" ] && return 0
     done
     return 1
 }
@@ -154,7 +176,17 @@ cmd_status() {
     if catdir="$(apt_catalogue)"; then
         yes_ "the Ubuntu catalogue is present ($catdir)"
     else
-        warn_ "no Ubuntu app catalogue found — the store's apt half will be empty."
+        no_  "the Ubuntu app catalogue is MISSING."
+        note "     This is what supplies app icons, screenshots, descriptions and"
+        note "     star ratings, and Software cannot offer an app it has no entry"
+        note "     for. The image ships without it deliberately (22 MB) and rebuilds"
+        note "     it on first boot — if you are seeing this, that never happened."
+        problems=$((problems + 1))
+    fi
+    if apt_icons; then
+        yes_ "app icons are cached"
+    else
+        warn_ "no app icon cache — the store will show grey placeholders."
         problems=$((problems + 1))
     fi
 
@@ -254,9 +286,52 @@ cmd_open() {
     "$SOFTWARE_BIN" "$@"
 }
 
+# Non-interactive sibling of `fix`, run once by refract-catalogue-warmup.service
+# on the first booted, networked session. No prompts, no dock changes, no
+# assumptions about a graphical session — just rebuild the catalogues the image
+# deliberately ships without.
+#
+# ALWAYS EXITS 0. This is a boot-time unit on a machine that may have no network
+# for days; a red failed unit in `systemctl status` is a worse outcome than a
+# store that is still cold, and the marker below is only written on success so an
+# offline first boot is retried on the next one rather than being written off.
+cmd_warm() {
+    [ "$(id -u)" -eq 0 ] || { echo "distro-appstore warm: must run as root." >&2; exit 0; }
+    local marker=/var/lib/refract/catalogue-warmed
+    local ok=0
+
+    if command -v apt-get >/dev/null 2>&1; then
+        echo "Fetching package indexes..."
+        # apt-get update is what DOWNLOADS the DEP-11 metadata; appstreamcli only
+        # rebuilds the cache from what apt has already fetched. Refreshing
+        # without this finds nothing and reports success, which is the whole
+        # reason the store came up empty in the first place.
+        apt-get update -qq >/dev/null 2>&1 || { echo "  (could not reach the Ubuntu archive)" >&2; ok=1; }
+    fi
+    if command -v appstreamcli >/dev/null 2>&1; then
+        echo "Rebuilding the app catalogue (icons, screenshots, descriptions)..."
+        appstreamcli refresh --force >/dev/null 2>&1 || { echo "  (appstreamcli refresh failed)" >&2; ok=1; }
+    fi
+    if command -v flatpak >/dev/null 2>&1 && flatpak remotes 2>/dev/null | grep -q '^flathub'; then
+        echo "Fetching the Flathub catalogue..."
+        flatpak update --appstream -y >/dev/null 2>&1 || { echo "  (could not reach Flathub)" >&2; ok=1; }
+    fi
+
+    if [ "$ok" -eq 0 ]; then
+        mkdir -p "$(dirname "$marker")" 2>/dev/null || true
+        date -u +%Y-%m-%dT%H:%M:%SZ > "$marker" 2>/dev/null || true
+        echo "${C_OK}App catalogues are ready.${C_OFF}"
+    else
+        # NO MARKER. An offline first boot must be retried, not recorded as done.
+        echo "${C_WARN}Some catalogues could not be fetched — this will be retried on the next boot.${C_OFF}" >&2
+    fi
+    exit 0
+}
+
 case "${1:-status}" in
     status)             cmd_status ;;
     fix)                cmd_fix ;;
+    warm)               cmd_warm ;;
     open)               shift; cmd_open "$@" ;;
     -h|--help|help)     usage ;;
     *)                  echo "unknown command '$1' (try --help)" >&2; exit 1 ;;

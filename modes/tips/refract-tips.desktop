@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Refract Tips
+GenericName=Getting started
+Comment=What Refract OS does that Ubuntu doesn't — modes, layouts, updates and the tools that ship with it
+Exec=/usr/local/bin/refract-tips
+Icon=help-about
+Terminal=false
+Categories=System;Documentation;
+Keywords=tips;help;getting started;guide;how to;welcome;tutorial;modes;refract;
+StartupNotify=true
