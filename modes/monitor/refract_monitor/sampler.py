@@ -359,8 +359,45 @@ def end_process(pid, force=False):
         return False, str(e)
 
 
+# ------------------------------------------------------- SUBPROCESS THROTTLING
+# NOTHING HERE MAY SPAWN A PROCESS ON EVERY TICK.
+#
+# tick() runs on the GTK main loop, so a synchronous subprocess.run blocks the
+# entire UI for its full duration — once a second. That is tolerable for a
+# command that returns in 2 ms and disastrous for one that does not: on a hybrid
+# -graphics laptop with the NVIDIA card runtime-suspended in D3cold, invoking
+# nvidia-smi RESUMES the GPU and initialises NVML, which routinely takes hundreds
+# of milliseconds and can reach the 3 s timeout. During that the window does not
+# redraw, scroll or respond to clicks — it looks hung, which this module's own
+# docstring says is worse than showing a dash.
+#
+# The fix that does not require rewriting every reader as async: cache the result
+# and only actually spawn every Nth call. GPU utilisation sampled every 3 s and
+# the power PROFILE every 15 s are both far finer-grained than the thing they
+# measure changes — a profile changes when somebody clicks something, and the
+# graph keeps 60 samples either way.
+_CACHE = {}
+
+
+def _cached(key, ttl_ticks, producer):
+    """producer() at most once every ttl_ticks calls; the cached value between.
+
+    Deliberately counts CALLS rather than reading a clock: the caller ticks on a
+    fixed 1 s timer, so calls ARE time here, and counting them keeps this
+    testable without patching time.
+    """
+    n, value = _CACHE.get(key, (0, None))
+    if n % ttl_ticks == 0:
+        try:
+            value = producer()
+        except Exception:
+            value = None
+    _CACHE[key] = (n + 1, value)
+    return value
+
+
 # --------------------------------------------------------------------------- GPU
-def _nvidia():
+def _nvidia_query():
     try:
         out = subprocess.run(
             ["nvidia-smi",
@@ -388,6 +425,12 @@ def _nvidia():
         "mem_total": (num(parts[3]) or 0) * 1024 * 1024,
         "temp_c": num(parts[4]), "note": None,
     }
+
+
+def _nvidia():
+    # 3 s. Long enough that a D3cold resume is not paid every frame, short enough
+    # that the graph still shows the shape of a load.
+    return _cached("nvidia", 3, _nvidia_query)
 
 
 def _amd():
@@ -529,14 +572,15 @@ def power():
         elif status == "Discharging":
             remaining_h = energy_now / power_w
 
-    profile = None
-    try:
+    # 15 s. The power profile changes when a person clicks something or
+    # distro-powerctl reacts to a cable; sampling it once a second was spawning
+    # 3,600 processes an hour to read a value that changes twice a day.
+    def _profile():
         out = subprocess.run(["powerprofilesctl", "get"],
                              capture_output=True, text=True, timeout=2)
-        if out.returncode == 0:
-            profile = out.stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        profile = None
+        return out.stdout.strip() if out.returncode == 0 else None
+
+    profile = _cached("profile", 15, _profile)
 
     return {"capacity": capacity, "status": status, "power_w": power_w,
             "health": health, "remaining_h": remaining_h, "profile": profile,

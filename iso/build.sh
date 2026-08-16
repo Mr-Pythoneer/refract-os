@@ -83,7 +83,17 @@ if [[ ! " ${VALID_STRAINS[*]} " == *" $STRAIN "* ]]; then
     exit 1
 fi
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# RESOLVED ONCE, BEFORE THE cd. Re-deriving `dirname "$BASH_SOURCE"` after
+# already cd-ing into that directory double-prefixes it: invoked as
+# `sudo ./iso/build.sh server` from the repo root — which the comment below
+# documents as a supported way to run this — BASH_SOURCE is "./iso/build.sh", the
+# cd lands in ./iso, and a second dirname then yields "./iso/config/hooks",
+# i.e. <repo>/iso/iso/config/hooks, which does not exist. That made the
+# mode-omission strip HALF APPLY: the package lists (plain relative paths) were
+# deleted while the hooks were not, so an image built with REFRACT_OMIT_MODES
+# still ran the hooks for the mode it was supposed to prove absent.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Anchor the CWD to iso/. Staging paths below are script-relative, but `lb config`,
 # the `>> config/binary` append, `lb build` and the output scan are all
 # CWD-relative — and nothing enforced where this runs. Invoked from the repo root
@@ -92,7 +102,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # refract-os-<strain>.iso — a stock Ubuntu live image wearing the Refract name,
 # with none of the strain packages, hooks or includes. Only a prose warning in the
 # header guarded that.
-cd "$(dirname "${BASH_SOURCE[0]}")"
+cd "$SCRIPT_DIR"
 INCLUDES="config/includes.chroot"
 PACKAGE_LISTS="config/package-lists"
 STRAIN_FILE="$REPO_ROOT/iso/strains/${STRAIN}.list.chroot"
@@ -169,7 +179,9 @@ rm -f "$INCLUDES/etc/polkit-1/rules.d/49-refract-installer.rules"
 # Strip its package list + build hook from headless strains so server/cloud
 # images don't drag in GNOME theme tooling (sassc, gnome-shell-extensions, ...)
 # or spend build time compiling WhiteSur for an image with no desktop.
-HOOKS_DIR="$(dirname "${BASH_SOURCE[0]}")/config/hooks"
+# Relative, matching INCLUDES and PACKAGE_LISTS above — the CWD is $SCRIPT_DIR
+# by this point, and a second absolute derivation is the bug documented there.
+HOOKS_DIR="config/hooks"
 # The macOS look + polish layers are GNOME-specific (WhiteSur GTK, blur-my-shell,
 # gnome-sushi, org.gnome.* dconf). Strip them from every NON-GNOME strain: the
 # headless ones AND lowspec (which is LXQt/lubuntu-desktop, not GNOME).

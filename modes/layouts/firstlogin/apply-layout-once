@@ -11,6 +11,9 @@
 # original choice.
 stamp="$HOME/.config/refract-layout-applied"
 [ -e "$stamp" ] && exit 0
+# The installer's default is exactly the right source HERE: this runs once, on a
+# user's first login, before that user has chosen anything. distro-layoutctl then
+# records their own choice per-user and this never runs again for them.
 layout=$(tr -d '[:space:]' < /etc/refract/layout 2>/dev/null || echo refract)
 [ -n "$layout" ] || layout=refract
 command -v distro-layoutctl >/dev/null 2>&1 || exit 0

@@ -10,6 +10,34 @@ stops at the first heading the machine has already been shown, so an entry
 appended at the bottom is never displayed to anyone who is up to date. Adding
 one with `>>` is the obvious mistake and it fails silently.
 
+## 2026-08-16 — The rest of the audit
+
+The seven lower-severity findings from the audit, now closed:
+
+**A refused password left the machine half-switched.** Changing mode applied the
+visible half first — dock, wallpaper, accent, AI model — and only then asked for
+your password. Get it wrong and the desktop said one mode while the system was
+still in the other, with no error explaining the gap. It now asks first and
+changes nothing if you decline.
+
+**Two accounts on one machine fought over the layout.** Which layout is active
+was stored once for the whole system, but a layout is per-person — so a second
+user picking one would silently replace the first user's theme the next time they
+changed mode. Each account now remembers its own.
+
+**The monitor was freezing its own window.** It ran `nvidia-smi` every second,
+and on laptops with a switchable GPU that call wakes the card up and can take
+most of a second — during which the window doesn't redraw or respond. Now sampled
+every three seconds, and the power profile every fifteen instead of every one.
+
+Also: the keyboard remapper was built from a tag that upstream could move, and is
+now pinned to an exact verified commit — it's a root daemon that sees every
+keystroke, so it deserved the same check the *themes* already had. The cloud
+image shipped SSH open with no firewall at all. A disk mounted at a path with a
+space in it made the scratch-space picker create a folder on the wrong drive. And
+building the ISO from the repo root half-applied mode omission, because the
+script re-derived its own location after moving into it.
+
 ## 2026-08-16 — Refract Tips actually arrives now
 
 Tips shipped with a launcher that pointed at a program the updater never put in

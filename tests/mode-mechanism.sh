@@ -200,6 +200,13 @@ STUB
     {
         printf '#!/usr/bin/env bash\n'
         printf 'echo "sudo $*" >> "%s/sudo.log"\n' "$LOG_DIR"
+        # `sudo -v` validates credentials and runs nothing. do_switch now calls it
+        # BEFORE the per-user steps so a refused password cannot leave the desktop
+        # switched and the system not — without this branch the stub would try to
+        # exec "-v" as a command, every switch would abort, and the harness would
+        # be testing the failure path.
+        # shellcheck disable=SC2016
+        printf 'if [ "$1" = "-v" ]; then exit 0; fi\n'
         printf 'exec env FAKE_ROOT=1 "$@"\n'
     } > "$STUB_DIR/sudo"
     chmod +x "$STUB_DIR/sudo"

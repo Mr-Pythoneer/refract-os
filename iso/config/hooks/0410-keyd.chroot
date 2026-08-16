@@ -7,7 +7,13 @@
 # Ctrl+C/V/... keep working (Ctrl is untouched). Build deps are purged after so
 # the image stays lean. Fully failure-tolerant: if anything fails, Ctrl shortcuts
 # still work and the ISO still builds.
+# The tag is kept for humans; the SHA is what is actually fetched and verified.
+# A tag can be moved; a commit id cannot — git's own object hashing makes it a
+# real content check. Resolved 2026-08-16 from
+# https://api.github.com/repos/rvaiya/keyd/git/ref/tags/v2.5.0 (an annotated tag
+# would need its target dereferenced; this one points straight at a commit).
 KEYD_TAG="v2.5.0"
+KEYD_SHA="f33dca879a3f871ee2e0fa9c1efd6e8dabb21ed3"
 
 _added_tools=false
 if ! command -v gcc >/dev/null 2>&1 || ! command -v make >/dev/null 2>&1; then
@@ -61,7 +67,22 @@ getent group keyd >/dev/null 2>&1 || groupadd -r keyd 2>/dev/null || true
 # │ light; you are putting it back together.                                   │
 # └────────────────────────────────────────────────────────────────────────────┘
 
-if git clone --depth 1 --branch "$KEYD_TAG" https://github.com/rvaiya/keyd.git "$WORK/keyd" >/dev/null 2>&1 \
+# PINNED BY COMMIT, NOT BY TAG. A git tag is a MUTABLE ref: `--branch v2.5.0`
+# resolves to whatever that tag points at when the build runs, and nothing
+# checked the result. keyd is not an ordinary build dependency — it is a root
+# daemon that grabs every evdev keyboard (`[ids] *` in the config written below)
+# and is systemctl-enabled, so by design it sees every keystroke on the machine
+# including passwords and sudo prompts. If the tag were force-moved, or the
+# upstream account compromised at any point before a build, `make install` would
+# put attacker code in that position and the ISO would ship it silently.
+#
+# This is exactly the fetch-by-SHA-then-verify that 0300-macos-look.chroot
+# already applies to three GTK THEMES. Applying it to a cosmetic theme and not
+# to the keylogger was the wrong way round.
+if git init -q "$WORK/keyd" >/dev/null 2>&1 \
+   && git -C "$WORK/keyd" fetch -q --depth 1 https://github.com/rvaiya/keyd.git "$KEYD_SHA" >/dev/null 2>&1 \
+   && git -C "$WORK/keyd" checkout -q FETCH_HEAD >/dev/null 2>&1 \
+   && [ "$(git -C "$WORK/keyd" rev-parse HEAD 2>/dev/null)" = "$KEYD_SHA" ] \
    && make -C "$WORK/keyd" >/dev/null 2>&1 \
    && make -C "$WORK/keyd" install >/dev/null 2>&1; then
     mkdir -p /etc/keyd

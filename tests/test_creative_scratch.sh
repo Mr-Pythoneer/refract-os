@@ -8,7 +8,7 @@ CS="$REPO_ROOT/modes/creative/bin/distro-creative-scratch"
 # the script now uses must succeed and produce output. This is the assertion
 # that can ONLY be meaningful on the Ubuntu CI runner — macOS has BSD df.
 if is_linux; then
-  if df -l --output=source,target,avail >/dev/null 2>&1; then
+  if df -l --output=avail,source,target >/dev/null 2>&1; then
     pass "GNU df -l --output works (the -lP regression is fixed)"
   else
     fail "GNU df -l --output works" "df rejected the flags the script relies on"
@@ -21,10 +21,10 @@ fi
 sd="$(new_stubdir)"
 stub "$sd" df 'if [[ "$*" == *-P* && "$*" == *--output* ]]; then echo "df: --portability and --output are mutually exclusive" >&2; exit 1; fi
 cat <<TBL
-Filesystem Mounted Avail
-/dev/sda2 / 20000000
-/dev/nvme0n1p1 /home 500000000
-/dev/nvme1n1p1 /data 100000000
+Avail Filesystem Mounted
+20000000 /dev/sda2 /
+500000000 /dev/nvme0n1p1 /home
+100000000 /dev/nvme1n1p1 /data
 TBL'
 stub "$sd" lsblk 'dev="${@: -1}"; mode="$2"
 case "$dev" in
@@ -44,5 +44,46 @@ out="$(PATH="$sd:$PATH" "$CS" detect 2>/dev/null)"; rc=$?
 assert_eq "df-failure detect exits 0" "0" "$rc"
 assert_eq "df-failure falls back to /var/tmp" "/var/tmp" "$out"
 rm -rf "$sd"
+
+
+# --- a mount point containing a SPACE ---------------------------------------
+# The column order exists for this. With source/target/avail, `read -r source
+# target avail` tore "/mnt/Fast Disk" in half: target became "/mnt/Fast" and
+# avail the string "Disk 900000000". The nvme preference short-circuits the
+# numeric comparison, so the garbage was ACCEPTED and `setup` created
+# /mnt/Fast/refract-scratch — a directory on the root filesystem, named after
+# half a path, silently not on the fast disk it was picked for.
+sd3="$(new_stubdir)"
+stub "$sd3" df 'cat <<TBL
+Avail Filesystem Mounted
+20000000 /dev/sda2 /
+900000000 /dev/nvme2n1p1 /mnt/Fast Disk
+TBL'
+stub "$sd3" lsblk 'dev="${@: -1}"; mode="$2"
+case "$dev" in
+  /dev/sda2) r=1; n=sda;;
+  /dev/nvme2n1p1) r=0; n=nvme2n1;;
+  *) r=1; n=x;;
+esac
+[ "$mode" = ROTA ] && echo "$r" || echo "$n"'
+out3="$(PATH="$sd3:$PATH" "$CS" detect 2>/dev/null)"
+assert_eq "a mount point with a space survives intact" "/mnt/Fast Disk" "$out3"
+
+# --- a line that does not parse is skipped, not guessed at -------------------
+sd4="$(new_stubdir)"
+stub "$sd4" df 'cat <<TBL
+Avail Filesystem Mounted
+not-a-number /dev/nvme3n1p1 /weird
+20000000 /dev/nvme0n1p1 /home
+TBL'
+stub "$sd4" lsblk 'dev="${@: -1}"; mode="$2"
+case "$dev" in
+  /dev/nvme0n1p1) r=0; n=nvme0n1;;
+  /dev/nvme3n1p1) r=0; n=nvme3n1;;
+  *) r=1; n=x;;
+esac
+[ "$mode" = ROTA ] && echo "$r" || echo "$n"'
+out4="$(PATH="$sd4:$PATH" "$CS" detect 2>/dev/null)"
+assert_eq "a non-numeric avail column is skipped" "/home" "$out4"
 
 finish

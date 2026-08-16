@@ -18,6 +18,12 @@
 
 set -euo pipefail
 
+# Resolved ONCE, and absolute. iso/build.sh had the same construct re-evaluated
+# after a cd and it silently double-prefixed; nothing here cds, but a relative
+# invocation (`./iso/cloud-image/build-cloud-image.sh`) still makes every later
+# `dirname "$BASH_SOURCE"` depend on the caller's CWD.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 if [ "$(id -u)" -ne 0 ]; then
     echo "build-cloud-image.sh: must run as root (loop devices, mount, chroot, grub-install)." >&2
     exit 1
@@ -102,13 +108,38 @@ chroot "$MOUNT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive bash -c '
         linux-image-generic grub-pc cloud-init cloud-guest-utils openssh-server
 '
 
-cp "$(dirname "${BASH_SOURCE[0]}")/../strains/cloud.list.chroot" "$MOUNT_DIR/tmp/cloud.list.chroot" 2>/dev/null || true
+cp "$SCRIPT_DIR/../strains/cloud.list.chroot" "$MOUNT_DIR/tmp/cloud.list.chroot" 2>/dev/null || true
 if [ -f "$MOUNT_DIR/tmp/cloud.list.chroot" ]; then
     chroot "$MOUNT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive bash -c '
         set -euo pipefail
         grep -v "^##" /tmp/cloud.list.chroot | xargs -r apt-get install -y --no-install-recommends
         rm -f /tmp/cloud.list.chroot
     '
+fi
+
+# ---------------------------------------------------------------------------
+# FIREWALL. This pipeline does NOT use live-build — it never reads
+# base.list.chroot and never runs anything in iso/config/hooks — so ufw was
+# simply absent and 0460-firewall.chroot never executed. The image installs
+# openssh-server five lines above, which means the cloud strain, the ONE strain
+# that boots straight onto a public network, shipped :22 open with no firewall
+# at all, while every desktop strain that has no sshd got one.
+#
+# The hook is strain-agnostic and self-gating — it exits if ufw is missing and
+# only opens :22 after confirming openssh-server is installed — so it runs here
+# unmodified rather than being reimplemented and drifting.
+chroot "$MOUNT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive \
+    apt-get install -y --no-install-recommends ufw
+if [ -f "$SCRIPT_DIR/../config/hooks/0460-firewall.chroot" ]; then
+    cp "$SCRIPT_DIR/../config/hooks/0460-firewall.chroot" "$MOUNT_DIR/tmp/firewall.sh"
+    # NOT fatal. A cloud image that fails to build helps nobody; a loud warning
+    # in the build log is the right severity for a step whose absence is visible
+    # to `ufw status` on the running instance.
+    chroot "$MOUNT_DIR" sh /tmp/firewall.sh \
+        || echo "WARNING: the firewall hook did not complete — this image may have no firewall." >&2
+    rm -f "$MOUNT_DIR/tmp/firewall.sh"
+else
+    echo "WARNING: 0460-firewall.chroot not found — cloud image built WITHOUT a firewall." >&2
 fi
 
 # ---------------------------------------------------------------------------

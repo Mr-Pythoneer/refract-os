@@ -35,8 +35,20 @@ detect_best_mount() {
     # detection to the /var/tmp fallback on every Ubuntu box. Capture df
     # separately so a future incompatibility surfaces loudly instead of degrading
     # silently.
+    # AVAIL FIRST, TARGET LAST. `read -r source target avail` splits on IFS, and a
+    # mount point is a user-controlled path that may contain SPACES — GNU df
+    # prints them verbatim (it decodes /proc's \040 back to a real space). A disk
+    # mounted at "/mnt/Fast Disk" was torn in two: target became "/mnt/Fast" and
+    # avail became the string "Disk 900000000". The nvme preference short-circuits
+    # the numeric comparison, so that garbage was accepted and `setup` then
+    # created /mnt/Fast/refract-scratch — a directory on the ROOT filesystem,
+    # named after half a path, silently not on the fast disk it was chosen for.
+    #
+    # Putting the numeric columns first makes the path the trailing field, which
+    # `read` assigns whole, spaces included. The numeric guard below then rejects
+    # anything that still is not a number instead of trusting the layout.
     local df_out
-    df_out="$(df -l --output=source,target,avail 2>/dev/null | tail -n +2)" || true
+    df_out="$(df -l --output=avail,source,target 2>/dev/null | tail -n +2)" || true
     if [ -z "$df_out" ]; then
         echo "distro-creative-scratch: df produced no usable output -- cannot detect mounts, falling back to /var/tmp" >&2
         printf '%s\n' "/var/tmp"
@@ -45,7 +57,14 @@ detect_best_mount() {
 
     local best_path="" best_avail=-1 best_is_nvme=0
 
-    while read -r source target avail; do
+    while read -r avail source target; do
+        # A field that is not a plain integer means the line did not parse the way
+        # this expects; skipping is the only safe response, and it is what stops a
+        # surprise in df's output becoming a directory in the wrong place.
+        case "$avail" in
+            ''|*[!0-9]*) continue ;;
+        esac
+        [ -n "$target" ] || continue
         [ "$target" = "/boot" ] || [ "$target" = "/boot/efi" ] && continue
         case "$source" in
             /dev/*) ;;

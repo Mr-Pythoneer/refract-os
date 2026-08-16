@@ -626,7 +626,21 @@ apply_theme() {
     # first time they changed mode. Modes decide what the machine is tuned FOR;
     # layouts decide how it LOOKS. Re-apply the ACTIVE layout instead, so a mode
     # switch preserves the look the user actually picked.
-    _layout=$(tr -d '[:space:]' < /etc/refract/layout 2>/dev/null || echo refract)
+    # THE INVOKING USER'S OWN layout, not the machine's. distro-layoutctl now
+    # records a switch under that user's config dir; /etc/refract/layout is only
+    # the installer-chosen DEFAULT for somebody who has never picked one. Reading
+    # the global file here is what let a second account's choice silently replace
+    # the first account's theme on their next mode switch.
+    #
+    # user_config_dir resolves the DESKTOP user in both the bare and the
+    # sudo/pkexec cases — reading $HOME directly would read root's under sudo,
+    # which nothing ever writes.
+    _cfg=""; _cfg="$(user_config_dir)" || _cfg=""
+    _layout=""
+    if [ -n "$_cfg" ] && [ -r "$_cfg/refract/layout" ]; then
+        _layout=$(tr -d '[:space:]' < "$_cfg/refract/layout" 2>/dev/null || true)
+    fi
+    [ -n "$_layout" ] || _layout=$(tr -d '[:space:]' < /etc/refract/layout 2>/dev/null || echo refract)
     if command -v distro-layoutctl >/dev/null 2>&1; then
         distro-layoutctl switch "${_layout:-refract}" >/dev/null 2>&1 || true
     fi
@@ -706,6 +720,29 @@ do_switch() {
     # so they run EXACTLY ONCE — but still run when invoked directly via `sudo`
     # (no marker), which is the case the id!=0 guard used to wrongly skip.
     if [ -z "${_REFRACT_REEXEC:-}" ]; then
+        # ESTABLISH PRIVILEGE BEFORE CHANGING ANYTHING VISIBLE.
+        #
+        # These three steps must run as the desktop user, so they happen before
+        # the sudo re-exec below. But require_root_for's `sudo … || exit` came
+        # AFTER them, so mistyping the password three times (or Ctrl-C at the
+        # prompt, or simply not being in sudoers) left the machine split in half:
+        # the dock overlay swapped, the wallpaper and accent changed, blur
+        # toggled and the AI model unloaded — while the governor, power profile,
+        # GPU state, services and the recorded mode were all still the OLD mode.
+        # The desktop said one thing and the system did another, with no error
+        # explaining the difference and no rollback.
+        #
+        # `sudo -v` just validates (and caches) credentials without running
+        # anything, so the password is asked for FIRST and a refusal costs
+        # nothing. The later re-exec then reuses the cached credential rather
+        # than prompting twice.
+        if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
+            sudo -v || {
+                echo "Not switching: this needs administrator access and it was not granted." >&2
+                echo "Nothing has been changed." >&2
+                exit 1
+            }
+        fi
         apply_pinned_apps PINNED_APPS
         apply_theme
         apply_ai_model

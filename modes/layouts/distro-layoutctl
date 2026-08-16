@@ -30,7 +30,25 @@
 set -uo pipefail
 
 LAYOUT_DIR="${LAYOUT_DIR:-/opt/distro/modes/layouts/profiles}"
-STATE_FILE="/etc/refract/layout"
+
+# A LAYOUT IS PER-USER, SO ITS RECORD MUST BE TOO.
+#
+# Everything a layout applies is per-user dconf — gtk-theme, icon-theme, button
+# layout, shell theme, dock position, blur. The record of which one is active was
+# a single system-wide file, so on a two-account machine: user A switches to
+# macos (global file = macos); user B logs in and switches to minimal (global
+# file = minimal, A's session untouched). The next time A changes MODE,
+# distro-modectl's apply_theme re-asserts the active layout, reads the global
+# file, gets B's choice, and applies it to A's session — A's theme, window
+# controls and dock silently become B's, triggered by an unrelated action.
+#
+# DEFAULT_FILE stays as what the INSTALLER chose: the seed for a user who has
+# never picked one. It is never written by a switch any more.
+DEFAULT_FILE="${REFRACT_LAYOUT_DEFAULT:-/etc/refract/layout}"
+user_state_file() {
+    printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/refract/layout"
+}
+STATE_FILE="${REFRACT_LAYOUT_STATE:-$(user_state_file)}"
 VALID=(refract classic macos minimal)
 
 die() { echo "distro-layoutctl: $*" >&2; exit 1; }
@@ -77,7 +95,14 @@ list_layouts() {
 }
 
 active_layout() {
-    [ -r "$STATE_FILE" ] && tr -d '[:space:]' < "$STATE_FILE" || echo refract
+    # This user's own choice first, the installer's default second, refract last.
+    if [ -r "$STATE_FILE" ]; then
+        tr -d '[:space:]' < "$STATE_FILE"
+    elif [ -r "$DEFAULT_FILE" ]; then
+        tr -d '[:space:]' < "$DEFAULT_FILE"
+    else
+        echo refract
+    fi
 }
 
 apply_layout() {
@@ -126,13 +151,13 @@ apply_layout() {
         fi
     fi
 
-    if [ "$(id -u)" = 0 ]; then
-        mkdir -p "$(dirname "$STATE_FILE")"
-        printf '%s\n' "$layout" > "$STATE_FILE"
-    else
-        sudo mkdir -p "$(dirname "$STATE_FILE")" 2>/dev/null || true
-        printf '%s\n' "$layout" | sudo tee "$STATE_FILE" >/dev/null 2>&1 || true
-    fi
+    # NO sudo BRANCH ANY MORE. The old code fell back to `sudo tee` when it could
+    # not write, because the target was /etc — a system path for a per-user
+    # setting. It is now under the user's own config dir, which the user can
+    # always write, so needing root here would mean something else is wrong.
+    mkdir -p "$(dirname "$STATE_FILE")" 2>/dev/null \
+        && printf '%s\n' "$layout" > "$STATE_FILE" 2>/dev/null \
+        || echo "distro-layoutctl: could not record the layout in $STATE_FILE (it was still applied)." >&2
     echo "Layout is now '${LAYOUT_NAME:-$layout}'. Some apps need a restart to pick up the theme."
 }
 
