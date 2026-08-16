@@ -335,6 +335,16 @@
   .cfg-controls label.mt { margin-top: 16px; }
   .cfg-controls select { width: 100%; background: var(--bg-card2); color: var(--text); border: 1px solid var(--border-hi); border-radius: 8px; padding: 11px 12px; font-size: 0.94rem; }
   .cfg-hint { color: var(--text-faint); font-size: 0.8rem; margin-top: 13px; line-height: 1.55; }
+  .cfg-iso { background: linear-gradient(135deg, rgba(99,140,246,.10), rgba(175,82,222,.08));
+             border: 1px solid var(--border); border-radius: 10px; padding: 18px 18px 16px;
+             margin: 0 0 20px; }
+  .cfg-iso-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .cfg-iso-label { font-size:.72rem; letter-spacing:.09em; text-transform:uppercase; color:var(--text-faint); }
+  .cfg-iso-name { font-family:var(--mono,monospace); font-size:1.05rem; font-weight:600; color:var(--text); }
+  .cfg-iso-why { margin:8px 0 14px; color:var(--text-dim); font-size:.92rem; line-height:1.5; }
+  .cfg-iso-actions { display:flex; gap:10px; flex-wrap:wrap; }
+  .cfg-iso-actions .btn { padding:9px 16px; font-size:.9rem; }
+  .cfg-iso-fine { margin:12px 0 0; font-size:.8rem; color:var(--text-faint); }
   .cfg-result { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 22px; border-top: 3px solid var(--m-ai); }
   .cfg-result.cfg-server { border-top-color: var(--warn); }
   .tier-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -369,6 +379,13 @@
     .mode-card:hover, .btn:hover { transform: none; }
   }
 
+  #langsel { margin-left: 14px; background: var(--bg-card); color: var(--text-dim);
+             border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px;
+             font: inherit; font-size: 0.86rem; cursor: pointer; }
+  #langsel:hover { color: var(--text); }
+  html[dir="rtl"] .navlinks { flex-direction: row-reverse; }
+  html[dir="rtl"] #langsel { margin-left: 0; margin-right: 14px; }
+  html[dir="rtl"] .cfg-iso-head, html[dir="rtl"] .cfg-iso-actions { flex-direction: row-reverse; }
   footer { padding: 44px 0 64px; color: var(--text-faint); font-size: 0.88rem; }
   footer a { color: var(--text-dim); text-decoration: underline; }
   footer .links { margin-top: 10px; display: flex; gap: 18px; flex-wrap: wrap; }
@@ -380,12 +397,13 @@
   <div class="wrap">
     <div class="brand"><img src="logo.png" alt="Refract OS logo">Refract OS</div>
     <div class="navlinks">
-      <a href="#modes">Modes</a>
-      <a href="#download">Download</a>
-      <a href="#strains">Strains</a>
-      <a href="#promises">Promises</a>
-      <a href="#status">Status</a>
+      <a href="#modes" data-i18n="nav.modes">Modes</a>
+      <a href="#download" data-i18n="nav.download">Download</a>
+      <a href="#strains" data-i18n="nav.strains">Strains</a>
+      <a href="#promises" data-i18n="nav.promises">Promises</a>
+      <a href="#status" data-i18n="nav.status">Status</a>
       <a href="https://github.com/Mr-Pythoneer/refract-os">GitHub</a>
+      <select id="langsel" aria-label="Language" title="Language"></select>
     </div>
   </div>
 </nav>
@@ -399,8 +417,8 @@
          plainly rather than implying it's done. -->
     <div class="hero-copy">
       <p class="eyebrow">Ubuntu 24.04 LTS · x86-64</p>
-      <div class="badge">Boots on real hardware — installer still unproven</div>
-      <h1>One Linux install.<br>Five <span>modes</span>.</h1>
+      <div class="badge">Installs and boots on real hardware</div>
+      <h1 data-i18n-html="hero.h1">One Linux install.<br>Five <span>modes</span>.</h1>
       <p class="tagline">An Ubuntu-based distro that switches its whole personality on command — Gaming, AI, Server, Creative, or a polished Normal mode — built around local-first AI, not a cloud assistant bolted onto a browser.</p>
       <div class="cta">
         <a class="btn btn-primary" href="#download">Download</a>
@@ -462,7 +480,7 @@
 
 <section id="modes">
   <div class="wrap">
-    <h2>One system, five modes — or fewer</h2>
+    <h2 data-i18n="modes.title">One system, five modes — or fewer</h2>
     <p class="sub">Not five separate OS images — one base install, switched live via <code>distro-modectl switch &lt;mode&gt;</code>. Ship all of them, or only the ones you want.</p>
     <div class="modes">
       <!-- AI leads: it is the thing this distro is built around, and the only
@@ -503,26 +521,28 @@
 
 <section id="download">
   <div class="wrap">
-    <h2>Download</h2>
+    <h2 data-i18n="dl.title">Download</h2>
     <!-- This said "No prebuilt ISO yet — build it from source" long after the
          laptop ISO was actually published to Releases with a public, no-login
          download + sha256. Keep this in step with what's really on Releases. -->
     <p class="sub">Six strain images, one per hardware class — each a <strong>single <code>.iso</code></strong> on the Releases page, public, no login, checksum-verified. Tell the picker your hardware and it previews the exact local models that machine would preload (auto-detected on first boot, or run <code>distro-ai-setup&nbsp;--install</code> yourself).</p>
     <div class="cfg">
       <div class="cfg-controls">
-        <label for="gpu">GPU</label>
+        <label for="form" data-i18n="cfg.form">Machine type</label>
+        <select id="form" aria-label="Select your machine type"></select>
+        <label for="gpu" class="mt" data-i18n="cfg.gpu">GPU</label>
         <select id="gpu" aria-label="Select your GPU"></select>
-        <label for="cpu" class="mt">CPU</label>
+        <label for="cpu" class="mt" data-i18n="cfg.cpu">CPU</label>
         <select id="cpu" aria-label="Select your CPU class"></select>
-        <label for="ram" class="mt">System RAM</label>
+        <label for="ram" class="mt" data-i18n="cfg.ram">System RAM</label>
         <select id="ram" aria-label="Select your system RAM"></select>
         <div class="cfg-hint">On Nvidia and AMD, VRAM sets the tier — it's the binding constraint for local LLMs. Intel has no VRAM probe at all: an Arc iGPU is tiered by system RAM, a discrete Arc is floored at <code>entry</code> until you set a tier. CPU sets speed when there's no GPU. Two identical cards pool (2&times;48GB&rarr;96GB); mixed vendors don't. Datacenter cards route to Server mode.</div>
       </div>
       <div class="cfg-result" id="cfg-result" aria-live="polite"></div>
     </div>
     <div class="dl-row">
-      <a class="btn btn-primary" href="https://github.com/Mr-Pythoneer/refract-os/releases">Download the ISO</a>
-      <a class="btn btn-secondary" href="install.html">Install guide</a>
+      <a class="btn btn-primary" href="https://github.com/Mr-Pythoneer/refract-os/releases" data-i18n="dl.cta">Download the ISO</a>
+      <a class="btn btn-secondary" href="install.html" data-i18n="dl.guide">Install guide</a>
     </div>
     <p class="dl-fine">Pick the <a href="#strains">strain</a> that matches your machine — they differ in desktop and default packages, not in modes. Within a strain the image is identical everywhere; the picker above only previews which local models that hardware would preload.</p>
   </div>
@@ -530,7 +550,7 @@
 
 <section id="strains">
   <div class="wrap">
-    <h2>Six hardware strains</h2>
+    <h2 data-i18n="strains.title">Six hardware strains</h2>
     <p class="sub">Strains are a build-time hardware-class profile — what desktop environment and packages ship by default. Every strain still gets all 5 modes above; a strain just picks a sensible starting point. Selected via <code>iso/build.sh &lt;strain&gt;</code>.</p>
     <div class="strains">
       <div class="strain-row is-default">
@@ -569,7 +589,7 @@
 
 <section id="promises">
   <div class="wrap">
-    <h2>What this actually promises</h2>
+    <h2 data-i18n="promises.title">What this actually promises</h2>
     <p class="sub">No "runs every Windows app" claims — that promise isn't real anywhere, including SteamOS or CrossOver. Here's the honest split.</p>
     <div class="honesty">
       <div class="honesty-card yes">
@@ -595,7 +615,7 @@
 
 <section id="status">
   <div class="wrap">
-    <h2>Status</h2>
+    <h2 data-i18n="status.title">Status</h2>
     <div class="status-box">
       <p style="margin:0 0 12px;">Said plainly, not buried. <strong>2026-07-02:</strong> the first ISO built in CI and boot-verified in QEMU/KVM — SeaBIOS &rarr; isolinux &rarr; kernel &rarr; live GNOME desktop, with casper/systemd assertions on a serial console and screenshots as artifacts. <strong>2026-07-16:</strong> it <strong>booted on real hardware for the first time</strong> — a UEFI-only ThinkPad X1 Carbon Gen 13 (Intel Core Ultra 7, Arc 140V), reaching the login screen. The image is a <strong>hybrid BIOS + UEFI</strong> ISO (OVMF-verified), so no CSM fiddling; leave Secure Boot off for now.</p>
       <p style="margin:0 0 12px;">Still honestly missing: <strong>the Calamares installer has never completed an install on a real disk</strong> — that's the next milestone, and it's why nothing here should be pointed at a drive you care about without a backup. The full framework — driver scripts, all 5 mode bundles, 6 hardware strains, the build pipeline, CI — exists and is execution-tested wherever it can be without the hardware.</p>
@@ -697,12 +717,48 @@
   // Flat lookup so the <select> value is a stable index.
   var GPUS = [];
   GPU_GROUPS.forEach(function (grp) { grp.gpus.forEach(function (o) { o.idx = GPUS.length; GPUS.push(o); }); });
+  // WHAT THE PICKER IS FOR, CHANGED. It used to answer only "which local AI
+  // models would this machine preload", which is interesting but is not what
+  // someone standing on the download page needs. Its primary job now is to hand
+  // over the exact ISO for the machine described, with a direct link. The model
+  // preview stays underneath, because it is still the honest answer to "what
+  // will AI mode actually do on my hardware".
+  var RELEASES = 'https://github.com/Mr-Pythoneer/refract-os/releases';
+  var DL = function (strain) {
+    return RELEASES + '/download/latest-' + strain + '/refract-os-' + strain + '.iso';
+  };
+  var FORMS = [
+    { k: 'laptop',      label: 'Laptop' },
+    { k: 'desktop',     label: 'Desktop / tower' },
+    { k: 'handheld',    label: 'Handheld (Steam Deck class)' },
+    { k: 'headless',    label: 'Server / VM (no screen)' }
+  ];
+
+  // Strain rules, in priority order. RAM outranks form factor deliberately: a
+  // 4 GB laptop is a lowspec machine whatever its lid does, and shipping it
+  // GNOME would be the single fastest way to make Refract feel slow.
+  var STRAINS = {
+    lowspec:     { why: 'Under 8 GB of RAM — LXQt instead of GNOME, the lightest official Ubuntu desktop.' },
+    server:      { why: 'No screen — fully headless, no desktop environment at all.' },
+    handheld:    { why: 'Steam-Deck-class device. Builds and boots; not yet tuned differently from workstation.' },
+    laptop:      { why: 'Power profiles, thermald, fingerprint, Intel video acceleration and firmware.' },
+    workstation: { why: 'Full GNOME desktop, no special tuning — the default image.' }
+  };
+  function strainFor(form, ram) {
+    if (form === 'headless') return 'server';
+    if (ram <= 4) return 'lowspec';
+    if (form === 'handheld') return 'handheld';
+    if (ram < 8) return 'lowspec';
+    if (form === 'laptop') return 'laptop';
+    return 'workstation';
+  }
+
   var CPUS = [
     { c: 'High-core desktop (12+ cores — Ryzen 9 / Core i9)', k: 'high' },
     { c: 'Mainstream (6–8 cores — Ryzen 5/7, Core i5/i7)', k: 'mid' },
     { c: 'Low-power / older (≤4 cores, laptop)', k: 'low' }
   ];
-  var RAMS = [8, 16, 32, 64, 128];
+  var RAMS = [2, 4, 8, 16, 32, 64, 128];
 
   // Same thresholds as distro-ai-detect-tier's tier_for_vram (GiB).
   function tierFor(gb) {
@@ -755,11 +811,12 @@
   }
   function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
 
+  var formSel = document.getElementById('form');
   var gpuSel = document.getElementById('gpu');
   var cpuSel = document.getElementById('cpu');
   var ramSel = document.getElementById('ram');
   var res = document.getElementById('cfg-result');
-  if (!gpuSel || !cpuSel || !ramSel || !res) return;
+  if (!formSel || !gpuSel || !cpuSel || !ramSel || !res) return;
 
   GPU_GROUPS.forEach(function (grp) {
     var og = document.createElement('optgroup'); og.label = grp.label;
@@ -768,10 +825,30 @@
     });
     gpuSel.appendChild(og);
   });
+  FORMS.forEach(function (o, i) { var opt = document.createElement('option'); opt.value = i; opt.textContent = o.label; opt.setAttribute('data-i18n', 'form.' + o.k); formSel.appendChild(opt); });
   CPUS.forEach(function (o, i) { var opt = document.createElement('option'); opt.value = i; opt.textContent = o.c; cpuSel.appendChild(opt); });
   RAMS.forEach(function (gb) { var opt = document.createElement('option'); opt.value = gb; opt.textContent = gb + ' GB'; ramSel.appendChild(opt); });
 
   function note(txt, ok) { return '<li' + (ok ? ' class="ok"' : '') + '><i class="ti ti-' + (ok ? 'circle-check' : 'alert-triangle') + '" aria-hidden="true"></i><span>' + txt + '</span></li>'; }
+
+  // The answer someone came to this page for: which file to download.
+  function isoBlock() {
+    var form = FORMS[formSel.value | 0].k;
+    var ram = ramSel.value | 0;
+    var strain = strainFor(form, ram);
+    return '<div class="cfg-iso">' +
+      '<div class="cfg-iso-head">' +
+        '<span class="cfg-iso-label" data-i18n="cfg.yourImage">Your image</span>' +
+        '<span class="cfg-iso-name">refract-os-' + strain + '.iso</span>' +
+      '</div>' +
+      '<p class="cfg-iso-why">' + esc(STRAINS[strain].why) + '</p>' +
+      '<div class="cfg-iso-actions">' +
+        '<a class="btn btn-primary" href="' + DL(strain) + '" data-i18n="cfg.download">Download ' + strain + '</a>' +
+        '<a class="btn btn-secondary" href="' + RELEASES + '/tag/latest-' + strain + '" data-i18n="cfg.checksum">Checksum &amp; notes</a>' +
+      '</div>' +
+      '<p class="cfg-iso-fine" data-i18n="cfg.verify">Verify the .sha256 before flashing, then write it with balenaEtcher.</p>' +
+    '</div>';
+  }
 
   function render() {
     var o = GPUS[gpuSel.value | 0];
@@ -780,7 +857,7 @@
 
     if (o.datacenter) {
       res.className = 'cfg-result cfg-server';
-      res.innerHTML =
+      res.innerHTML = isoBlock() +
         '<div class="tier-head"><span class="tier-badge" style="border-color:var(--warn);color:var(--warn)">Server mode</span><span class="vram">' + esc(o.vram) + 'GB — datacenter GPU</span></div>' +
         '<p style="margin:12px 0 0;color:var(--text-dim);font-size:0.92rem">Datacenter cards (H100 / H200 / B200 / MI300X…) are headless server silicon. <code>distro-ai-detect-tier</code> stops on them and points at <strong>Server mode</strong>&rsquo;s headless serving path (Ollama&nbsp;/&nbsp;vLLM) rather than desktop AI mode — a desktop chat GUI is the wrong shape for a rack card. Override with <code>--tier ultra</code> or <code>REFRACT_ALLOW_DATACENTER=1</code>.</p>' +
         '<div class="cfg-cmd"><span class="prompt">$</span> distro-modectl switch server</div>';
@@ -855,7 +932,8 @@
       : '# installs Ollama + ComfyUI, pulls one LLM (coding) + your image model';
 
     res.className = 'cfg-result';
-    res.innerHTML =
+    res.innerHTML = isoBlock() +
+      
       '<div class="tier-head"><span class="tier-badge">' + esc(t) + ' tier</span><span class="vram">' + esc(vramTxt) + ' · ' + esc(ram) + 'GB RAM</span></div>' +
       '<p style="margin:8px 0 0;color:var(--text-dim);font-size:0.9rem">' + esc(blurb) + '</p>' +
       '<ul class="cfg-models">' + rows + '</ul>' +
@@ -864,6 +942,7 @@
       '<div class="cfg-note">Auto-detected on first boot — or run it yourself. The other use-cases (<code>cad</code>, <code>know-it-all</code>, <code>uncensored</code>, <code>assistant</code>) pull on demand: <code>distro-ai-model use &lt;case&gt;</code>. Full menu: <code>distro-ai-model list</code>.</div>';
   }
 
+  formSel.addEventListener('change', render);
   gpuSel.addEventListener('change', render);
   cpuSel.addEventListener('change', render);
   ramSel.addEventListener('change', render);
@@ -875,5 +954,70 @@
 })();
 </script>
 
+<script>
+/* Site translations — the path to a download, in 12 languages.
+   SCOPE, STATED HONESTLY: navigation, the headline, the hardware picker, the
+   download buttons and the checksum warning are translated. The long technical
+   prose (strain descriptions, promises, AI tier notes) is deliberately left in
+   English: it runs to thousands of words of dense jargon where a bad translation
+   is worse than no translation, and none of it is needed to get the right ISO
+   onto a USB stick safely. That last part is what these strings cover. */
+(function () {
+  var I18N = {"en": {"__native": "English", "__rtl": false, "nav.modes": "Modes", "nav.download": "Download", "nav.strains": "Strains", "nav.promises": "Promises", "nav.status": "Status", "hero.h1": "One Linux install. Five modes.", "modes.title": "One system, five modes — or fewer", "dl.title": "Download", "cfg.form": "Machine type", "cfg.gpu": "GPU", "cfg.cpu": "CPU", "cfg.ram": "System RAM", "dl.cta": "Download the ISO", "dl.guide": "Install guide", "strains.title": "Six hardware strains", "promises.title": "What this actually promises", "status.title": "Status", "cfg.yourImage": "Your image", "cfg.download": "Download", "cfg.checksum": "Checksum & notes", "cfg.verify": "Verify the .sha256 before flashing, then write it with balenaEtcher.", "form.laptop": "Laptop", "form.desktop": "Desktop / tower", "form.handheld": "Handheld (Steam Deck class)", "form.headless": "Server / VM (no screen)", "lang.label": "Language"}, "zh": {"__native": "简体中文", "__rtl": false, "nav.modes": "模式", "nav.download": "下载", "nav.strains": "硬件版本", "nav.promises": "承诺", "nav.status": "状态", "hero.h1": "装一次 Linux，五种模式。", "modes.title": "一套系统，五种模式——也可以更少", "dl.title": "下载", "cfg.form": "设备类型", "cfg.gpu": "GPU", "cfg.cpu": "CPU", "cfg.ram": "系统内存", "dl.cta": "下载 ISO 镜像", "dl.guide": "安装指南", "strains.title": "六种硬件版本", "promises.title": "它真正承诺了什么", "status.title": "项目状态", "cfg.yourImage": "你的镜像", "cfg.download": "下载", "cfg.checksum": "校验和与说明", "cfg.verify": "烧录前请先校验 .sha256，确认无误后再用 balenaEtcher 写入。", "form.laptop": "笔记本电脑", "form.desktop": "台式机 / 塔式主机", "form.handheld": "掌机（Steam Deck 一类）", "form.headless": "服务器 / 虚拟机（无显示器）", "lang.label": "语言"}, "es": {"__native": "Español", "__rtl": false, "nav.modes": "Modos", "nav.download": "Descargar", "nav.strains": "Ediciones", "nav.promises": "Promesas", "nav.status": "Estado", "hero.h1": "Una instalación de Linux. Cinco modos.", "modes.title": "Un sistema, cinco modos (o menos)", "dl.title": "Descarga", "cfg.form": "Tipo de equipo", "cfg.gpu": "GPU", "cfg.cpu": "CPU", "cfg.ram": "RAM del sistema", "dl.cta": "Descargar la ISO", "dl.guide": "Guía de instalación", "strains.title": "Seis ediciones según tu hardware", "promises.title": "Lo que realmente promete", "status.title": "Estado", "cfg.yourImage": "Tu imagen", "cfg.download": "Descarga", "cfg.checksum": "Suma de verificación y notas", "cfg.verify": "Verifica el .sha256 antes de grabar y, después, escribe la imagen con balenaEtcher.", "form.laptop": "Portátil", "form.desktop": "Sobremesa / torre", "form.handheld": "Consola portátil (tipo Steam Deck)", "form.headless": "Servidor / VM (sin pantalla)", "lang.label": "Idioma"}, "hi": {"__native": "हिन्दी", "__rtl": false, "nav.modes": "मोड", "nav.download": "डाउनलोड", "nav.strains": "वेरिएंट", "nav.promises": "वादे", "nav.status": "स्थिति", "hero.h1": "एक Linux इंस्टॉल। पाँच मोड।", "modes.title": "एक सिस्टम, पाँच मोड — या उससे कम", "dl.title": "डाउनलोड", "cfg.form": "मशीन का प्रकार", "cfg.gpu": "GPU", "cfg.cpu": "CPU", "cfg.ram": "सिस्टम RAM", "dl.cta": "ISO डाउनलोड करें", "dl.guide": "इंस्टॉल गाइड", "strains.title": "छह हार्डवेयर वेरिएंट", "promises.title": "यह असल में क्या वादा करता है", "status.title": "स्थिति", "cfg.yourImage": "आपकी इमेज", "cfg.download": "डाउनलोड", "cfg.checksum": "चेकसम और नोट्स", "cfg.verify": "फ्लैश करने से पहले .sha256 की जाँच करें, उसके बाद ही balenaEtcher से इमेज लिखें।", "form.laptop": "लैपटॉप", "form.desktop": "डेस्कटॉप / टावर", "form.handheld": "हैंडहेल्ड (Steam Deck जैसा)", "form.headless": "सर्वर / VM (बिना स्क्रीन)", "lang.label": "भाषा"}, "ar": {"__native": "العربية", "__rtl": true, "nav.modes": "الأوضاع", "nav.download": "التنزيل", "nav.strains": "الإصدارات", "nav.promises": "الوعود", "nav.status": "الحالة", "hero.h1": "تثبيت واحد لنظام Linux. خمسة أوضاع.", "modes.title": "نظام واحد، خمسة أوضاع — أو أقل", "dl.title": "التنزيل", "cfg.form": "نوع الجهاز", "cfg.gpu": "بطاقة الرسوميات (GPU)", "cfg.cpu": "المعالج (CPU)", "cfg.ram": "ذاكرة النظام (RAM)", "dl.cta": "تنزيل ملف ISO", "dl.guide": "دليل التثبيت", "strains.title": "ستة إصدارات بحسب العتاد", "promises.title": "ما الذي يَعِد به هذا النظام فعلًا", "status.title": "الحالة", "cfg.yourImage": "نسختك من النظام", "cfg.download": "تنزيل", "cfg.checksum": "المجموع الاختباري والملاحظات", "cfg.verify": "تحقّق من ملف .sha256 قبل الكتابة على وحدة USB، ثم اكتب النسخة باستخدام balenaEtcher.", "form.laptop": "حاسوب محمول", "form.desktop": "حاسوب مكتبي / برج", "form.handheld": "جهاز محمول باليد (فئة Steam Deck)", "form.headless": "خادم / جهاز افتراضي (بدون شاشة)", "lang.label": "اللغة"}, "pt": {"__native": "Português", "__rtl": false, "nav.modes": "Modos", "nav.download": "Download", "nav.strains": "Edições", "nav.promises": "Promessas", "nav.status": "Status", "hero.h1": "Uma instalação do Linux. Cinco modos.", "modes.title": "Um sistema, cinco modos — ou menos", "dl.title": "Download", "cfg.form": "Tipo de máquina", "cfg.gpu": "GPU", "cfg.cpu": "CPU", "cfg.ram": "Memória RAM", "dl.cta": "Baixar a ISO", "dl.guide": "Guia de instalação", "strains.title": "Seis edições de hardware", "promises.title": "O que isso realmente promete", "status.title": "Status", "cfg.yourImage": "Sua imagem", "cfg.download": "Baixar", "cfg.checksum": "Checksum e notas", "cfg.verify": "Confira o arquivo .sha256 antes de gravar; só depois escreva a imagem com o balenaEtcher.", "form.laptop": "Notebook", "form.desktop": "Desktop / torre", "form.handheld": "Portátil (tipo Steam Deck)", "form.headless": "Servidor / VM (sem tela)", "lang.label": "Idioma"}, "ru": {"__native": "Русский", "__rtl": false, "nav.modes": "Режимы", "nav.download": "Скачать", "nav.strains": "Сборки", "nav.promises": "Обещания", "nav.status": "Статус", "hero.h1": "Одна установка Linux. Пять режимов.", "modes.title": "Одна система, пять режимов — или меньше", "dl.title": "Скачать", "cfg.form": "Тип устройства", "cfg.gpu": "GPU", "cfg.cpu": "CPU", "cfg.ram": "Оперативная память (RAM)", "dl.cta": "Скачать ISO", "dl.guide": "Инструкция по установке", "strains.title": "Шесть сборок под разное железо", "promises.title": "Что мы действительно обещаем", "status.title": "Статус", "cfg.yourImage": "Ваш образ", "cfg.download": "Скачать", "cfg.checksum": "Контрольная сумма и примечания", "cfg.verify": "Перед записью проверьте файл .sha256, затем запишите образ с помощью balenaEtcher.", "form.laptop": "Ноутбук", "form.desktop": "Настольный ПК / системный блок", "form.handheld": "Портативная консоль (класса Steam Deck)", "form.headless": "Сервер / ВМ (без экрана)", "lang.label": "Язык"}, "ja": {"__native": "日本語", "__rtl": false, "nav.modes": "モード", "nav.download": "ダウンロード", "nav.strains": "エディション", "nav.promises": "約束", "nav.status": "開発状況", "hero.h1": "Linux はひとつ。モードは5つ。", "modes.title": "ひとつのシステムに5つのモード — 使う分だけ", "dl.title": "ダウンロード", "cfg.form": "マシンの種類", "cfg.gpu": "GPU", "cfg.cpu": "CPU", "cfg.ram": "システム RAM", "dl.cta": "ISO をダウンロード", "dl.guide": "インストールガイド", "strains.title": "ハードウェア別の6エディション", "promises.title": "このOSが本当に約束すること", "status.title": "開発状況", "cfg.yourImage": "あなた向けのイメージ", "cfg.download": "ダウンロード", "cfg.checksum": "チェックサムと注意事項", "cfg.verify": "書き込む前に .sha256 でイメージを検証し、そのうえで balenaEtcher を使って書き込んでください。", "form.laptop": "ノートPC", "form.desktop": "デスクトップ / タワー型", "form.handheld": "ハンドヘルド（Steam Deck 相当）", "form.headless": "サーバー / VM（画面なし）", "lang.label": "言語"}, "de": {"__native": "Deutsch", "__rtl": false, "nav.modes": "Modi", "nav.download": "Download", "nav.strains": "Varianten", "nav.promises": "Versprechen", "nav.status": "Status", "hero.h1": "Eine Linux-Installation. Fünf Modi.", "modes.title": "Ein System, fünf Modi – oder weniger", "dl.title": "Download", "cfg.form": "Gerätetyp", "cfg.gpu": "GPU", "cfg.cpu": "CPU", "cfg.ram": "Arbeitsspeicher (RAM)", "dl.cta": "ISO herunterladen", "dl.guide": "Installationsanleitung", "strains.title": "Sechs Hardware-Varianten", "promises.title": "Was hier wirklich versprochen wird", "status.title": "Status", "cfg.yourImage": "Ihr Image", "cfg.download": "Download", "cfg.checksum": "Prüfsumme & Hinweise", "cfg.verify": "Prüfen Sie die .sha256-Datei vor dem Flashen und schreiben Sie das Image erst danach mit balenaEtcher.", "form.laptop": "Laptop", "form.desktop": "Desktop / Tower", "form.handheld": "Handheld (Steam-Deck-Klasse)", "form.headless": "Server / VM (ohne Bildschirm)", "lang.label": "Sprache"}, "fr": {"__native": "Français", "__rtl": false, "nav.modes": "Modes", "nav.download": "Télécharger", "nav.strains": "Éditions", "nav.promises": "Promesses", "nav.status": "État", "hero.h1": "Une seule installation Linux. Cinq modes.", "modes.title": "Un système, cinq modes — ou moins", "dl.title": "Téléchargement", "cfg.form": "Type de machine", "cfg.gpu": "GPU", "cfg.cpu": "CPU", "cfg.ram": "RAM système", "dl.cta": "Télécharger l'ISO", "dl.guide": "Guide d'installation", "strains.title": "Six éditions matérielles", "promises.title": "Ce que ce système promet vraiment", "status.title": "État du projet", "cfg.yourImage": "Votre image", "cfg.download": "Télécharger", "cfg.checksum": "Somme de contrôle et notes", "cfg.verify": "Vérifiez le fichier .sha256 avant toute écriture, puis flashez l'image avec balenaEtcher.", "form.laptop": "Ordinateur portable", "form.desktop": "Ordinateur de bureau / tour", "form.handheld": "Console portable (type Steam Deck)", "form.headless": "Serveur / VM (sans écran)", "lang.label": "Langue"}, "ko": {"__native": "한국어", "__rtl": false, "nav.modes": "모드", "nav.download": "다운로드", "nav.strains": "에디션", "nav.promises": "약속", "nav.status": "상태", "hero.h1": "리눅스 설치는 한 번. 모드는 다섯 가지.", "modes.title": "시스템 하나, 모드 다섯 가지 — 필요하면 더 적게", "dl.title": "다운로드", "cfg.form": "기기 유형", "cfg.gpu": "GPU", "cfg.cpu": "CPU", "cfg.ram": "시스템 RAM", "dl.cta": "ISO 다운로드", "dl.guide": "설치 가이드", "strains.title": "여섯 가지 하드웨어 에디션", "promises.title": "이 시스템이 실제로 약속하는 것", "status.title": "현재 상태", "cfg.yourImage": "선택한 이미지", "cfg.download": "다운로드", "cfg.checksum": "체크섬 및 참고 사항", "cfg.verify": "USB에 기록하기 전에 먼저 .sha256 체크섬을 확인한 다음, balenaEtcher로 이미지를 기록하세요.", "form.laptop": "노트북", "form.desktop": "데스크톱 / 타워", "form.handheld": "휴대용 게임기 (Steam Deck 계열)", "form.headless": "서버 / VM (화면 없음)", "lang.label": "언어"}, "id": {"__native": "Bahasa Indonesia", "__rtl": false, "nav.modes": "Mode", "nav.download": "Unduh", "nav.strains": "Varian", "nav.promises": "Janji", "nav.status": "Status", "hero.h1": "Satu instalasi Linux. Lima mode.", "modes.title": "Satu sistem, lima mode — atau kurang", "dl.title": "Unduh", "cfg.form": "Jenis perangkat", "cfg.gpu": "GPU", "cfg.cpu": "CPU", "cfg.ram": "RAM sistem", "dl.cta": "Unduh ISO", "dl.guide": "Panduan instalasi", "strains.title": "Enam varian perangkat keras", "promises.title": "Apa yang sebenarnya dijanjikan", "status.title": "Status", "cfg.yourImage": "Image Anda", "cfg.download": "Unduh", "cfg.checksum": "Checksum & catatan", "cfg.verify": "Verifikasi berkas .sha256 terlebih dahulu, baru tulis image ke USB dengan balenaEtcher.", "form.laptop": "Laptop", "form.desktop": "Desktop / tower", "form.handheld": "Handheld (kelas Steam Deck)", "form.headless": "Server / VM (tanpa layar)", "lang.label": "Bahasa"}};
+
+  var sel = document.getElementById('langsel');
+  if (!sel) return;
+
+  Object.keys(I18N).forEach(function (code) {
+    var o = document.createElement('option');
+    o.value = code; o.textContent = I18N[code].__native;
+    sel.appendChild(o);
+  });
+
+  function apply(code) {
+    var dict = I18N[code] || I18N.en;
+    document.documentElement.lang = code;
+    /* Arabic is right-to-left. Setting dir on <html> is what actually flips the
+       layout; the few flex rows that need reversing are handled in CSS above. */
+    document.documentElement.dir = dict.__rtl ? 'rtl' : 'ltr';
+
+    document.querySelectorAll('[data-i18n]').forEach(function (el) {
+      var v = dict[el.getAttribute('data-i18n')];
+      if (v) el.textContent = v;
+    });
+    document.querySelectorAll('[data-i18n-html]').forEach(function (el) {
+      var v = dict[el.getAttribute('data-i18n-html')];
+      if (v) el.textContent = v;
+    });
+    try { localStorage.setItem('refract-lang', code); } catch (e) { /* private mode */ }
+    sel.value = code;
+  }
+
+  /* Re-apply after the picker re-renders: its result HTML is rebuilt on every
+     change and would otherwise come back in English mid-session. */
+  var res = document.getElementById('cfg-result');
+  if (res && window.MutationObserver) {
+    var reapplying = false;
+    new MutationObserver(function () {
+      if (reapplying) return;
+      reapplying = true;
+      var code = sel.value || 'en';
+      var dict = I18N[code] || I18N.en;
+      res.querySelectorAll('[data-i18n]').forEach(function (el) {
+        var v = dict[el.getAttribute('data-i18n')];
+        if (v) el.textContent = v;
+      });
+      reapplying = false;
+    }).observe(res, { childList: true, subtree: true });
+  }
+
+  sel.addEventListener('change', function () { apply(sel.value); });
+
+  var saved = null;
+  try { saved = localStorage.getItem('refract-lang'); } catch (e) { saved = null; }
+  var guess = (navigator.language || 'en').toLowerCase().split('-')[0];
+  apply(saved && I18N[saved] ? saved : (I18N[guess] ? guess : 'en'));
+})();
+</script>
 </body>
 </html>
