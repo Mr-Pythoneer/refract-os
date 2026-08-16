@@ -355,6 +355,12 @@ ln -sf /opt/distro/modes/update/refract-update-check "$INCLUDES/usr/local/bin/re
 # under modes/monitor/, which the rsync above already staged, so only the PATH
 # entry and the app-grid launcher are needed here.
 ln -sf /opt/distro/modes/monitor/refract-monitor "$INCLUDES/usr/local/bin/refract-monitor"
+# mkdir FIRST. This cp used to rely on the directory already existing, which is
+# true only on strains that stage the installer launcher — so the server build
+# died with "cannot create regular file ... No such file or directory" while
+# workstation and handheld passed. A headless strain has no installer icon and
+# therefore no usr/share/applications until something makes one.
+mkdir -p "$INCLUDES/usr/share/applications"
 cp "$REPO_ROOT/modes/monitor/refract-monitor.desktop" \
    "$INCLUDES/usr/share/applications/refract-monitor.desktop"
 
