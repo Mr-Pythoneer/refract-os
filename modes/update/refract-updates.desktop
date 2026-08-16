@@ -1,10 +1,12 @@
 [Desktop Entry]
 Type=Application
-# Named "Software Update" first and foremost, because that is what somebody
-# types when they want one. "Refract Updates" was accurate and undiscoverable:
-# it requires already knowing the product name to search for it, and the person
-# who most needs this window is exactly the person who doesn't.
-Name=Software Update
+# NOT "Software Update". That was tried for one commit and immediately reported
+# as a duplicate: Ubuntu's update-manager is called "Software Updater", and two
+# near-identically named entries in the grid is worse than one badly-named one —
+# you now have to guess which is which, every time. The name says whose updates
+# these are; the KEYWORDS below are what makes it findable, which is the job the
+# rename was actually trying to do.
+Name=Refract Updates
 GenericName=Update Refract OS
 Comment=Install updates to Refract OS — modes, layouts, the top-bar switcher and the distro-* tools
 Exec=/usr/local/bin/refract-updates

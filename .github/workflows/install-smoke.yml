@@ -156,6 +156,22 @@ jobs:
           # is precisely when a dock icon would be no help.
           chk "distro-appstore on PATH"                           '[ -e /mnt/sq/usr/local/bin/distro-appstore ]'
           chk "distro-appstore is executable"                     '[ -x /mnt/sq/opt/distro/modes/update/distro-appstore ]'
+          # THE APP GRID, as the owner actually sees it. Nothing anywhere listed
+          # this, so duplicate launchers shipped unnoticed until somebody opened
+          # the grid and found two activity monitors and two software updaters
+          # (reported 2026-08-16). Every entry Refract adds has a stock Ubuntu
+          # counterpart that may or may not still be there, and that is not
+          # knowable from the package lists — ubuntu-desktop-minimal drags in
+          # most of it transitively. Print the inventory on every run so the
+          # question is answerable by reading a log instead of flashing a stick.
+          echo "--- app grid: visible launchers in the shipped image ---"
+          for d in /mnt/sq/usr/share/applications/*.desktop /mnt/sq/usr/local/share/applications/*.desktop; do
+            [ -f "$d" ] || continue
+            grep -q '^NoDisplay=true' "$d" && continue
+            grep -q '^Hidden=true' "$d" && continue
+            printf '%-52s %s\n' "$(basename "$d")" "$(sed -n 's/^Name=//p' "$d" | head -n1)"
+          done | sort
+          echo "--- end app grid ---"
           # The top-bar mode switcher. An extension that is listed in
           # enabled-extensions but absent from the image is a silent no-op —
           # GNOME logs it and moves on, so the panel simply has no switcher and
