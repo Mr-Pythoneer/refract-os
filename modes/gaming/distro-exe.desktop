@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name=Run with Wine
+Comment=Open a Windows program, or explain what is needed to
+Exec=/usr/local/bin/distro-exe %f
+Icon=application-x-executable
+Terminal=false
+# NOT in the app grid. This exists to CLAIM the file type, not to be launched on
+# its own — an entry called "Run with Wine" sitting in the grid on a machine with
+# no Wine would be its own small lie.
+NoDisplay=true
+# Every MIME type GNOME and shared-mime-info use for a Windows executable. Before
+# this, NOTHING claimed them: double-clicking a .exe silently did nothing, which
+# reads as "Wine is broken" rather than "Wine is not installed".
+MimeType=application/x-ms-dos-executable;application/x-msdownload;application/vnd.microsoft.portable-executable;application/x-msi;application/x-ms-shortcut;
+Categories=System;

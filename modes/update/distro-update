@@ -511,9 +511,16 @@ cmd_apply() {
     # installed one end up byte-identical.
     note "Refreshing launchers and the update timer..."
     mkdir -p "$DESKTOP_DIR"
-    local d
+    local d dmode
     for d in "$work"/x/modes/*/*.desktop; do
         [ -f "$d" ] || continue
+        # Same omission guard iso/build.sh applies. $omitted was computed above
+        # from what is actually missing under /opt/distro, so a machine built
+        # without gaming never gets distro-exe.desktop — a registered handler for
+        # .exe files whose binary this machine does not have would be worse than
+        # no handler at all.
+        dmode="${d#"$work"/x/modes/}"; dmode="${dmode%%/*}"
+        case " $omitted " in *" $dmode "*) continue ;; esac
         install -m 0644 "$d" "$DESKTOP_DIR/$(basename "$d")" || true
     done
     # Only touch systemd's user units on a system that actually has them; a
@@ -531,7 +538,9 @@ cmd_apply() {
         fi
     fi
     # Without this the app grid keeps serving the cached copy and a changed
-    # name, icon or set of search keywords simply never appears.
+    # name, icon or set of search keywords simply never appears — and, since
+    # distro-exe.desktop, the MimeType= lines that make a .exe openable at all
+    # do nothing until they are compiled into mimeinfo.cache.
     command -v update-desktop-database >/dev/null 2>&1 \
         && update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
 

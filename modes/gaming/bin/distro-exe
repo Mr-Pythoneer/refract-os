@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# distro-exe — open a Windows program, or explain why it cannot be opened.
+#
+# WHAT ACTUALLY WENT WRONG. Reported 2026-08-16: "wine does not seem to work, I
+# tried opening a .exe and it failed to launch." Wine was not broken — it is not
+# installed. No package list contains it, deliberately: winehq-staging plus the
+# i386 multiarch stack is well over a gigabyte, which no strain has room for
+# (lowspec ships with about 17 MB of headroom under GitHub's 2 GiB asset cap).
+# modes/gaming/setup/03-install-wine-staging.sh installs it on demand.
+#
+# That decision is fine. What was not fine is that NOTHING SAID SO. Double-click
+# a .exe and no application claimed the file type, so the desktop failed silently
+# and the reasonable conclusion was "Wine is broken on this OS" — a bug report
+# about a component that was never there.
+#
+# So this registers as the handler for Windows executables and does one of two
+# things: run the program if Wine is present, or explain in a sentence what the
+# file is, what is missing, and offer to install it. A capability behind a name
+# you would have to already know is the same as no capability at all — the same
+# failure the app store and the fingerprint reader both had.
+#
+# NOT a Wine wrapper with opinions. It runs `wine` with the user's existing
+# prefix and environment; anything cleverer belongs in Bottles, which
+# modes/gaming/setup/05 installs and which this dialog points at for anyone who
+# wants managed prefixes rather than one shared one.
+set -uo pipefail
+
+SETUP_SCRIPT="${REFRACT_WINE_SETUP:-/opt/distro/modes/gaming/setup/03-install-wine-staging.sh}"
+
+usage() {
+    cat <<'USAGE'
+distro-exe — run a Windows program, or say what is missing.
+
+  distro-exe <file.exe> [args…]   run it with Wine
+  distro-exe status               is Wine installed, and what handles .exe files
+  distro-exe -h                   this text
+
+Refract does not ship Wine: it is over a gigabyte and most people never need it.
+This offers to install it the first time you open a Windows program.
+USAGE
+}
+
+have_wine() { command -v wine >/dev/null 2>&1; }
+graphical()  { [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null 2>&1; }
+
+# A terminal, so the install shows its progress and its password prompt. Ordered
+# by what this image actually ships; x-terminal-emulator is the Debian alternative
+# and the correct last resort.
+find_terminal() {
+    local t
+    for t in gnome-terminal x-terminal-emulator konsole xfce4-terminal xterm; do
+        command -v "$t" >/dev/null 2>&1 && { printf '%s\n' "$t"; return 0; }
+    done
+    return 1
+}
+
+cmd_status() {
+    if have_wine; then
+        echo "Wine:        installed ($(wine --version 2>/dev/null || echo 'version unknown'))"
+    else
+        echo "Wine:        NOT installed — Refract does not ship it (over 1 GB)."
+        echo "             Install it with: distro-exe <any .exe>, or run"
+        echo "             $SETUP_SCRIPT"
+    fi
+    if command -v flatpak >/dev/null 2>&1 && flatpak info com.usebottles.bottles >/dev/null 2>&1; then
+        echo "Bottles:     installed (managed Wine prefixes)"
+    else
+        echo "Bottles:     not installed — flatpak install flathub com.usebottles.bottles"
+    fi
+    local h
+    h="$(xdg-mime query default application/x-ms-dos-executable 2>/dev/null || true)"
+    echo "Opens .exe:  ${h:-nothing — a double-clicked .exe would do nothing}"
+    return 0
+}
+
+offer_install() {  # offer_install <exe path>
+    local exe="$1" term
+    local msg="\"$(basename "$exe")\" is a Windows program.
+
+Refract can run many Windows programs using Wine, but Wine is not installed — it is over a gigabyte, and most people never need it, so it is not included by default.
+
+Install Wine now? This downloads it from WineHQ and asks for your password.
+
+(For anything complicated, Bottles from the app store is usually a better fit — it keeps each Windows program in its own container.)"
+
+    if ! graphical; then
+        echo "$msg" >&2
+        echo >&2
+        echo "Not a graphical session — install it with: $SETUP_SCRIPT" >&2
+        return 1
+    fi
+
+    zenity --question --title="Windows program" --width=460 \
+           --ok-label="Install Wine" --cancel-label="Not now" \
+           --text="$msg" 2>/dev/null || return 1
+
+    if [ ! -x "$SETUP_SCRIPT" ]; then
+        # Gaming mode can be omitted from a build entirely (REFRACT_OMIT_MODES),
+        # in which case its setup scripts genuinely are not on this machine. Say
+        # that rather than failing on a missing path.
+        zenity --error --width=440 --title="Wine installer not available" 2>/dev/null \
+            --text="This build does not include the Wine installer script.
+
+Install it by hand with:
+    sudo apt install wine winetricks
+
+or install Bottles from the app store." || true
+        return 1
+    fi
+
+    term="$(find_terminal)" || {
+        zenity --error --width=420 --title="No terminal" 2>/dev/null \
+            --text="Could not find a terminal to run the installer in. Run this yourself:
+
+    $SETUP_SCRIPT" || true
+        return 1
+    }
+
+    # BARE bash, not sudo bash: the script calls sudo itself on every privileged
+    # line, and running the whole thing as root makes $USER resolve to root —
+    # the same mistake `modes enable server` used to advise, where the group-add
+    # then targeted root instead of the person at the keyboard.
+    "$term" -- bash -c "\"$SETUP_SCRIPT\"; echo; echo 'Done. Close this window and open the program again.'; read -rp 'Press Enter to close…'" \
+        || zenity --error --width=420 --text="The installer did not start." 2>/dev/null || true
+    return 1
+}
+
+cmd_run() {
+    local exe="$1"; shift || true
+    [ -e "$exe" ] || { echo "distro-exe: no such file: $exe" >&2; exit 1; }
+
+    if ! have_wine; then
+        offer_install "$exe"
+        # Exit 0 either way. This is a file-manager handler: a non-zero exit
+        # makes the desktop pop its own generic "the application failed" error
+        # on top of the explanation just given, which is worse than useless.
+        exit 0
+    fi
+
+    # cd into the program's own directory first. A great many Windows programs
+    # look for their data files relative to the working directory rather than to
+    # the executable, and launching from a file manager leaves the CWD wherever
+    # the file manager happened to be — which is how a program that works from a
+    # terminal "fails" when double-clicked.
+    cd "$(dirname "$exe")" 2>/dev/null || true
+    exec wine "$(basename "$exe")" "$@"
+}
+
+case "${1:-}" in
+    ""|-h|--help|help) usage ;;
+    status)            cmd_status ;;
+    *)                 cmd_run "$@" ;;
+esac

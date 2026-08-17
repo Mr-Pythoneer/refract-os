@@ -113,6 +113,15 @@ PAGES = [
              ("Check the app store", ["gnome-terminal", "--", "bash", "-lc",
                                       "distro-appstore status; echo; read -rp 'Press Enter to close…'"])),
         ]),
+        ("Windows programs", [
+            ("Refract can run some of them",
+             "Double-click a .exe and Refract offers to install Wine — it isn't included by "
+             "default because it's over a gigabyte and most people never need it. For anything "
+             "complicated, Bottles from the app store keeps each Windows program in its own "
+             "container, which is usually less trouble.",
+             ("Check Wine", ["gnome-terminal", "--", "bash", "-lc",
+                             "distro-exe status; echo; read -rp 'Press Enter to close…'"])),
+        ]),
         ("What's already here", [
             ("Refract Monitor",
              "CPU, GPU, memory, energy and a process list you can end things from. It replaces "

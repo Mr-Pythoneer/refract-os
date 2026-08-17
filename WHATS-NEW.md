@@ -10,6 +10,24 @@ stops at the first heading the machine has already been shown, so an entry
 appended at the bottom is never displayed to anyone who is up to date. Adding
 one with `>>` is the obvious mistake and it fails silently.
 
+## 2026-08-16 — Opening a .exe now tells you what it needs
+
+Wine wasn't broken — it was never installed. Refract leaves it out on purpose:
+it's over a gigabyte with the 32-bit stack, and most people never run a Windows
+program. But nothing said so, so double-clicking a `.exe` just failed, and the
+obvious conclusion was that Wine was broken.
+
+Now a Windows program opens a dialog explaining what the file is and offering to
+install Wine, with the download and the password prompt visible in a terminal
+rather than happening invisibly. If Wine is already there, it just runs — from
+the program's own folder, which a lot of Windows software needs and which a file
+manager doesn't do by default.
+
+It also points at **Bottles** (in the app store), which keeps each Windows
+program in its own container and is usually less trouble than one shared Wine
+setup. `distro-exe status` says what's installed and what currently opens `.exe`
+files.
+
 ## 2026-08-16 — Downloads no longer die when the screen goes dark
 
 Reported, and it was as bad as it sounds. Refract shipped **no** power policy at

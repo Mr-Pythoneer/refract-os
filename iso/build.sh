@@ -464,8 +464,32 @@ ln -sf /opt/distro/modes/monitor/refract-monitor "$INCLUDES/usr/local/bin/refrac
 mkdir -p "$INCLUDES/usr/share/applications"
 for dtop in "$REPO_ROOT"/modes/*/*.desktop; do
     [ -f "$dtop" ] || continue
+    # SKIP LAUNCHERS FOR AN OMITTED MODE. This glob reads the REPO, not the
+    # staged tree, so it is blind to the `rm -rf "$INCLUDES/opt/distro/modes/$m"`
+    # that mode omission performs above — a build with REFRACT_OMIT_MODES=gaming
+    # would install modes/gaming/distro-exe.desktop pointing at a binary that had
+    # just been deleted, i.e. a registered handler for .exe files that cannot run.
+    dmode="${dtop#"$REPO_ROOT"/modes/}"; dmode="${dmode%%/*}"
+    if [[ " ${OMITTED[*]} " == *" $dmode "* ]]; then
+        echo "Skipping $(basename "$dtop") — '$dmode' is omitted from this build."
+        continue
+    fi
     install -m 0644 "$dtop" "$INCLUDES/usr/share/applications/$(basename "$dtop")"
 done
+
+# BUILD THE MIME CACHE. A .desktop file's MimeType= lines do nothing until
+# update-desktop-database compiles them into mimeinfo.cache — dpkg triggers do
+# this for packaged launchers, but nothing triggers for files copied in by hand.
+# Without it distro-exe.desktop would sit in /usr/share/applications claiming
+# .exe files that the desktop would still refuse to open, which is the exact
+# symptom it exists to fix.
+if [ -x /usr/bin/update-desktop-database ]; then
+    update-desktop-database "$INCLUDES/usr/share/applications" 2>/dev/null \
+        && echo "Built the MIME handler cache." \
+        || echo "NOTE: could not build mimeinfo.cache — .exe files may not open." >&2
+else
+    echo "NOTE: update-desktop-database not on the BUILD host — mimeinfo.cache not built." >&2
+fi
 
 # Daily check as a USER timer, not a system one: checking needs no privilege, and
 # a root timer that pushes notifications into someone's session is a worse design
@@ -513,7 +537,7 @@ declare -A DISTRO_BINS=(
     [distro-ai-ask]=modes/ai/bin          [distro-ai-overlay]=modes/ai/bin
     [distro-ai-cloud-toggle]=modes/ai/bin [distro-ai-bind-hotkey]=modes/ai/bin
     [distro-ai-detect-tier]=modes/ai/bin  [distro-ai-setup]=modes/ai/bin
-    [distro-gaming-compat]=modes/gaming/bin
+    [distro-gaming-compat]=modes/gaming/bin  [distro-exe]=modes/gaming/bin
     [distro-creative-scratch]=modes/creative/bin [distro-creative-color]=modes/creative/bin
 )
 for bin in "${!DISTRO_BINS[@]}"; do
