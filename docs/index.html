@@ -344,7 +344,13 @@
   .cfg-iso-why { margin:8px 0 14px; color:var(--text-dim); font-size:.92rem; line-height:1.5; }
   .cfg-iso-actions { display:flex; gap:10px; flex-wrap:wrap; }
   .cfg-iso-actions .btn { padding:9px 16px; font-size:.9rem; }
-  .cfg-iso-fine { margin:12px 0 0; font-size:.8rem; color:var(--text-faint); }
+  .cfg-iso-fine { margin:12px 0 0; font-size:.8rem; color:var(--text-faint); line-height:1.7; }
+  /* The join command is the one thing a split download cannot do without, so it
+     has to stay readable — and copyable — rather than wrapping into the prose. */
+  .cfg-iso-fine code { font-family:var(--mono,monospace); font-size:.78rem; color:var(--text);
+    background:var(--code-bg,rgba(127,127,127,.14)); padding:2px 6px; border-radius:4px;
+    display:inline-block; margin-top:3px; overflow-wrap:anywhere; }
+  .cfg-iso-parts { font-family:inherit; font-size:.8rem; font-weight:500; color:var(--text-faint); }
   .cfg-result { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 22px; border-top: 3px solid var(--m-ai); }
   .cfg-result.cfg-server { border-top-color: var(--warn); }
   .tier-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -727,6 +733,22 @@
   var DL = function (strain) {
     return RELEASES + '/download/latest-' + strain + '/refract-os-' + strain + '.iso';
   };
+  // STRAINS PUBLISHED IN PARTS. GitHub caps a single release asset at 2 GB, and
+  // the lowspec image is over it, so CI splits that one into .part00/.part01.
+  // Nothing on this page knew that: the download button was built by string
+  // concatenation from the strain name and pointed at a
+  // refract-os-lowspec.iso that has never existed. Every visitor who told the
+  // picker they had under 8 GB of RAM — which is exactly the audience the
+  // lowspec build is FOR — got a GitHub 404 from the one button on the page
+  // that matters.
+  //
+  // Keyed by strain and holding the part COUNT, so adding a split (or removing
+  // one when an image shrinks below the cap) is a one-line edit here rather
+  // than a new branch in the renderer.
+  var SPLIT = { lowspec: 2 };
+  var PART = function (strain, n) {
+    return DL(strain) + '.part' + (n < 10 ? '0' : '') + n;
+  };
   var FORMS = [
     { k: 'laptop',      label: 'Laptop' },
     { k: 'desktop',     label: 'Desktop / tower' },
@@ -836,17 +858,42 @@
     var form = FORMS[formSel.value | 0].k;
     var ram = ramSel.value | 0;
     var strain = strainFor(form, ram);
+    var parts = SPLIT[strain] || 0;
+    var actions = '', fine;
+
+    if (parts) {
+      // One button per part, plus the command that puts them back together.
+      // Linking the release page alone would be honest but useless: the visitor
+      // still would not know that two files make one ISO, or in what order.
+      var i;
+      for (i = 0; i < parts; i++) {
+        actions += '<a class="btn ' + (i === 0 ? 'btn-primary' : 'btn-secondary') + '" href="' +
+                   PART(strain, i) + '">Part ' + (i + 1) + ' of ' + parts + '</a>';
+      }
+      // `cat` in shell order, and the PowerShell equivalent, because somebody
+      // downloading a Linux ISO is by definition not on Linux yet.
+      fine = 'This image is over GitHub’s 2 GB per-file limit, so it is published in ' +
+             parts + ' parts. Download both, then join them:' +
+             '<br><code>cat refract-os-' + strain + '.iso.part* &gt; refract-os-' + strain + '.iso</code>' +
+             '<br>On Windows: <code>copy /b refract-os-' + strain + '.iso.part00 + refract-os-' +
+             strain + '.iso.part01 refract-os-' + strain + '.iso</code>' +
+             '<br>Check the joined file against the .sha256, then write it with balenaEtcher.';
+    } else {
+      actions = '<a class="btn btn-primary" href="' + DL(strain) + '" data-i18n="cfg.download">Download ' + strain + '</a>';
+      fine = '<span data-i18n="cfg.verify">Verify the .sha256 before flashing, then write it with balenaEtcher.</span>';
+    }
+
     return '<div class="cfg-iso">' +
       '<div class="cfg-iso-head">' +
         '<span class="cfg-iso-label" data-i18n="cfg.yourImage">Your image</span>' +
-        '<span class="cfg-iso-name">refract-os-' + strain + '.iso</span>' +
+        '<span class="cfg-iso-name">refract-os-' + strain + '.iso' +
+          (parts ? ' <span class="cfg-iso-parts">(' + parts + ' parts)</span>' : '') + '</span>' +
       '</div>' +
       '<p class="cfg-iso-why">' + esc(STRAINS[strain].why) + '</p>' +
-      '<div class="cfg-iso-actions">' +
-        '<a class="btn btn-primary" href="' + DL(strain) + '" data-i18n="cfg.download">Download ' + strain + '</a>' +
+      '<div class="cfg-iso-actions">' + actions +
         '<a class="btn btn-secondary" href="' + RELEASES + '/tag/latest-' + strain + '" data-i18n="cfg.checksum">Checksum &amp; notes</a>' +
       '</div>' +
-      '<p class="cfg-iso-fine" data-i18n="cfg.verify">Verify the .sha256 before flashing, then write it with balenaEtcher.</p>' +
+      '<p class="cfg-iso-fine">' + fine + '</p>' +
     '</div>';
   }
 

@@ -10,6 +10,22 @@ stops at the first heading the machine has already been shown, so an entry
 appended at the bottom is never displayed to anyone who is up to date. Adding
 one with `>>` is the obvious mistake and it fails silently.
 
+## 2026-08-17 — The download button was broken for low-RAM machines
+
+If you told the picker on the website that your machine had **under 8 GB of
+RAM**, the "Download" button gave you a GitHub 404. Every other machine type
+worked, which is why it went unnoticed.
+
+The lowspec image is bigger than GitHub's 2 GB limit for a single release file,
+so it gets published as two files — `.part00` and `.part01`. The website did not
+know that. It built the download link by pasting the edition name into
+`refract-os-<name>.iso`, which is correct for the other five editions and points
+at a file that has never existed for this one. The people it failed for were
+exactly the people the lowspec build is for.
+
+The page now offers both parts, tells you it comes in two pieces, and shows the
+one command that joins them back together — for Linux and for Windows.
+
 ## 2026-08-17 — "Can't connect to GitHub" now tells you the truth
 
 If an update check failed, it said one thing: *could not reach GitHub*. That
