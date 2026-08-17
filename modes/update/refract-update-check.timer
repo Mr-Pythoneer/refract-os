@@ -1,16 +1,32 @@
 [Unit]
-Description=Check for Refract OS updates daily
+Description=Check for Refract OS updates
 Documentation=https://github.com/Mr-Pythoneer/refract-os
 
 [Timer]
-# 10 minutes after login rather than immediately: a notification competing with
-# the desktop still drawing itself is noise, and the first minutes of a session
-# are the busiest.
-OnStartupSec=10min
-OnUnitActiveSec=1d
-# Without this, every Refract machine on earth checks at the same instant.
-RandomizedDelaySec=30min
+# OnStartupSec is measured from the USER MANAGER starting, i.e. login. Three
+# minutes rather than ten: reported as "right now I have to go and click check
+# for updates", and a check that lands a quarter of an hour into a session is
+# one most people never see because they were doing something else by then.
+# Still not immediate — a notification competing with the desktop drawing itself
+# is noise, and the first seconds of a session are the busiest.
+OnStartupSec=3min
+
+# SIX HOURS, not a day. Daily meant a machine that is suspended and resumed on a
+# normal schedule could go days between checks, and an update that landed an hour
+# after the last one waited until tomorrow. Checking is one small HTTPS request
+# against a signed manifest; four a day is nothing, and the notification is
+# deduplicated by build (refract-update-check only ever announces a given commit
+# once) so this does not become a daily nag about the same thing.
+OnUnitActiveSec=6h
+
+# Catch up after a suspend or a machine that was off. Without this a laptop that
+# is closed overnight silently skips the check it should have run.
 Persistent=true
+
+# Without this, every Refract machine checks at the same instant. Scaled to the
+# 6h interval rather than left at the old 30min, which on a 6h period is a large
+# fraction of the window.
+RandomizedDelaySec=20min
 
 [Install]
 WantedBy=timers.target

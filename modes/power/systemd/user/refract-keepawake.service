@@ -1,0 +1,21 @@
+[Unit]
+Description=Keep the machine awake while a download is running (mains only)
+Documentation=https://github.com/Mr-Pythoneer/refract-os
+# A USER unit, not a system one, deliberately: the inhibitor it takes is against
+# the login session's idle timer, and it should die with the session rather than
+# outliving a logout as a lock nobody can see or explain.
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/distro-keepawake run
+Restart=on-failure
+RestartSec=30
+# It sleeps between samples and reads two small files. Being polite about it
+# means it never shows up as the reason for anything.
+Nice=15
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=graphical-session.target

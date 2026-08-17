@@ -10,6 +10,27 @@ stops at the first heading the machine has already been shown, so an entry
 appended at the bottom is never displayed to anyone who is up to date. Adding
 one with `>>` is the obvious mistake and it fails silently.
 
+## 2026-08-16 — Wine, sleep-during-downloads, and automatic update checks
+
+**About Wine — you were right and the docs were wrong.** The website said Gaming
+mode gives you "Proton-GE + Wine-staging + Bottles, pre-tuned out of the box".
+It doesn't: that stack is over a gigabyte and installs when you enable Gaming
+mode, not when you flash the ISO. The claim has been corrected rather than
+quietly left there, because expecting Wine to be present was a completely
+reasonable thing to expect from what was written.
+
+**The machine now stays awake while something is downloading — but only when
+plugged in.** On battery it sleeps as normal, on purpose: a laptop that refuses
+to sleep because something is trickling in the background is how you come back
+to a flat one. `distro-keepawake status` shows what it sees; `sudo
+distro-keepawake disable` turns it off.
+
+**Update checks happen on their own.** Three minutes after you log in and every
+six hours after that, instead of once a day. You get a notification the first
+time a given build appears, and the Refract menu in the top bar keeps showing
+"Update available" until you install it — so a notification you miss or dismiss
+doesn't mean you never hear about it again.
+
 ## 2026-08-16 — Opening a .exe now tells you what it needs
 
 Wine wasn't broken — it was never installed. Refract leaves it out on purpose:

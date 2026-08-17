@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+# distro-keepawake — don't sleep through a download. On mains only.
+#
+# WHY. Suspend tears down every TCP connection, so an idle timer firing mid
+# download loses it. GNOME already honours inhibitor locks, and browsers take one
+# for their own downloads — but `apt`, `flatpak`, `git clone`, `curl`, a Steam
+# download and anything else run outside a browser take nothing, so those are
+# exactly the ones that die. 20-refract-power stops the machine suspending on
+# mains at all, which covers most of it; this covers the rest, including anyone
+# who turns that back on.
+#
+# ON MAINS ONLY, AND THAT IS THE POINT. Asked for explicitly: "this should NOT be
+# active when not charged." It is the right call. On battery, a laptop that
+# refuses to sleep because something is trickling in the background is how you
+# come back to a dead machine and a warm bag — the download you saved is not
+# worth the battery you lost. Plugged in, staying awake costs nothing.
+#
+# HOW BUSY IS DECIDED. Total received bytes across every real interface, sampled
+# on an interval; loopback is excluded because local traffic is not a download.
+# Above the threshold, hold an inhibitor; below it for the whole grace period,
+# release. The grace exists because real downloads stall — a slow mirror, a
+# handshake, a hash check between files — and dropping the lock at the first
+# quiet second would suspend the machine in the middle of exactly the sort of
+# pause a big download is made of.
+set -uo pipefail
+
+INTERVAL="${REFRACT_KEEPAWAKE_INTERVAL:-10}"       # seconds between samples
+THRESHOLD_KBS="${REFRACT_KEEPAWAKE_THRESHOLD:-200}" # KB/s that counts as "downloading"
+GRACE="${REFRACT_KEEPAWAKE_GRACE:-90}"             # seconds of quiet before releasing
+NETDEV="${REFRACT_NETDEV:-/proc/net/dev}"
+PSDIR="${REFRACT_POWER_SUPPLY_DIR:-/sys/class/power_supply}"
+CONFIG="${REFRACT_KEEPAWAKE_CONFIG:-/etc/refract/keepawake}"
+
+INHIBIT_PID=""
+
+usage() {
+    cat <<'USAGE'
+distro-keepawake — keep the machine awake while something is downloading.
+
+  distro-keepawake run       the watcher itself (started by its systemd user unit)
+  distro-keepawake status    what it sees right now
+  distro-keepawake enable    turn it on   (default)
+  distro-keepawake disable   turn it off
+
+Only while plugged in. On battery the machine sleeps as normal, because a laptop
+that will not sleep because something is trickling in the background is how you
+come back to a flat one.
+USAGE
+}
+
+# Default ON; the file exists only to turn it off.
+is_enabled() {
+    [ -r "$CONFIG" ] || return 0
+    case "$(tr -d '[:space:]' < "$CONFIG" 2>/dev/null)" in
+        off|0|false|disabled) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+# 0 = on mains. Anything else (battery, or no mains supply at all) is "not
+# charging" and this stays out of the way — a desktop has no battery to protect,
+# but it also never suspends into a bag, and 20-refract-power already keeps it
+# awake on mains.
+on_ac() {
+    local d found=1
+    for d in "$PSDIR"/*; do
+        [ -r "$d/type" ] || continue
+        [ "$(cat "$d/type" 2>/dev/null)" = "Mains" ] || continue
+        found=0
+        [ "$(cat "$d/online" 2>/dev/null)" = "1" ] && return 0
+    done
+    # No mains supply at all => a desktop. Treat as plugged in.
+    [ "$found" = 1 ] && return 0
+    return 1
+}
+
+# Total RX bytes across real interfaces. lo is excluded: a local backup or a
+# container pulling from a local registry is not the case this exists for, and
+# loopback traffic can be enormous.
+rx_bytes() {
+    # STRIP THE LEADING WHITESPACE BEFORE SPLITTING. /proc/net/dev indents every
+    # row ("    lo: 1234 …"), so splitting on /[: ]+/ directly makes field 1 the
+    # EMPTY string before the indent and shifts everything by one — the interface
+    # name lands in $2 and the byte count in $3. The first version did that and
+    # read every machine as downloading exactly zero bytes, forever, which looks
+    # identical to an idle network and would never have been noticed in use.
+    awk '
+        NR > 2 {
+            line = $0
+            sub(/^[ \t]+/, "", line)
+            n = split(line, f, /[: \t]+/)
+            if (n < 2) next
+            iface = f[1]
+            if (iface == "lo" || iface ~ /^(docker|veth|br-|virbr)/) next
+            total += f[2]
+        }
+        END { print total + 0 }
+    ' "$NETDEV" 2>/dev/null || echo 0
+}
+
+hold() {
+    [ -n "$INHIBIT_PID" ] && kill -0 "$INHIBIT_PID" 2>/dev/null && return 0
+    command -v systemd-inhibit >/dev/null 2>&1 || return 1
+    # `sleep infinity` as the inhibited command: the lock lives exactly as long
+    # as that child, so releasing it is a kill rather than any kind of protocol.
+    systemd-inhibit --what=sleep:idle --who="Refract" \
+        --why="A download is in progress" sleep infinity >/dev/null 2>&1 &
+    INHIBIT_PID=$!
+    echo "distro-keepawake: holding the machine awake (download in progress)"
+    return 0
+}
+
+release() {
+    [ -n "$INHIBIT_PID" ] || return 0
+    kill "$INHIBIT_PID" 2>/dev/null || true
+    wait "$INHIBIT_PID" 2>/dev/null || true
+    INHIBIT_PID=""
+    echo "distro-keepawake: released — the machine may sleep normally again"
+}
+
+# Release on the way out, ALWAYS. A leaked inhibitor is a laptop that never
+# sleeps again until reboot, with nothing on screen to say why — strictly worse
+# than the problem this solves.
+# PRESERVE THE EXIT STATUS. `cleanup() { release; exit 0; }` overwrites whatever
+# the script was exiting WITH — so `distro-keepawake somethingwrong` printed its
+# error and then exited 0, and every function's return value was flattened to
+# success on the way out. Capture $? first and re-exit with it.
+cleanup() { local rc=$?; release; exit "$rc"; }
+trap cleanup EXIT INT TERM
+
+current_kbs() {  # current_kbs <prev_bytes> <now_bytes> -> integer KB/s
+    local prev="$1" now="$2"
+    [ "$now" -ge "$prev" ] 2>/dev/null || { echo 0; return; }   # counter reset
+    echo $(( (now - prev) / 1024 / INTERVAL ))
+}
+
+cmd_status() {
+    local a b kbs
+    if is_enabled; then echo "Keep-awake:   on"; else echo "Keep-awake:   off (distro-keepawake enable)"; fi
+    if on_ac; then echo "Power:        plugged in — active"; else echo "Power:        on battery — deliberately inactive"; fi
+    a="$(rx_bytes)"; sleep 1; b="$(rx_bytes)"
+    kbs=$(( (b - a) / 1024 ))
+    echo "Download now: ${kbs} KB/s (threshold ${THRESHOLD_KBS} KB/s)"
+    if command -v systemd-inhibit >/dev/null 2>&1; then
+        if systemd-inhibit --list 2>/dev/null | grep -q Refract; then
+            echo "Holding:      yes — something Refract started is keeping this machine awake"
+        else
+            echo "Holding:      no"
+        fi
+    fi
+    return 0
+}
+
+cmd_run() {
+    is_enabled || { echo "distro-keepawake: disabled."; exit 0; }
+    local prev now kbs quiet=0
+    prev="$(rx_bytes)"
+    while :; do
+        sleep "$INTERVAL"
+        now="$(rx_bytes)"
+        kbs="$(current_kbs "$prev" "$now")"
+        prev="$now"
+
+        # Re-read on every pass rather than caching: the cable can be pulled at
+        # any moment, and the whole contract is that battery means hands off.
+        if ! on_ac; then
+            release
+            quiet=0
+            continue
+        fi
+        if [ "$kbs" -ge "$THRESHOLD_KBS" ]; then
+            quiet=0
+            hold || true
+        else
+            quiet=$(( quiet + INTERVAL ))
+            [ "$quiet" -ge "$GRACE" ] && release
+        fi
+    done
+}
+
+cmd_toggle() {  # cmd_toggle on|off
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "This needs root: sudo distro-keepawake $([ "$1" = on ] && echo enable || echo disable)" >&2
+        return 1
+    fi
+    mkdir -p "$(dirname "$CONFIG")" && printf '%s\n' "$1" > "$CONFIG" || return 1
+    echo "Keep-awake-while-downloading: $1"
+    command -v systemctl >/dev/null 2>&1 \
+        && systemctl --global "$([ "$1" = on ] && echo enable || echo disable)" \
+             refract-keepawake.service >/dev/null 2>&1 || true
+    return 0
+}
+
+# Sourceable, like distro-modectl and distro-update. Tests call the REAL
+# functions rather than carving them out with sed — which stopped being possible
+# the moment rx_bytes gained an embedded awk program, because the single quotes
+# around it terminate whatever quoting the extraction is wrapped in. The signing
+# test learned this the same way.
+if [ "${DISTRO_KEEPAWAKE_SOURCE:-}" = "1" ]; then
+    return 0 2>/dev/null || true
+fi
+
+case "${1:-status}" in
+    run)             cmd_run ;;
+    status)          cmd_status ;;
+    enable)          cmd_toggle on ;;
+    disable)         cmd_toggle off ;;
+    -h|--help|help)  usage ;;
+    *)               echo "unknown command '$1' (try --help)" >&2; exit 1 ;;
+esac

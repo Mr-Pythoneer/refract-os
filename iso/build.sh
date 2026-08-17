@@ -379,6 +379,10 @@ ln -sf /opt/distro/modes/appgrid/distro-appgrid      "$INCLUDES/usr/local/bin/di
 # balanced on mains). Every other mode is an explicit request for performance and
 # is deliberately left alone; see the script's header.
 ln -sf /opt/distro/modes/power/distro-powerctl       "$INCLUDES/usr/local/bin/distro-powerctl"
+# distro-keepawake — holds the machine awake while something is downloading, but
+# ONLY on mains. On battery a laptop that refuses to sleep because something is
+# trickling in the background is how you come back to a flat one.
+ln -sf /opt/distro/modes/power/distro-keepawake      "$INCLUDES/usr/local/bin/distro-keepawake"
 # distro-fingerprint — why Settings isn't offering fingerprint login. fprintd and
 # libpam-fprintd ship on the laptop strain, but "the fingerprint thing is not
 # there" has four different causes that all look identical in Settings, and only
@@ -434,6 +438,25 @@ for unit in "$REPO_ROOT"/modes/*/systemd/system/*; do
             ;;
     esac
 done
+# USER units, same convention. Enabling one means a symlink in the target's
+# .wants directory — `systemctl --global enable` cannot run against a staging
+# tree, so the link is made by hand, and the target is read from the unit rather
+# than assumed so a future unit wanting a different one is not silently ignored.
+mkdir -p "$INCLUDES/usr/lib/systemd/user"
+for unit in "$REPO_ROOT"/modes/*/systemd/user/*; do
+    [ -f "$unit" ] || continue
+    uname="$(basename "$unit")"
+    install -m 0644 "$unit" "$INCLUDES/usr/lib/systemd/user/$uname"
+    case "$uname" in
+        refract-*)
+            wanted="$(sed -n 's/^WantedBy=//p' "$unit" | head -n1)"
+            [ -n "$wanted" ] || continue
+            mkdir -p "$INCLUDES/usr/lib/systemd/user/${wanted}.wants"
+            ln -sf "../$uname" "$INCLUDES/usr/lib/systemd/user/${wanted}.wants/$uname"
+            ;;
+    esac
+done
+
 for rule in "$REPO_ROOT"/modes/*/udev/*.rules; do
     [ -f "$rule" ] || continue
     install -m 0644 "$rule" "$INCLUDES/usr/lib/udev/rules.d/$(basename "$rule")"

@@ -31,12 +31,19 @@ Alternative considered: **Arch-based** (like Pop's old base flirtations, or Cach
 
 Be explicit with users about this from install screen onward: **"broad compatibility, not universal."** Overpromising here is the single biggest reputation risk for the project — it's the exact same promise SteamOS/Proton/CrossOver have spent a decade carefully NOT making.
 
-What to actually ship:
-- **Proton-GE** (community Proton build, broader compat than vanilla Proton) preinstalled, not just vanilla Wine
-- **Wine (staging branch)** for non-Steam/non-game apps
+What to actually ship — and note the word ON DEMAND, which this section originally
+said "preinstalled" and "bundled" for. It was never true and it caused a real bug
+report ("I thought Wine was supposed to be included?", 2026-08-16): the whole
+Wine/Proton stack is over a gigabyte with the i386 multiarch layer, and the
+lowspec strain ships with roughly 17 MB of headroom under GitHub's 2 GiB
+single-asset cap. It installs when Gaming mode is enabled, not at flash time.
+Saying otherwise on the website while the image did the opposite is the kind of
+gap that makes a working feature look broken.
+- **Proton-GE** (community Proton build, broader compat than vanilla Proton), on demand — not just vanilla Wine
+- **Wine (staging branch)** for non-Steam/non-game apps, on demand
 - **Bottles** as the GUI front-end — most users should never see a raw `wine` prefix
-- **DXVK + VKD3D-Proton** preinstalled so DirectX 9-12 → Vulkan translation works out of the box
-- **winetricks** bundled for the inevitable "this one app needs .NET 4.8 and a specific font" case
+- **DXVK + VKD3D-Proton** so DirectX 9-12 → Vulkan translation works, on demand
+- **winetricks** alongside Wine, for the inevitable "this one app needs .NET 4.8 and a specific font" case
 - A **compatibility database/launcher** (similar in spirit to Lutris' install scripts) curated for your distro specifically, so common known-troublesome apps get auto-applied workarounds on install
 
 What will never work, regardless of tuning: kernel-anticheat games (Valorant, some Battlefield/EA titles), apps requiring TPM-backed DRM, anything requiring a literal Windows kernel driver (some VPNs, some enterprise security software, some HID/peripheral software).

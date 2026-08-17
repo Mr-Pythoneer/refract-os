@@ -16,6 +16,10 @@ command -v distro-update >/dev/null 2>&1 || exit 0
 out="$(distro-update check 2>&1)"; rc=$?
 [ "$rc" -eq 10 ] || exit 0   # 0 = current, 1 = could not check; neither is news
 
+# `check` writes the top-bar marker itself, so by this point the Refract menu
+# already shows "Update available" whether or not the notification below is seen
+# or dismissed. The notification is the nudge; the menu is the durable state.
+
 # "Update available: <old> -> <new>" — the new commit is the last field.
 newest="$(printf '%s' "$out" | sed -n 's/.*-> *\([0-9a-f]\{6,\}\).*/\1/p' | tail -n1)"
 [ -n "$newest" ] || newest="$(printf '%s' "$out" | tr -d '\n')"
