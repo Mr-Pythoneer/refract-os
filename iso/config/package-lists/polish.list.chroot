@@ -21,3 +21,12 @@ gir1.2-gtk-4.0
 gir1.2-adw-1
 ## notify-send, for the daily "update available" notification.
 libnotify-bin
+## touchegg — TRACKPAD GESTURES ON THE XORG SESSION.
+## GNOME 46's own multi-touch gestures are Wayland-only, and
+## hooks/0400-polish.chroot forces Xorg on Intel graphics to dodge a Wayland
+## modeset hang — that hook's comment lists "gestures" among the things the
+## workaround costs, and nothing paid it back, so the laptop this distro was
+## built against had a good trackpad and no gestures at all.
+## 44 kB download. modes/normal/gestures/touchegg.conf binds it to the SAME
+## keys GNOME already uses, so the gestures do what the Wayland ones would.
+touchegg

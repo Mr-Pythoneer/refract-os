@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Refract gestures (first login)
+Comment=Configure trackpad gestures once, on first login
+# --- WHY AN AUTOSTART AND NOT A BUILD STEP ---
+# touchegg reads its config from the USER's config dir; there is no system-wide
+# drop-in it will merge. Writing it at build time would mean /etc/skel, which is
+# copied only when an account is CREATED — so the person already using an
+# updated machine would never get it. This runs once per user and stamps a file.
+# It also has to run in a session, because whether gestures are needed at all
+# depends on whether that session is Xorg or Wayland.
+Exec=/usr/local/bin/distro-gestures setup
+X-GNOME-Autostart-Delay=15
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

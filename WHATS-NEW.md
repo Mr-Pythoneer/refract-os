@@ -10,6 +10,27 @@ stops at the first heading the machine has already been shown, so an entry
 appended at the bottom is never displayed to anyone who is up to date. Adding
 one with `>>` is the obvious mistake and it fails silently.
 
+## 2026-08-16 — Trackpad gestures
+
+Three fingers up for the overview, three sideways to switch workspace, four up
+for all apps. In a browser, two fingers sideways goes back and forward — only in
+a browser, because everywhere else that gesture is scrolling and hijacking it
+would make every sideways scroll in a spreadsheet navigate away from your work.
+
+**Why there weren't any.** GNOME's own gestures are excellent and only work on
+the Wayland session. Refract uses Xorg on Intel graphics on purpose, to avoid a
+Wayland startup hang that has left real laptops sitting at a black screen — and
+gestures were one of the things that workaround silently cost. Nothing replaced
+them until now.
+
+They're set up automatically on your first login, and they trigger the same
+things the keyboard shortcuts do, so gestures and shortcuts can't disagree.
+
+If your machine has AMD or NVIDIA graphics — or Intel that boots Wayland fine —
+`distro-gestures wayland on` switches to the native ones and gets fractional
+scaling and variable refresh rate too. It prints the way back before you reboot,
+in case your laptop is one of the ones that hangs.
+
 ## 2026-08-16 — Wine, sleep-during-downloads, and automatic update checks
 
 **About Wine — you were right and the docs were wrong.** The website said Gaming

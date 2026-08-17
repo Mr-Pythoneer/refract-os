@@ -547,6 +547,11 @@ install -m 0644 "$REPO_ROOT/modes/layouts/firstlogin/refract-layout.desktop" \
 # any of the distro-* tools exist. --first-run makes it a no-op after the first.
 install -m 0644 "$REPO_ROOT/modes/tips/firstlogin/refract-tips.desktop" \
     "$INCLUDES/etc/xdg/autostart/refract-tips.desktop"
+# Trackpad gestures. Must run IN a session: whether anything is needed depends on
+# whether that session turned out to be Xorg or Wayland, which is decided at
+# login by refract-gdm-wayland-scope, not at build time.
+install -m 0644 "$REPO_ROOT/modes/normal/firstlogin/refract-gestures.desktop" \
+    "$INCLUDES/etc/xdg/autostart/refract-gestures.desktop"
 ln -sf /opt/distro/modes/tips/refract-tips "$INCLUDES/usr/local/bin/refract-tips"
 # Ship the default so a LIVE session (never installed, so no shellprocess ran)
 # still has a layout to apply rather than falling back by accident.
@@ -561,6 +566,7 @@ declare -A DISTRO_BINS=(
     [distro-ai-cloud-toggle]=modes/ai/bin [distro-ai-bind-hotkey]=modes/ai/bin
     [distro-ai-detect-tier]=modes/ai/bin  [distro-ai-setup]=modes/ai/bin
     [distro-gaming-compat]=modes/gaming/bin  [distro-exe]=modes/gaming/bin
+    [distro-gestures]=modes/normal/bin
     [distro-creative-scratch]=modes/creative/bin [distro-creative-color]=modes/creative/bin
 )
 for bin in "${!DISTRO_BINS[@]}"; do

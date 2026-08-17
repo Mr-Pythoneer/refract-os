@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+# distro-gestures — trackpad gestures, and an honest account of why they vary.
+#
+# THE SITUATION, WHICH IS NOT OBVIOUS FROM THE OUTSIDE. GNOME 46 has good
+# multi-touch gestures built in and they are WAYLAND ONLY. Refract forces the
+# Xorg session on Intel graphics (hooks/0400-polish.chroot) because Wayland's
+# initial modeset hangs indefinitely on some real Intel iGPU/panel combinations —
+# a boot that never finishes, invisible in QEMU, and one of the most common
+# real-hardware GDM hangs there is. That hook's own comment lists "gestures"
+# among the things the workaround costs, and then nothing paid the cost back.
+#
+# So on the ThinkPad this distro was built against, a perfectly good trackpad had
+# no gestures — not broken, just quietly absent, with the explanation buried in a
+# build hook nobody reads.
+#
+# WHAT THIS DOES. On Xorg it configures touchegg, which reads libinput and
+# synthesises the keystrokes GNOME already binds — so the gestures perform the
+# SAME actions as the Wayland ones rather than inventing a parallel scheme. On
+# Wayland it does nothing except say so, because GNOME's own gestures are better
+# than anything synthesised and touchegg cannot send synthetic input to a Wayland
+# compositor anyway.
+#
+# It also offers to switch sessions, because on non-Intel hardware — or on an
+# Intel machine that simply does not have the hang — Wayland is the better answer
+# and gets fractional scaling and VRR along with the gestures.
+set -uo pipefail
+
+CONF_SRC="${REFRACT_GESTURES_CONF:-/opt/distro/modes/normal/gestures/touchegg.conf}"
+GDM_FILES="${REFRACT_GDM_FILES:-/etc/gdm3/custom.conf /etc/gdm3/daemon.conf}"
+
+C_OK=$'\033[32m'; C_WARN=$'\033[33m'; C_DIM=$'\033[36m'; C_OFF=$'\033[0m'
+
+usage() {
+    cat <<'USAGE'
+distro-gestures — trackpad gestures on Refract.
+
+  distro-gestures status      what works right now, and why
+  distro-gestures setup       configure gestures for this session (no password)
+  distro-gestures wayland on  switch to the Wayland session (native gestures)
+  distro-gestures wayland off switch back to Xorg
+  distro-gestures -h          this text
+
+GNOME's own gestures are Wayland-only. Refract defaults to Xorg on Intel
+graphics to avoid a boot hang, and uses touchegg to provide gestures there.
+USAGE
+}
+
+# XDG_SESSION_TYPE is set by logind for the current session. Falls back to the
+# presence of a Wayland socket, because a terminal opened outside the session
+# (tty, ssh) has no session type of its own but can still be asked to configure
+# the desktop it belongs to.
+session_type() {
+    local t="${XDG_SESSION_TYPE:-}"
+    [ -n "$t" ] && { printf '%s\n' "$t"; return; }
+    [ -n "${WAYLAND_DISPLAY:-}" ] && { echo wayland; return; }
+    [ -n "${DISPLAY:-}" ] && { echo x11; return; }
+    echo unknown
+}
+
+# Is a touchpad actually present? Gestures on a desktop with a mouse are a
+# setting nobody will ever trigger, and saying "configured" there is a small lie.
+has_touchpad() {
+    grep -qi "touchpad\|synaptics\|elan\|trackpad" /proc/bus/input/devices 2>/dev/null && return 0
+    [ -n "$(ls /dev/input/by-path/*touchpad* 2>/dev/null)" ] && return 0
+    return 1
+}
+
+user_conf() { printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/touchegg/touchegg.conf"; }
+
+cmd_status() {
+    local st; st="$(session_type)"
+    echo "Session:      $st"
+    if has_touchpad; then echo "Touchpad:     detected"; else echo "Touchpad:     none found — gestures have nothing to read"; fi
+    echo
+
+    case "$st" in
+        wayland)
+            echo "${C_OK}Gestures are handled by GNOME itself and are already active.${C_OFF}"
+            echo "  3 fingers up/down    overview"
+            echo "  3 fingers left/right switch workspace"
+            echo "  Pinch in the overview, and in apps that support it"
+            echo
+            echo "${C_DIM}touchegg is not used on Wayland — it cannot send input to a Wayland${C_OFF}"
+            echo "${C_DIM}compositor, and GNOME's own gestures are smoother anyway.${C_OFF}"
+            ;;
+        x11)
+            echo "GNOME's built-in gestures do not work on Xorg — they are a Wayland feature."
+            echo "Refract defaults to Xorg on Intel graphics to avoid a Wayland boot hang."
+            echo
+            if ! command -v touchegg >/dev/null 2>&1; then
+                echo "${C_WARN}touchegg is not installed, so this session has no gestures.${C_OFF}"
+                echo "  sudo apt install touchegg && distro-gestures setup"
+            elif [ -r "$(user_conf)" ]; then
+                echo "${C_OK}touchegg is installed and configured for your account.${C_OFF}"
+                echo "  3 fingers up/down    overview"
+                echo "  3 fingers left/right switch workspace"
+                echo "  4 fingers up         all apps"
+                echo "  2 fingers sideways   back / forward, in browsers only"
+                systemctl is-active --quiet touchegg 2>/dev/null \
+                    && echo "  service: running" \
+                    || echo "  ${C_WARN}service: NOT running — sudo systemctl enable --now touchegg${C_OFF}"
+            else
+                echo "${C_WARN}touchegg is installed but not configured for your account.${C_OFF}"
+                echo "  distro-gestures setup"
+            fi
+            echo
+            echo "${C_DIM}If this machine has AMD or NVIDIA graphics, or an Intel one that boots${C_OFF}"
+            echo "${C_DIM}Wayland fine, 'distro-gestures wayland on' gets GNOME's native gestures${C_OFF}"
+            echo "${C_DIM}plus fractional scaling and VRR.${C_OFF}"
+            ;;
+        *)
+            echo "Could not tell what kind of session this is — run this from a desktop terminal."
+            ;;
+    esac
+    return 0
+}
+
+cmd_setup() {
+    local st dst; st="$(session_type)"
+    if [ "$st" = wayland ]; then
+        echo "${C_OK}Wayland session — GNOME's own gestures are already active. Nothing to do.${C_OFF}"
+        return 0
+    fi
+    command -v touchegg >/dev/null 2>&1 || {
+        echo "${C_WARN}touchegg is not installed.${C_OFF}" >&2
+        echo "  sudo apt install touchegg" >&2
+        return 1
+    }
+    [ -r "$CONF_SRC" ] || { echo "distro-gestures: no config at $CONF_SRC" >&2; return 1; }
+
+    dst="$(user_conf)"
+    # NEVER CLOBBER A CONFIG SOMEBODY EDITED. touchegg's config is the kind of
+    # file people tune, and silently replacing it on an update would undo their
+    # work with no warning. The marker identifies ours; anything else is theirs.
+    if [ -e "$dst" ] && ! grep -q "Refract OS — trackpad gestures" "$dst" 2>/dev/null; then
+        echo "${C_WARN}$dst already exists and was not written by Refract — leaving it alone.${C_OFF}"
+        echo "Delete it and re-run this if you want Refract's defaults back." >&2
+        return 0
+    fi
+    mkdir -p "$(dirname "$dst")" || return 1
+    install -m 0644 "$CONF_SRC" "$dst" || return 1
+    echo "${C_OK}Gestures configured.${C_OFF}"
+
+    # touchegg is a system daemon plus a per-session client; the client is started
+    # by the daemon's own autostart entry. Restarting the daemon makes the new
+    # config take effect without a logout.
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl is-active --quiet touchegg 2>/dev/null \
+            || echo "${C_DIM}Start the service once: sudo systemctl enable --now touchegg${C_OFF}"
+    fi
+    echo "${C_DIM}Try three fingers up.${C_OFF}"
+    return 0
+}
+
+cmd_wayland() {  # cmd_wayland on|off
+    local want="$1" f
+    [ "$(id -u)" -eq 0 ] || { echo "This needs root: sudo distro-gestures wayland $want" >&2; return 1; }
+    for f in $GDM_FILES; do
+        [ -f "$f" ] || continue
+        if [ "$want" = on ]; then
+            sed -i 's/^WaylandEnable=false/#WaylandEnable=false  # switched on by distro-gestures/' "$f"
+        else
+            sed -i 's/^#\?WaylandEnable=.*/WaylandEnable=false/' "$f"
+        fi
+    done
+    if [ "$want" = on ]; then
+        echo "${C_OK}Wayland will be used from the next login.${C_OFF}"
+        echo
+        echo "${C_WARN}READ THIS BEFORE YOU REBOOT.${C_OFF} Refract defaults to Xorg because Wayland's"
+        echo "first screen setup hangs forever on some Intel laptops. If this machine is one"
+        echo "of them you will get a black screen or a login that never appears — it is not"
+        echo "bricked, and here is the way back:"
+        echo
+        echo "  1. Ctrl+Alt+F3 for a text console, and log in there."
+        echo "  2. sudo distro-gestures wayland off"
+        echo "  3. sudo reboot"
+        echo
+        echo "${C_DIM}Worth trying: the hang is specific to certain panels and kernels, and this${C_OFF}"
+        echo "${C_DIM}image runs a much newer kernel than the one the workaround was written for.${C_OFF}"
+    else
+        echo "${C_OK}Xorg will be used from the next login (Refract's default).${C_OFF}"
+        echo "${C_DIM}Gestures on Xorg come from touchegg: distro-gestures setup${C_OFF}"
+    fi
+    return 0
+}
+
+case "${1:-status}" in
+    status)          cmd_status ;;
+    setup)           cmd_setup ;;
+    wayland)         case "${2:-}" in
+                         on|off) cmd_wayland "$2" ;;
+                         *) echo "usage: distro-gestures wayland on|off" >&2; exit 1 ;;
+                     esac ;;
+    -h|--help|help)  usage ;;
+    *)               echo "unknown command '$1' (try --help)" >&2; exit 1 ;;
+esac

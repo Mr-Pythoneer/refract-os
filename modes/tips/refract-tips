@@ -136,6 +136,18 @@ PAGES = [
     ]),
 
     ("look", "Look", "applications-graphics-symbolic", [
+        ("Trackpad gestures", [
+            ("Three fingers up, three fingers sideways",
+             "Three fingers up opens the overview, three sideways switches workspace, four up "
+             "shows all apps. In a browser, two fingers sideways goes back and forward — only "
+             "in a browser, because everywhere else that gesture is scrolling.", None),
+            ("Why they might be missing",
+             "GNOME's own gestures only work on the Wayland session, and Refract uses Xorg on "
+             "Intel graphics to avoid a boot hang. On Xorg the gestures come from touchegg "
+             "instead, set up automatically on your first login.",
+             ("Check gestures", ["gnome-terminal", "--", "bash", "-lc",
+                                 "distro-gestures status; echo; read -rp 'Press Enter to close…'"])),
+        ]),
         ("Layouts", [
             ("Layouts are separate from modes",
              "A mode decides what the machine is tuned FOR. A layout decides how it LOOKS. "
