@@ -74,8 +74,12 @@ cmd_status() {
 }
 
 offer_install() {  # offer_install <exe path>
-    local exe="$1" term
-    local msg="\"$(basename "$exe")\" is a Windows program.
+    local exe="$1" term name msg
+    # Declared and assigned separately: `local x="$(cmd)"` swallows cmd's exit
+    # status, because local itself succeeds. Harmless for basename, but the habit
+    # is what SC2155 is warning about and it is a real trap on anything fallible.
+    name="$(basename "$exe")"
+    msg="\"$name\" is a Windows program.
 
 Refract can run many Windows programs using Wine, but Wine is not installed — it is over a gigabyte, and most people never need it, so it is not included by default.
 
