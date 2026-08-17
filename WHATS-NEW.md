@@ -10,6 +10,29 @@ stops at the first heading the machine has already been shown, so an entry
 appended at the bottom is never displayed to anyone who is up to date. Adding
 one with `>>` is the obvious mistake and it fails silently.
 
+## 2026-08-17 — "Can't connect to GitHub" now tells you the truth
+
+If an update check failed, it said one thing: *could not reach GitHub*. That
+sentence covered at least six completely different problems — no DNS, a network
+that blocks GitHub's download servers while allowing github.com itself, a hotel
+or school wifi login page answering instead of GitHub, a release that was still
+half-uploaded, GitHub's rate limit being used up by somebody else on your
+network, and an update whose signature did not check out.
+
+Only one of those is "your connection is down", and it is not the common one.
+The worst case was the last: a machine correctly **refusing a bad update** would
+tell you your wifi was broken, and nobody would ever look at the real reason.
+
+Now each one says what it actually is, and what to do about it. There is also a
+new command that walks the whole chain and shows you exactly which link is
+broken:
+
+    distro-update diagnose
+
+It checks DNS, the connection, both download servers separately, your signing
+key and its fingerprint, and whether the signature verifies — and tells you that
+the first failed line is the one that matters.
+
 ## 2026-08-16 — Trackpad gestures
 
 Three fingers up for the overview, three sideways to switch workspace, four up

@@ -51,6 +51,24 @@ LAYER_BASE="${REFRACT_LAYER_BASE:-https://github.com/${REPO_SLUG}/releases/downl
 
 have_pubkey() { [ -s "$PUBKEY" ] && command -v openssl >/dev/null 2>&1; }
 
+# ------------------------------------------------------- WHY IT FAILED, EXACTLY
+# The update check is a chain of five things that can each fail on their own:
+# DNS, github.com, the release asset, the signature, and the signature being
+# VALID. The first version of this reported all five — plus "GitHub answered but
+# rate-limited us" — with the single sentence "Could not reach GitHub to check
+# for updates", which is the one cause the user can do nothing about and is
+# usually the wrong one. A machine whose signature verification is failing would
+# be told its wifi is broken, forever.
+#
+# WHY A FILE AND NOT A VARIABLE. remote_commit and fetch_verified_manifest are
+# both called inside $( ), so they run in a subshell — a variable set in there
+# is gone by the time the caller reads it. The filesystem is the only channel
+# that crosses that boundary, and this is short-lived state, not persisted state.
+REASON_FILE="$(mktemp -t refract-update-reason.XXXXXX 2>/dev/null || echo /tmp/refract-update-reason.$$)"
+trap 'rm -f "$REASON_FILE"' EXIT
+why() { printf '%s\n' "$*" > "$REASON_FILE" 2>/dev/null || true; }
+last_why() { cat "$REASON_FILE" 2>/dev/null; }
+
 # Fetch manifest + signature, verify, print the manifest. Non-zero on ANY doubt.
 #
 # FAIL CLOSED, EVERY BRANCH. A verifier that returns success when it could not
@@ -59,14 +77,33 @@ have_pubkey() { [ -s "$PUBKEY" ] && command -v openssl >/dev/null 2>&1; }
 # is have_pubkey() being false, which is decided by the CALLER and announced.
 fetch_verified_manifest() {  # fetch_verified_manifest <workdir>
     local w="$1"
-    curl -fsSL --max-time 30 "$LAYER_BASE/refract-layer.manifest"     -o "$w/m"   2>/dev/null || return 1
-    curl -fsSL --max-time 30 "$LAYER_BASE/refract-layer.manifest.sig" -o "$w/m.sig" 2>/dev/null || return 1
-    [ -s "$w/m" ] && [ -s "$w/m.sig" ] || return 1
+    curl -fsSL --max-time 30 "$LAYER_BASE/refract-layer.manifest"     -o "$w/m"   2>/dev/null || {
+        why "could not download the update manifest from GitHub Releases.
+Note that release files are served from objects.githubusercontent.com, NOT
+github.com — some school, office and hotel networks allow one and block the
+other, which looks exactly like this."
+        return 1; }
+    curl -fsSL --max-time 30 "$LAYER_BASE/refract-layer.manifest.sig" -o "$w/m.sig" 2>/dev/null || {
+        why "the manifest downloaded but its signature did not. The release may
+be half-published — this usually fixes itself within a few minutes."
+        return 1; }
+    [ -s "$w/m" ] && [ -s "$w/m.sig" ] || {
+        why "the manifest or its signature downloaded as an empty file. That is
+usually a captive portal (hotel/airport/school wifi) answering instead of
+GitHub. Open a browser, accept the network's login page, and try again."
+        return 1; }
     # -rawin is REQUIRED for Ed25519: it signs the message itself rather than a
     # pre-computed digest, and without the flag openssl errors out rather than
     # verifying — which would look like a bad signature on a good file.
     openssl pkeyutl -verify -rawin -pubin -inkey "$PUBKEY" \
-        -sigfile "$w/m.sig" -in "$w/m" >/dev/null 2>&1 || return 1
+        -sigfile "$w/m.sig" -in "$w/m" >/dev/null 2>&1 || {
+        # NOT a network problem, and saying "check your connection" here would
+        # send somebody to reboot their router over a security event.
+        why "the update manifest downloaded fine, but its signature is NOT valid
+for this machine's key. Either this build predates the current signing key, or
+something on the network altered the file. Refusing it is the correct outcome.
+Run: distro-update diagnose"
+        return 1; }
     cat "$w/m"
 }
 
@@ -85,6 +122,7 @@ distro-update — update Refract's own components (not Ubuntu packages).
   distro-update apply      download and install it (needs root)
   distro-update notes      what changed, in plain language
   distro-update status     what this machine is running
+  distro-update diagnose   why a failing update check is failing
   distro-update -h         this text
 
 Ubuntu packages, security updates and apps are handled by GNOME Software /
@@ -114,10 +152,31 @@ remote_commit() {
         return 1
     fi
     # No key yet (an install that predates signing). Legacy path.
-    curl -fsSL --max-time 20 \
-        "https://api.github.com/repos/${REPO_SLUG}/commits/${REMOTE_REF}" 2>/dev/null \
-        | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{40\}\)".*/\1/p' \
-        | head -n1
+    local body sha
+    body="$(curl -fsSL --max-time 20 \
+        "https://api.github.com/repos/${REPO_SLUG}/commits/${REMOTE_REF}" 2>/dev/null)" || {
+        why "could not reach api.github.com. This build predates update signing,
+so it has to ask the API instead of reading a signed manifest."
+        return 1; }
+    sha="$(printf '%s' "$body" \
+        | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{40\}\)".*/\1/p' | head -n1)"
+    if [ -z "$sha" ]; then
+        # GitHub's unauthenticated API allows 60 requests an hour PER IP. On a
+        # shared network — a school, an office, anywhere behind one NAT — that
+        # budget is routinely spent by somebody else entirely, and the reply is
+        # a perfectly successful HTTP response containing an error message. It
+        # is not a connection failure, and telling somebody to check their wifi
+        # when their wifi is fine is how a bug report goes nowhere for a week.
+        case "$body" in
+            *"rate limit"*|*"API rate"*)
+                why "GitHub's API rate limit for this network is used up (60 requests
+an hour, shared by everyone on the same connection). Your network is fine — wait
+an hour, or update to a signed build, which does not use the API at all." ;;
+            *) why "GitHub answered, but not with anything this could read." ;;
+        esac
+        return 1
+    fi
+    printf '%s\n' "$sha"
 }
 
 short() { printf '%.12s' "$1"; }
@@ -282,7 +341,10 @@ cmd_check() {
         # "up to date", and clearing the top-bar notice on a single failed
         # lookup would make a real pending update disappear because the wifi
         # dropped for thirty seconds.
-        echo "${C_WARN}Could not reach GitHub to check for updates.${C_OFF}" >&2
+        local r; r="$(last_why)"
+        echo "${C_WARN}Could not check for updates.${C_OFF}" >&2
+        if [ -n "$r" ]; then printf '%s\n' "$r" >&2
+        else echo "No reason was recorded. Run: distro-update diagnose" >&2; fi
         return 1
     fi
     if [ "$ic" = "unknown" ]; then
@@ -334,7 +396,9 @@ cmd_apply() {
 
     local work; work="$(mktemp -d)" || die "could not create a temp dir"
     # shellcheck disable=SC2064
-    trap "rm -rf '$work'" EXIT INT TERM
+    # Cleans the reason file too: this REPLACES the EXIT trap set at the top of
+    # the script, so not naming it here would leak one temp file per apply.
+    trap "rm -rf '$work'; rm -f '$REASON_FILE'" EXIT INT TERM
 
     if have_pubkey; then
         # THE VERIFIED PATH. Nothing is extracted until the manifest's signature
@@ -669,6 +733,68 @@ cmd_apply() {
     fi
 }
 
+# ------------------------------------------------------------------- DIAGNOSE
+# Walks the chain one hop at a time and says which hop is broken.
+#
+# WHY THIS IS WORTH ITS OWN COMMAND. "It can't connect to GitHub" is true of a
+# dead DNS server, a captive portal, a blocked CDN host, a half-published
+# release and a bad signature — five different problems with five different
+# fixes, and no way to tell them apart from the outside. Every one of them
+# previously produced the same sentence. This prints the chain so the answer is
+# visible rather than inferred.
+cmd_diagnose() {
+    local ok=0 w
+    hop() {  # hop <label> <command...>
+        printf '  %-38s' "$1"; shift
+        if "$@" >/dev/null 2>&1; then echo "${C_OK}ok${C_OFF}"; return 0
+        else echo "${C_ERR}FAILED${C_OFF}"; ok=1; return 1; fi
+    }
+    echo "Update channel: ${REPO_SLUG}@${REMOTE_REF}"
+    echo "Release assets: $LAYER_BASE"
+    echo
+    echo "Network:"
+    # Split by HOST, because the release assets are NOT served from github.com.
+    # A network that permits github.com and blocks the asset CDN is common and
+    # is invisible unless the two are tested separately.
+    hop "DNS: github.com"                 getent hosts github.com
+    hop "DNS: objects.githubusercontent.com" getent hosts objects.githubusercontent.com
+    hop "HTTPS: github.com"               curl -fsS --max-time 15 -o /dev/null https://github.com
+    echo
+    echo "Update files:"
+    w="$(mktemp -d)" || return 1
+    hop "manifest downloads"     curl -fsSL --max-time 30 "$LAYER_BASE/refract-layer.manifest"     -o "$w/m"
+    hop "signature downloads"    curl -fsSL --max-time 30 "$LAYER_BASE/refract-layer.manifest.sig" -o "$w/m.sig"
+    echo
+    echo "Signing:"
+    if [ -s "$PUBKEY" ]; then
+        echo "  ${C_OK}public key present${C_OFF}  $PUBKEY"
+        # The fingerprint is what tells a stale build apart from a tampered
+        # file: both fail verification, and only this distinguishes them.
+        command -v openssl >/dev/null 2>&1 && \
+            echo "  fingerprint            $(openssl pkey -pubin -in "$PUBKEY" -outform DER 2>/dev/null | md5sum | cut -c1-32)"
+    else
+        echo "  ${C_WARN}no public key — this build predates signing and uses the GitHub API${C_OFF}"
+    fi
+    hop "openssl available"  command -v openssl
+    if [ -s "$w/m" ] && [ -s "$w/m.sig" ] && [ -s "$PUBKEY" ]; then
+        hop "signature is valid" openssl pkeyutl -verify -rawin -pubin -inkey "$PUBKEY" \
+            -sigfile "$w/m.sig" -in "$w/m"
+    fi
+    echo
+    echo "Versions:"
+    echo "  installed              $(installed_commit)"
+    [ -s "$w/m" ] && echo "  available              $(manifest_field commit "$(cat "$w/m")")"
+    rm -rf "$w"
+    echo
+    if [ "$ok" -eq 0 ]; then
+        echo "${C_OK}Everything the updater needs is working.${C_OFF}"
+    else
+        echo "${C_WARN}The first FAILED line above is the problem — the ones after it${C_OFF}"
+        echo "${C_WARN}usually fail only because it did.${C_OFF}"
+    fi
+    return "$ok"
+}
+
 # Sourceable, like distro-modectl (DISTRO_MODECTL_SOURCE=1), so tests can call
 # the REAL functions instead of trying to carve them out of this file with sed.
 # That is not a hypothetical convenience: the signing test's first version did
@@ -684,6 +810,7 @@ case "${1:-}" in
     apply)              cmd_apply ;;
     notes)              cmd_notes ;;
     status)             cmd_status ;;
+    diagnose)           cmd_diagnose ;;
     -h|--help|help|"")  usage ;;
     *)                  die "unknown command '$1' (try --help)" ;;
 esac
