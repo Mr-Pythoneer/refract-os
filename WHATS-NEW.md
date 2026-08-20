@@ -10,6 +10,30 @@ stops at the first heading the machine has already been shown, so an entry
 appended at the bottom is never displayed to anyone who is up to date. Adding
 one with `>>` is the obvious mistake and it fails silently.
 
+## 2026-08-17 — The update button no longer makes things worse
+
+If a check failed and you pressed the button again, Refract sent another
+request. And another. Nothing remembered a recent answer, and nothing noticed
+when GitHub replied "you are asking too often, wait five minutes" — so the
+answer was always the same vague *could not reach GitHub*, which reads as
+"try again". Trying again was the one thing that extended the block.
+
+Switching wifi, plugging in a cable, or turning on a VPN all look like they
+should help. A VPN is usually the worst of the three: you share that exit
+address with everyone else on the server, and the hourly budget is often
+already spent by strangers before you arrive.
+
+Now:
+
+- When GitHub asks this machine to wait, Refract waits, and tells you how long
+  is left. It sends nothing at all until then.
+- A message that says **rate limit** instead of a connection error, so you
+  don't go and change networks over something that isn't a network problem.
+- Pressing the button twice within five minutes reuses the answer it already
+  has instead of asking again.
+
+None of this is a fault on your machine, and nothing is broken while it waits.
+
 ## 2026-08-17 — The download button was broken for low-RAM machines
 
 If you told the picker on the website that your machine had **under 8 GB of

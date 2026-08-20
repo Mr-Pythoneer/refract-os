@@ -33,6 +33,13 @@ printf "{\"sha\": \"'"$REMOTE_SHA"'\", \"commit\": {}}\n"
 '
 export PATH="$sb:$PATH"
 
+# The updater reuses a recent successful answer instead of asking again (see
+# tests/test_update_backoff.sh). That cache lives in XDG_CACHE_HOME, so it has
+# to be redirected here alongside XDG_STATE_HOME — otherwise this test reads the
+# developer's real ~/.cache/refract and its outcome depends on what that machine
+# happened to do in the last five minutes.
+export REFRACT_CACHE_DIR="$sb/cache"
+
 run_check() {  # run_check <installed-commit> -> exit code, marker side effects
     printf 'REFRACT_COMMIT=%s\n' "$1" > "$sb/build-id"
     XDG_STATE_HOME="$sb/state" REFRACT_BUILD_ID_FILE="$sb/build-id" \
@@ -63,6 +70,9 @@ fi
 # a genuine pending update vanish from the top bar because the wifi blipped.
 run_check "$OTHER_SHA" >/dev/null 2>&1   # re-arm the marker
 printf 'REFRACT_COMMIT=%s\n' "$OTHER_SHA" > "$sb/build-id"
+# Drop the cached answer: with one present no request is sent at all, and this
+# case is specifically about what happens when the request FAILS.
+rm -f "$sb/cache/last-check"
 OFFLINE=1 XDG_STATE_HOME="$sb/state" REFRACT_BUILD_ID_FILE="$sb/build-id" \
     bash "$UPDATE" check >/dev/null 2>&1; rc=$?
 assert_eq "check exits 1 when GitHub is unreachable" "1" "$rc"

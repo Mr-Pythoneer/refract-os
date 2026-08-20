@@ -69,6 +69,88 @@ trap 'rm -f "$REASON_FILE"' EXIT
 why() { printf '%s\n' "$*" > "$REASON_FILE" 2>/dev/null || true; }
 last_why() { cat "$REASON_FILE" 2>/dev/null; }
 
+# ------------------------------------------------- NOT HAMMERING THE SERVER
+# Reported from a real machine: "I'm spamming the update button and it keeps
+# saying GitHub is not responding — I tried three networks and a lot of VPNs."
+#
+# That is the tool's fault, not the network's. Nothing here cached an answer,
+# nothing honoured a Retry-After, and nothing noticed a 403. So every click sent
+# a fresh request; when GitHub started refusing them, the only feedback was
+# "could not reach GitHub", which reads as "try again" — and trying again is
+# precisely what makes it worse. Switching networks or VPNs looks like it should
+# help and does the opposite: a VPN exit IP is shared with everyone else on that
+# server, so its 60-requests-an-hour unauthenticated budget is usually spent
+# before you arrive, and hopping between them spreads the problem to new IPs
+# instead of waiting out the old one.
+#
+# Two rules, both client-side:
+#   1. A successful check is reused for MIN_INTERVAL. Clicking again inside that
+#      window answers from the cache and says so, instead of sending anything.
+#   2. A 403/429 records a cooldown from the server's own Retry-After, and until
+#      it expires no request is sent at all.
+# Rule 2 is the important one: a client that keeps knocking after being told to
+# stop is indistinguishable from an attack, and gets treated like one.
+CACHE_DIR="${REFRACT_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/refract}"
+COOLDOWN_FILE="$CACHE_DIR/backoff-until"
+CHECK_CACHE="$CACHE_DIR/last-check"
+MIN_INTERVAL="${REFRACT_MIN_CHECK_INTERVAL:-300}"
+
+now_s() { date +%s 2>/dev/null || echo 0; }
+
+set_cooldown() {  # set_cooldown <seconds>
+    mkdir -p "$CACHE_DIR" 2>/dev/null || return 0
+    printf '%s\n' "$(( $(now_s) + ${1:-60} ))" > "$COOLDOWN_FILE" 2>/dev/null || true
+}
+
+# Seconds left, or 0. Always prints a number so callers can compare with -gt.
+cooldown_left() {
+    local until_s left
+    until_s="$(cat "$COOLDOWN_FILE" 2>/dev/null)"
+    case "$until_s" in ''|*[!0-9]*) echo 0; return ;; esac
+    left=$(( until_s - $(now_s) ))
+    [ "$left" -gt 0 ] && echo "$left" || echo 0
+}
+
+human_secs() {  # 90 -> "2 minutes"
+    local s="${1:-0}"
+    if   [ "$s" -lt 60 ]   ; then echo "under a minute"
+    elif [ "$s" -lt 3600 ] ; then echo "$(( (s + 59) / 60 )) minutes"
+    else                          echo "$(( (s + 3599) / 3600 )) hours"; fi
+}
+
+# GET <url> into <file>, and LEARN from a refusal.
+#
+# -f makes curl exit non-zero on 4xx, but -D still captures the headers and -w
+# still reports the code, so the refusal is readable rather than just a failure.
+http_get() {  # http_get <url> <outfile>
+    local url="$1" out="$2" hdr code rc ra
+    hdr="$(mktemp)" || return 1
+    code="$(curl -fsSL --max-time 30 -D "$hdr" -o "$out" -w '%{http_code}' "$url" 2>/dev/null)"
+    rc=$?
+    case "$code" in
+        403|429)
+            # GitHub's secondary ("abuse") rate limit. It tells you how long to
+            # wait; the whole point is to actually wait.
+            ra="$(sed -n 's/^[Rr]etry-[Aa]fter:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$hdr" | head -n1)"
+            [ -n "$ra" ] || ra=300
+            set_cooldown "$ra"
+            why "GitHub is refusing requests from this network for now (HTTP $code)
+— it asks that we wait $(human_secs "$ra") before trying again, and this will
+keep waiting until then rather than knocking harder.
+
+This is a rate limit, not an outage and not a problem with your machine. It is
+usually caused by too many checks in a short time, or by sharing an IP address
+with a lot of other people — which is exactly what a VPN does, so switching VPNs
+generally makes it worse rather than better. Wired, wifi and mobile data will
+all behave the same way if they come out of the same address.
+
+Nothing is broken. Wait it out and the check will simply work."
+            ;;
+    esac
+    rm -f "$hdr"
+    return "$rc"
+}
+
 # Fetch manifest + signature, verify, print the manifest. Non-zero on ANY doubt.
 #
 # FAIL CLOSED, EVERY BRANCH. A verifier that returns success when it could not
@@ -77,13 +159,16 @@ last_why() { cat "$REASON_FILE" 2>/dev/null; }
 # is have_pubkey() being false, which is decided by the CALLER and announced.
 fetch_verified_manifest() {  # fetch_verified_manifest <workdir>
     local w="$1"
-    curl -fsSL --max-time 30 "$LAYER_BASE/refract-layer.manifest"     -o "$w/m"   2>/dev/null || {
+    http_get "$LAYER_BASE/refract-layer.manifest" "$w/m" || {
+        # A recorded cooldown means http_get already wrote a precise reason.
+        [ "$(cooldown_left)" -gt 0 ] && return 1
         why "could not download the update manifest from GitHub Releases.
 Note that release files are served from objects.githubusercontent.com, NOT
 github.com — some school, office and hotel networks allow one and block the
 other, which looks exactly like this."
         return 1; }
-    curl -fsSL --max-time 30 "$LAYER_BASE/refract-layer.manifest.sig" -o "$w/m.sig" 2>/dev/null || {
+    http_get "$LAYER_BASE/refract-layer.manifest.sig" "$w/m.sig" || {
+        [ "$(cooldown_left)" -gt 0 ] && return 1
         why "the manifest downloaded but its signature did not. The release may
 be half-published — this usually fixes itself within a few minutes."
         return 1; }
@@ -333,9 +418,37 @@ cmd_status() {
 # A network failure must NEVER read as "up to date" — that is how a machine sits
 # quietly out of date for months.
 cmd_check() {
-    local ic rc
+    local ic rc left age cached
     ic="$(installed_commit)"
-    rc="$(remote_commit)"
+
+    # RULE 2 FIRST: if the server told us to wait, do not send anything. Sending
+    # the request anyway and reporting its failure is what turns a five-minute
+    # rate limit into an hour of one.
+    left="$(cooldown_left)"
+    if [ "$left" -gt 0 ]; then
+        echo "${C_WARN}Waiting before asking GitHub again — $(human_secs "$left") left.${C_OFF}" >&2
+        echo "GitHub asked this machine to slow down. Clicking again does not make it" >&2
+        echo "faster, and switching network or VPN usually makes it slower. Nothing is" >&2
+        echo "broken; the next check will just work." >&2
+        return 1
+    fi
+
+    # RULE 1: reuse a recent successful answer instead of asking again. The
+    # button is the same button whether it was pressed a second ago or a day
+    # ago, and only one of those needs the network.
+    cached="$(cut -d' ' -f2 "$CHECK_CACHE" 2>/dev/null)"
+    age="$(cut -d' ' -f1 "$CHECK_CACHE" 2>/dev/null)"
+    case "$age" in ''|*[!0-9]*) age="" ;; esac
+    if [ -n "$age" ] && [ -n "$cached" ] && [ $(( $(now_s) - age )) -lt "$MIN_INTERVAL" ]; then
+        rc="$cached"
+        note "Checked $(human_secs "$(( $(now_s) - age ))") ago — reusing that answer."
+    else
+        rc="$(remote_commit)"
+        if [ -n "$rc" ]; then
+            mkdir -p "$CACHE_DIR" 2>/dev/null || true
+            printf '%s %s\n' "$(now_s)" "$rc" > "$CHECK_CACHE" 2>/dev/null || true
+        fi
+    fi
     if [ -z "$rc" ]; then
         # DELIBERATELY leaves the marker alone. "Could not check" is not
         # "up to date", and clearing the top-bar notice on a single failed
@@ -750,6 +863,13 @@ cmd_diagnose() {
         else echo "${C_ERR}FAILED${C_OFF}"; ok=1; return 1; fi
     }
     echo "Update channel: ${REPO_SLUG}@${REMOTE_REF}"
+    # Shown FIRST, because if a cooldown is active every check below it will
+    # look like a network failure and it is not one.
+    local cl; cl="$(cooldown_left)"
+    if [ "$cl" -gt 0 ]; then
+        echo "${C_WARN}Rate-limited: waiting $(human_secs "$cl") before contacting GitHub again.${C_OFF}"
+        echo "${C_DIM}The checks below still run, but a normal check would not send anything yet.${C_OFF}"
+    fi
     echo "Release assets: $LAYER_BASE"
     echo
     echo "Network:"
